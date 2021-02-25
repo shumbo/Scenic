@@ -390,7 +390,11 @@ class OrientedPoint(Point):
 
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
-		# self.heading = toScalar(self.heading, f'"heading" of {self} not a scalar')
+		self.yaw = toScalar(self.yaw, f'"yaw" of {self} not a scalar')
+		self.pitch = toScalar(self.pitch, f'"pitch" of {self} not a scalar')
+		self.roll = toScalar(self.roll, f'"roll" of {self} not a scalar')
+		# TODO: typecheck parentOrientation
+		# self.parentOrientation = toOrientation(self.parentOrientation, f'"parentOrientation" of {self} not a orientation')
 
 	@cached_property
 	def visibleRegion(self):
@@ -405,11 +409,11 @@ class OrientedPoint(Point):
 	@cached_property
 	def heading(self):
 		eulerAngles = self.orientation.getEuler()
-		return eulerAngles[0] * self.orientation.invertRotation().x 
+		return eulerAngles[0]
 
 	def relativize(self, vec):
 		pos = self.relativePosition(vec)
-		return OrientedPoint(position=pos, heading=self.heading)
+		return OrientedPoint(position=pos, yaw=0, pitch=0, roll=0, parentOrientation=self.orientation)
 
 	def relativePosition(self, vec):
 		return self.position.offsetRotated(self.heading, vec)

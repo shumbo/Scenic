@@ -111,7 +111,14 @@ def valueInContext(value, context, modifying={}):
 def toDelayedArgument(thing):
 	if isinstance(thing, DelayedArgument):
 		return thing
-	return DelayedArgument(set(), lambda context, specifier: thing)
+	#breakpoint()
+	# check if dictionary - check if delayed arg - dependencies for all values
+	properties = set()
+	if isinstance(thing, dict):
+		for val in thing.values():
+			if isinstance(val, DelayedArgument):
+				properties.update(val._requiredProperties)
+	return DelayedArgument(properties, lambda context, specifier: thing)
 
 def requiredProperties(thing):
 	if hasattr(thing, '_requiredProperties'):

@@ -161,7 +161,7 @@ class Scenario:
 				sampledObj = sample[obj]
 				assert not needsSampling(sampledObj)
 				assert isinstance(sampledObj.position, Vector)
-				sampledObj.heading = float(sampledObj.heading)
+				#sampledObj.heading = float(sampledObj.heading)
 			# Check built-in requirements
 			for i in range(len(objects)):
 				vi = sample[objects[i]]

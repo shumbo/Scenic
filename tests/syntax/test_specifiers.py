@@ -66,7 +66,9 @@ def test_with():
 
 def test_at():
     ego = sampleEgoFrom('ego = Object at 149 @ 42')
-    assert tuple(ego.position) == pytest.approx((149, 42))
+    assert tuple(ego.position) == pytest.approx((149, 42, 0))
+
+# TODO: make a test that tests all three coordinates like above
 
 def test_offset_by():
     ego = sampleEgoFrom(

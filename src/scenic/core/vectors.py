@@ -11,7 +11,8 @@ import shapely.geometry
 from scipy.spatial.transform import Rotation
 
 from scenic.core.distributions import (Samplable, Distribution, MethodDistribution,
-                                       needsSampling, makeOperatorHandler, distributionMethod)
+									   needsSampling, makeOperatorHandler, distributionMethod,
+									   distributionFunction)
 from scenic.core.lazy_eval import valueInContext, needsLazyEvaluation, makeDelayedFunctionCall
 import scenic.core.utils as utils
 from scenic.core.geometry import normalizeAngle, dotProduct, norm
@@ -162,6 +163,7 @@ class Orientation():
 		return self.q[2]
 
 	@classmethod 
+	@distributionFunction
 	def fromEuler(cls, yaw, pitch, roll):
 		return Orientation(Rotation.from_euler('ZXY', [yaw, pitch, roll], degrees=False).as_quat())
 
@@ -182,12 +184,38 @@ class Orientation():
 		r = Rotation.from_quat(self.q)
 		r2 = Rotation.from_quat(other.q)
 		return Orientation((r * r2).as_quat())
+	
+	@distributionFunction
+	def __add__(self, other):
+		if isinstance(other, (float, int)):
+			other = Orientation.fromEuler(other, 0, 0)
+		elif type(other) is not Orientation:
+			return NotImplemented
+		return other * self
+
+	@distributionFunction
+	def __radd__(self, other):
+		if isinstance(other, (float, int)):
+			other = Orientation.fromEuler(other, 0, 0)
+		elif type(other) is not Orientation:
+			return NotImplemented
+		return self * other
 
 	def __getitem__(self, index):
 		return self.q[index]
 
 	def __repr__(self):
-		return repr(self.q)
+		return f'Orientation({self.q!r})'
+
+	@distributionFunction
+	def globalToLocalAngles(self, yaw, pitch, roll):
+		"""Find Euler angles w.r.t. a given parent orientation."""
+		orientation = Orientation.fromEuler(yaw, pitch, roll)
+		inverseQuat = self.invertRotation()
+		desiredQuat = inverseQuat * orientation 
+		euler = desiredQuat.getEuler()
+		return euler 
+
 
 class Vector(Samplable, collections.abc.Sequence):
 	"""A 2D vector, whose coordinates can be distributions."""
@@ -221,20 +249,22 @@ class Vector(Samplable, collections.abc.Sequence):
 		if not isinstance(rotation, Orientation):
 			return NotImplemented
 		r = rotation.getRotation()
-		return r.apply(list(self.coordinates))
+		return Vector(*r.apply(list(self.coordinates)))
 
 	@vectorOperator
-	def cartestianToSpherical(self):
+	def cartesianToSpherical(self):
 		"""Returns this vector in spherical coordinates"""
-		rho = sqrt(pow(self.x, 2) + pow(self.y, 2) + pow(self.z, 2))
-		theta = atan(self.y / self.x)
-		phi = atan(sqrt(pow(self.x, 2) + pow(self.y, 2))/self.z)
+		rho = math.hypot(self.x, self.y, self.z) 
+		theta = math.atan2(self.y, self.x) - math.pi/2
+		phi = math.atan2(self.z, math.hypot(self.x,self.y))
 		return Vector(rho, theta, phi)
 
 	@vectorOperator
 	def rotatedBy(self, angle):
 		"""Return a vector equal to this one rotated counterclockwise by the given angle."""
 		x, y, z = self.x, self.y, self.z
+		if isinstance(angle, tuple):
+			angle = angle[0]
 		c, s = cos(angle), sin(angle)
 		return Vector((c * x) - (s * y), (s * x) + (c * y))
 
@@ -309,7 +339,7 @@ class OrientedVector(Vector):
 		if type(other) is not OrientedVector:
 			return NotImplemented
 		return (other.coordinates == self.coordinates
-		    and other.heading == self.heading)
+			and other.heading == self.heading)
 
 	def __hash__(self):
 		return hash((self.coordinates, self.heading))
@@ -323,7 +353,10 @@ class VectorField:
 
 	@distributionMethod
 	def __getitem__(self, pos):
-		return self.value(pos)
+		val = self.value(pos)
+		if isinstance(val, (int, float)):
+			val = Orientation.fromEuler(val, 0, 0)
+		return val
 
 	@vectorDistributionMethod
 	def followFrom(self, pos, dist, steps=4):

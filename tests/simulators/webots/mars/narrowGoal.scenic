@@ -3,7 +3,7 @@ from scenic.simulators.webots.mars.model import *
 
 ego = Rover at 0 @ -2
 
-goal = Goal at Range(-2, 2) @ (2, 2.5)
+goal = Goal at Range(-2, 2) @ Range(2, 2.5)
 
 # Bottleneck made of two pipes with a rock in between
 
@@ -17,9 +17,9 @@ require abs((angle to goal) - (angle to bottleneck)) <= 10 deg
 BigRock at bottleneck
 
 leftEdge = OrientedPoint at bottleneck offset by -halfGap @ 0,
-	facing (60, 120) deg relative to bottleneck.heading
+	facing Range(60, 120) deg relative to bottleneck.heading
 rightEdge = OrientedPoint at bottleneck offset by halfGap @ 0,
-	facing (-120, -60) deg relative to bottleneck.heading
+	facing Range(-120, -60) deg relative to bottleneck.heading
 
 Pipe ahead of leftEdge, with length Range(1, 2)
 Pipe ahead of rightEdge, with length Range(1, 2)

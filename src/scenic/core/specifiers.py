@@ -20,7 +20,7 @@ class Specifier:
 		self.modifying = dict()
 		if deps is None:
 			deps = set()
-		deps |= requiredProperties(value)
+		deps |= requiredProperties(self.value)
 		for p in priorities:
 			if p in deps: 
 				raise RuntimeParseError(f'specifier for property {p} depends on itself')

@@ -5,7 +5,7 @@ import inspect
 
 import numpy as np
 
-from scenic.core.distributions import Distribution
+from scenic.core.distributions import Distribution, TupleDistribution
 from scenic.core.lazy_eval import (DelayedArgument, valueInContext, requiredProperties,
                                    needsLazyEvaluation, toDelayedArgument)
 from scenic.core.vectors import Vector, Orientation
@@ -33,6 +33,10 @@ from scenic.core.utils import RuntimeParseError
 
 class Heading:
 	"""Dummy class used as a target for type coercions to headings."""
+	pass
+
+class EulerAngles:
+	"""Dummy class used as a target for type coercions to euler angles."""
 	pass
 
 def underlyingType(thing):
@@ -72,7 +76,9 @@ def canCoerceType(typeA, typeB):
 	elif typeB is Heading:
 		if typeA is tuple or typeA is list:
 			return True
-		return canCoerceType(typeA, float) or hasattr(typeA, 'toHeading')
+		return canCoerceType(typeA, float) or hasattr(typeA, 'toHeading') or canCoerceType(typeA, Orientation)
+	elif typeB is Orientation:
+		return issubclass(typeA, (Orientation, int, float))
 	elif typeB is Vector:
 		if typeA is tuple or typeA is list: 
 			return True
@@ -89,16 +95,23 @@ def coerce(thing, ty):
 	"""Coerce something into the given type."""
 	assert canCoerce(thing, ty), (thing, ty)
 	if isinstance(thing, Distribution):
+		if ty is Heading and not isinstance(thing, TupleDistribution):
+			return TupleDistribution(thing, 0,0)
 		return thing
 	if ty is float:
 		return float(thing)
 	elif ty is Heading:
 		if isinstance(thing, tuple) or isinstance(thing, list):
-			if len(thing) == 2: 
-				raise ValueError("Heading must have 1 or 3 components") 
-			if len(thing) == 3: thing = Orientation(thing[0], thing[1], thing[2])
-			else: return thing[0].toHeading() if hasattr(thing[0], 'toHeading') else float(thing[0])
-		return thing.toHeading() if hasattr(thing, 'toHeading') else float(thing)
+			if len(thing) == 3: return thing
+			else: raise ValueError("Heading must have 3 components") 
+		elif isinstance(thing, Orientation):
+			return tuple(thing.getEuler())
+		h = thing.toHeading() if hasattr(thing, 'toHeading') else float(thing)
+		return (h, 0, 0)
+	elif ty is Orientation:
+		if isinstance(thing, (float, int)):
+			thing = Orientation.fromEuler(thing, 0, 0)
+		return thing
 	elif ty is Vector:
 		if isinstance(thing, tuple) or isinstance(thing, list):
 			if   len(thing) == 1: raise ValueError("vectors cannot be of length 1")
@@ -124,7 +137,6 @@ def toTypes(thing, types, typeError='wrong type'):
 	"""Convert something to any of the given types, printing an error if impossible."""
 	if needsLazyEvaluation(thing):
 		# cannot check the type now; create proxy object to check type after evaluation
-		breakpoint()
 		return TypeChecker(thing, types, typeError)
 	else:
 		return coerceToAny(thing, types, typeError)
@@ -140,6 +152,10 @@ def toScalar(thing, typeError='non-scalar in scalar context'):
 def toHeading(thing, typeError='non-heading in heading context'):
 	"""Convert something to a heading, printing an error if impossible."""
 	return toType(thing, Heading, typeError)
+
+def toEulerAngles(thing, typeError='non-heading in heading context'):
+	"""Convert something to a heading, printing an error if impossible."""
+	return toType(thing, EulerAngles, typeError)
 
 def toVector(thing, typeError='non-vector in vector context'):
 	"""Convert something to a vector, printing an error if impossible."""
