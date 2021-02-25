@@ -11,7 +11,8 @@ laneShift = Range(-2, 2)
 wiggle = Range(-5 deg, 5 deg)
 
 # Helper function for making platoons
-def createPlatoonAt(car, numCars, model=None, dist=Range(2, 8), shift=Range(-0.5, 0.5), wiggle=0):
+def createPlatoonAt(car, numCars, model=None, dist=Range(2, 8),
+                    shift=Range(-0.5, 0.5), wiggle=0):
 	cars = [car]
 	lastCar = car
 	for i in range(numCars-1):

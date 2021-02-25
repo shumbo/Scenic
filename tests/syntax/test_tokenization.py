@@ -4,7 +4,7 @@ from tokenize import TokenInfo, ENCODING, NAME, OP, NUMBER, ENDMARKER
 import pytest
 
 from scenic.syntax.translator import TokenParseError, TokenTranslator
-from tests.utils import compileScenic, sampleEgoFrom
+from tests.utils import compileScenic, sampleEgoFrom, sampleSceneFrom
 
 templates = [
 '''
@@ -68,6 +68,28 @@ def test_dangling_specifier_list_2():
     ]
     with pytest.raises(TokenParseError):
         translator.translate(tokens)
+
+def test_constructor_ended_by_paren():
+    compileScenic("""
+        ego = Object
+        x = (Object at 5@5)
+        mutate ego, x
+    """)
+
+def test_semicolon_separating_statements():
+    compileScenic("""
+        ego = Object
+        param p = distance to 3@4; require ego.position.x >= 0
+    """)
+
+def test_list_comprehension():
+    scene = sampleSceneFrom("""
+        xs = [3*i + Range(0, 1) for i in range(10)]
+        [(Object at x@0) for x in xs]
+        ego = Object at -4@2
+    """)
+    assert len(scene.objects) == 11
+    assert scene.objects[2].position.x - scene.objects[1].position.x != pytest.approx(3)
 
 def test_incipit_as_name():
     """Incipits of operators are not keywords and can be used as names.

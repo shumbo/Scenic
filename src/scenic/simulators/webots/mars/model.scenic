@@ -1,7 +1,5 @@
 """Scenic model for Mars rover scenarios in Webots."""
 
-import math
-
 # Set up workspace
 width = 5
 length = 5
@@ -24,7 +22,7 @@ class Rover:
 class Debris:
 	"""Abstract class for debris scattered randomly in the workspace."""
 	position: Point in workspace
-	heading: Range(-math.pi, math.pi)
+	heading: Range(0, 360) deg
 
 class BigRock(Debris):
 	"""Large rock."""

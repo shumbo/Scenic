@@ -5,7 +5,7 @@ import itertools
 from scenic.core.lazy_eval import (DelayedArgument, toDelayedArgument, requiredProperties,
                                    needsLazyEvaluation)
 from scenic.core.distributions import toDistribution
-from scenic.core.utils import RuntimeParseError
+from scenic.core.errors import RuntimeParseError
 
 ## Specifiers themselves
 
@@ -14,9 +14,11 @@ class Specifier:
 
 	Any optionally-specified properties are evaluated as attributes of the primary value.
 	"""
-	def __init__(self, priorities, value, deps=None):
+	def __init__(self, priorities, value, deps=None, internal=False):
+		if not isinstance(priorities, dict):
+			priorities = {priorities: -1}
 		self.priorities = priorities
-		self.value = toDelayedArgument(value)
+		self.value = toDelayedArgument(value, internal)
 		self.modifying = dict()
 		if deps is None:
 			deps = set()
@@ -27,34 +29,32 @@ class Specifier:
 		self.requiredProperties = deps
 
 	def applyTo(self, obj, modifying):
-		"""Apply specifier to an object, including the specified optional properties."""
+		"""Apply specifier to an object, including the specified modified properties."""
 		val = self.value.evaluateIn(obj, modifying)
 		if isinstance(val, dict):
-			for v in val:  # TODO: @Matthew Change to `for v in modifying`
-				distV = toDistribution(val[v])
+			for prop in modifying:
+				distV = toDistribution(val[prop])
 				assert not needsLazyEvaluation(distV)
-				setattr(obj, v, distV)
+				obj._specify(prop, distV)
 		else:
+			assert len(self.priorities) == 1
 			val = toDistribution(val)
 			assert not needsLazyEvaluation(val)
-			if not isinstance(self.priorities, dict):
-				self.priorities = {self.priorities: -1}
-			for prop in self.priorities: 
-				setattr(obj, prop, val)
-				
+			for prop in self.priorities:
+				obj._specify(prop, val)
+
 	def __str__(self):
 		return f'<Specifier of {self.priorities}>'
 
 class ModifyingSpecifier(Specifier):
-	def __init__(self, priorities, value, deps=None):
-		super().__init__(priorities, value, deps)
+	pass
 
 ## Support for property defaults
 
 class PropertyDefault:
 	"""A default value, possibly with dependencies."""
 	def __init__(self, requiredProperties, attributes, value):
-		self.requiredProperties = requiredProperties
+		self.requiredProperties = set(requiredProperties)
 		self.value = value
 
 		def enabled(thing, default):
@@ -64,6 +64,8 @@ class PropertyDefault:
 			else:
 				return default
 		self.isAdditive = enabled('additive', False)
+		self.isDynamic = enabled('dynamic', False)
+		self.isFinal = enabled('final', False)
 		for attr in attributes:
 			raise RuntimeParseError(f'unknown property attribute "{attr}"')
 
@@ -72,7 +74,7 @@ class PropertyDefault:
 		if isinstance(value, PropertyDefault):
 			return value
 		else:
-			return PropertyDefault(set(), set(), lambda self, specifier: value)
+			return PropertyDefault(set(), set(), lambda self, modifying: value)
 
 	def resolveFor(self, prop, overriddenDefs):
 		"""Create a Specifier for a property from this default and any superclass defaults."""
@@ -80,12 +82,12 @@ class PropertyDefault:
 			allReqs = self.requiredProperties
 			for other in overriddenDefs:
 				allReqs |= other.requiredProperties
-			def concatenator(context, specifier):
-				allVals = [self.value(context, specifier)]
+			def concatenator(context):
+				allVals = [self.value(context)]
 				for other in overriddenDefs:
-					allVals.append(other.value(context, specifier))
+					allVals.append(other.value(context))
 				return tuple(allVals)
-			val = DelayedArgument(allReqs, concatenator) # TODO: @Matthew Change to dicts 
+			val = DelayedArgument(allReqs, concatenator, _internal=True) # TODO: @Matthew Change to dicts
 		else:
-			val = DelayedArgument(self.requiredProperties, self.value)
-		return Specifier(prop, val) # -1 priority for defaults
+			val = DelayedArgument(self.requiredProperties, self.value, _internal=True)
+		return Specifier({prop: -1}, val)

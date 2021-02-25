@@ -9,7 +9,7 @@ from scenic.simulators.webots.road.world import worldPath
 from scenic.simulators.webots.road.car_models import CarModel, carModels, \
 	modelWithName, smallVehicles
 
-from scenic.simulators.gta.interface import CarColor	# TODO refactor
+from scenic.simulators.utils.colors import Color as CarColor
 
 # Load map and set up workspace
 
@@ -36,7 +36,9 @@ walkway = workspace.walkableRegion
 # types of objects
 
 class WebotsObject:
-	pass
+	webotsName: 'unspecified_name'
+	webotsObject: None 	# gets filled in at simulation time
+	elevation: None 	# ditto (this is the Webots y coordinate)
 
 class Car(WebotsObject):
 	regionContainedIn: road
@@ -49,7 +51,11 @@ class Car(WebotsObject):
 	webotsType: self.model.name
 	viewAngle: 90 deg
 	cameraOffset: 0 @ (self.length / 2)		# camera is at the front
+<<<<<<< HEAD
 	color: CarColor.defaultColor()
+=======
+	color: CarColor.defaultCarColor()
+>>>>>>> public-branch
 
 class SmallCar(Car):
 	model: Uniform(*smallVehicles)
@@ -80,7 +86,7 @@ class Tractor(Car):
 
 class Motorcycle(Car):
 	model: modelWithName['MotorBikeSimple']
-	primaryColor: CarColor.defaultColor()
+	primaryColor: CarColor.defaultCarColor()
 	secondaryColor: CarColor.uniformColor()		# TODO improve
 
 class Pedestrian(WebotsObject):

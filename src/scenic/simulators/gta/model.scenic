@@ -3,7 +3,8 @@
 import random
 
 from scenic.simulators.gta.interface import (Map, MapWorkspace, GTA,
-	CarModel, CarColor, CarColorMutator)
+	CarModel)
+from scenic.simulators.utils.colors import Color, ColorMutator
 
 # Load map and set up regions, etc.
 from scenic.simulators.gta.map import mapPath
@@ -45,29 +46,27 @@ param weather = Options({
 class Car:
 	"""Scenic class for cars.
 
-	Attributes:
+	Properties:
 		position: The default position is uniformly random over the `road`.
 		heading: The default heading is aligned with `roadDirection`, plus an offset
 		  given by ``roadDeviation``.
 		roadDeviation (float): Relative heading with respect to the road direction
 		  at the `Car`'s position. Used by the default value for ``heading``.
 		model (`CarModel`): Model of the car.
-		color (`CarColor` or RGB tuple): Color of the car.
+		color (:obj:`Color` or RGB tuple): Color of the car.
 	"""
-	position: Point on road 
-
-	# gets value at position in vector field, needs to return an orientation (3 angles)
-	parentOrientation: roadDirection at self.position # TODO: @Matthew Use parentOrientation
-	heading: (roadDirection at self.position) + self.roadDeviation # TODO: @Matthew heading is derived now, 3 angles are directly assigned
+	position: Point on road
+	parentOrientation: roadDirection at self.position
+	yaw: self.roadDeviation
 	roadDeviation: 0
 	width: self.model.width
 	length: self.model.length
 	viewAngle: 80 deg
 	visibleDistance: 30
 	model: CarModel.defaultModel()
-	color: CarColor.defaultColor()
+	color: Color.defaultCarColor()
 
-	mutator[additive]: CarColorMutator()
+	mutator[additive]: ColorMutator()
 
 class EgoCar(Car):
 	"""Convenience subclass with defaults for ego cars."""
@@ -81,7 +80,8 @@ class Compact(Car):
 	"""Convenience subclass for compact cars."""
 	model: CarModel.models['BLISTA']
 
-def createPlatoonAt(car, numCars, model=None, dist=Range(2, 8), shift=Range(-0.5, 0.5), wiggle=0):
+def createPlatoonAt(car, numCars, model=None, dist=Range(2, 8),
+                    shift=Range(-0.5, 0.5), wiggle=0):
 	"""Create a platoon starting from the given car."""
 	cars = [car]
 	lastCar = car

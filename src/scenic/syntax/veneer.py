@@ -8,10 +8,13 @@ global state such as the list of all created Scenic objects.
 
 __all__ = (
 	# Primitive statements and functions
-	'ego', 'require', 'resample', 'param', 'mutate', 'verbosePrint',
+	'ego', 'require', 'resample', 'param', 'globalParameters', 'mutate', 'verbosePrint',
+	'localPath', 'model', 'simulator', 'simulation', 'require_always', 'terminate_when',
+	'terminate_simulation_when', 'terminate_after', 'in_initial_scenario',
 	'sin', 'cos', 'hypot', 'max', 'min',
+	'filter',
 	# Prefix operators
-	'Visible',
+	'Visible', 'NotVisible',
 	'Front', 'Back', 'Left', 'Right',
 	'FrontLeft', 'FrontRight', 'BackLeft', 'BackRight',
 	'Top', 'Bottom', 'TopFrontLeft', 'TopFrontRight', 'TopBackLeft',
@@ -23,9 +26,11 @@ __all__ = (
 	'DistanceFrom', 'AngleTo', 'AngleFrom', 'Follow', 'CanSee',
 	# Primitive types
 	'Vector', 'VectorField', 'PolygonalVectorField',
-	'Region', 'PointSetRegion', 'RectangularRegion', 'PolygonalRegion', 'PolylineRegion',
+	'Region', 'PointSetRegion', 'RectangularRegion', 'CircularRegion', 'SectorRegion',
+	'PolygonalRegion', 'PolylineRegion',
 	'Workspace', 'Mutator',
-	'Range', 'Options', 'Uniform', 'Discrete', 'Normal',
+	'Range', 'DiscreteRange', 'Options', 'Uniform', 'Discrete', 'Normal',
+	'TruncatedNormal',
 	'VerifaiParameter', 'VerifaiRange', 'VerifaiDiscreteRange', 'VerifaiOptions',
 	# Constructible types
 	'Point', 'OrientedPoint', 'Object',
@@ -37,47 +42,79 @@ __all__ = (
 	'Following',
 	# Constants
 	'everywhere', 'nowhere',
-	# Temporary stuff... # TODO remove
-	'PropertyDefault'
+	# Exceptions
+	'GuardViolation', 'PreconditionViolation', 'InvariantViolation',
+	# Internal APIs 	# TODO remove?
+	'PropertyDefault', 'Behavior', 'Monitor', 'makeTerminationAction',
+	'BlockConclusion', 'runTryInterrupt', 'wrapStarredValue', 'callWithStarArgs',
+	'Modifier', 'DynamicScenario'
 )
 
 # various Python types and functions used in the language but defined elsewhere
 from scenic.core.geometry import sin, cos, hypot, max, min
 from scenic.core.vectors import Vector, VectorField, PolygonalVectorField
 from scenic.core.regions import (Region, PointSetRegion, RectangularRegion,
-	PolygonalRegion, PolylineRegion, everywhere, nowhere)
+	CircularRegion, SectorRegion, PolygonalRegion, PolylineRegion,
+	everywhere, nowhere)
 from scenic.core.workspaces import Workspace
-from scenic.core.distributions import Range, Options, Normal
-Uniform = lambda *opts: Options(opts)		# TODO separate these?
+from scenic.core.distributions import (Range, DiscreteRange, Options, Uniform, Normal,
+	TruncatedNormal)
 Discrete = Options
 from scenic.core.external_params import (VerifaiParameter, VerifaiRange, VerifaiDiscreteRange,
-                                         VerifaiOptions)
+										 VerifaiOptions)
 from scenic.core.object_types import Mutator, Point, OrientedPoint, Object
 from scenic.core.specifiers import PropertyDefault	# TODO remove
+from scenic.core.dynamics import (Behavior, Monitor, DynamicScenario, BlockConclusion,
+                                  GuardViolation, PreconditionViolation, InvariantViolation,
+                                  makeTerminationAction, runTryInterrupt)
 
 # everything that should not be directly accessible from the language is imported here:
-import inspect
-from scenic.core.distributions import Distribution, toDistribution
-from scenic.core.type_support import isA, toType, toTypes, toScalar, toHeading, toVector
-from scenic.core.type_support import evaluateRequiringEqualTypes, underlyingType
+import builtins
+import collections.abc
+from contextlib import contextmanager
+import importlib
+import sys
+import random
+import os.path
+import traceback
+import typing
+from scenic.core.distributions import (RejectionException, Distribution,
+									   TupleDistribution, StarredDistribution, toDistribution,
+									   needsSampling, canUnpackDistributions, distributionFunction)
+from scenic.core.type_support import (isA, toType, toTypes, toScalar, toHeading, toVector,
+									  evaluateRequiringEqualTypes, underlyingType,
+									  canCoerce, coerce)
 from scenic.core.geometry import normalizeAngle, apparentHeadingAtPoint
-from scenic.core.object_types import Constructible
+from scenic.core.object_types import _Constructible
 from scenic.core.specifiers import Specifier, ModifyingSpecifier
-from scenic.core.lazy_eval import DelayedArgument
-from scenic.core.utils import RuntimeParseError
+from scenic.core.lazy_eval import DelayedArgument, needsLazyEvaluation
+from scenic.core.errors import RuntimeParseError, InvalidScenarioError
 from scenic.core.vectors import OrientedVector, Orientation
 from scenic.core.external_params import ExternalParameter
+import scenic.core.requirements as requirements
+from scenic.core.simulators import RejectSimulationException
 
 ### Internals
 
 activity = 0
+currentScenario = None
+scenarioStack = []
+scenarios = []
 evaluatingRequirement = False
-allObjects = []		# ordered for reproducibility
-egoObject = None
-globalParameters = {}
-externalParameters = []		# ordered for reproducibility
-pendingRequirements = {}
-inheritedReqs = []		# TODO improve handling of these?
+_globalParameters = {}
+lockedParameters = set()
+lockedModel = None
+loadingModel = False
+currentSimulation = None
+inInitialScenario = True
+runningScenarios = set()
+currentBehavior = None
+simulatorFactory = None
+evaluatingGuard = False
+
+## APIs used internally by the rest of Scenic
+
+# Scenic compilation
 
 def isActive():
 	"""Are we in the middle of compiling a Scenic module?
@@ -86,42 +123,219 @@ def isActive():
 	Scenic modules."""
 	return activity > 0
 
-def activate():
+def activate(paramOverrides={}, modelOverride=None, filename=None, namespace=None):
 	"""Activate the veneer when beginning to compile a Scenic module."""
-	global activity
+	global activity, _globalParameters, lockedParameters, lockedModel, currentScenario
+	if paramOverrides or modelOverride:
+		assert activity == 0
+		_globalParameters.update(paramOverrides)
+		lockedParameters = set(paramOverrides)
+		lockedModel = modelOverride
+
 	activity += 1
 	assert not evaluatingRequirement
+	assert not evaluatingGuard
+	assert currentSimulation is None
+	# placeholder scenario for top-level code
+	newScenario = DynamicScenario._dummy(filename, namespace)
+	scenarioStack.append(newScenario)
+	currentScenario = newScenario
 
 def deactivate():
 	"""Deactivate the veneer after compiling a Scenic module."""
-	global activity, allObjects, egoObject, globalParameters, externalParameters
-	global pendingRequirements, inheritedReqs
+	global activity, _globalParameters, lockedParameters, lockedModel
+	global currentScenario, scenarios, scenarioStack, simulatorFactory
 	activity -= 1
 	assert activity >= 0
 	assert not evaluatingRequirement
-	allObjects = []
-	egoObject = None
-	globalParameters = {}
-	externalParameters = []
-	pendingRequirements = {}
-	inheritedReqs = []
+	assert not evaluatingGuard
+	assert currentSimulation is None
+	scenarioStack.pop()
+	assert len(scenarioStack) == activity
+	scenarios = []
+
+	if activity == 0:
+		lockedParameters = set()
+		lockedModel = None
+		currentScenario = None
+		simulatorFactory = None
+		_globalParameters = {}
+	else:
+		currentScenario = scenarioStack[-1]
+
+# Object creation
 
 def registerObject(obj):
 	"""Add a Scenic object to the global list of created objects.
 
-	This is called by the Object constructor."""
-	if activity > 0:
-		assert not evaluatingRequirement
-		assert isinstance(obj, Constructible)
-		allObjects.append(obj)
-	elif evaluatingRequirement:
+	This is called by the Object constructor.
+	"""
+	if evaluatingRequirement:
 		raise RuntimeParseError('tried to create an object inside a requirement')
+	elif currentBehavior is not None:
+		raise RuntimeParseError('tried to create an object inside a behavior')
+	elif activity > 0 or currentScenario:
+		assert not evaluatingRequirement
+		assert isinstance(obj, _Constructible)
+		currentScenario._registerObject(obj)
+		if currentSimulation:
+			currentSimulation.createObject(obj)
+
+# External parameter creation
 
 def registerExternalParameter(value):
 	"""Register a parameter whose value is given by an external sampler."""
 	if activity > 0:
 		assert isinstance(value, ExternalParameter)
-		externalParameters.append(value)
+		currentScenario._externalParameters.append(value)
+
+# Function call support
+
+def wrapStarredValue(value, lineno):
+	if isinstance(value, TupleDistribution) or not needsSampling(value):
+		return value
+	elif isinstance(value, Distribution):
+		return [StarredDistribution(value, lineno)]
+	else:
+		raise RuntimeParseError(f'iterable unpacking cannot be applied to {value}')
+
+def callWithStarArgs(func, /, *args, **kwargs):
+	if not canUnpackDistributions(func):
+		# wrap function to delay evaluation until starred distributions are sampled
+		func = distributionFunction(func)
+	return func(*args, **kwargs)
+
+# Simulations
+
+def instantiateSimulator(factory, params):
+	global _globalParameters
+	assert not _globalParameters		# TODO improve hack?
+	_globalParameters = dict(params)
+	try:
+		return factory()
+	finally:
+		_globalParameters = {}
+
+def beginSimulation(sim):
+	global currentSimulation, currentScenario, inInitialScenario, runningScenarios
+	global _globalParameters
+	if isActive():
+		raise RuntimeError('tried to start simulation during Scenic compilation!')
+	assert currentSimulation is None
+	assert currentScenario is None
+	assert not scenarioStack
+	currentSimulation = sim
+	inInitialScenario = True
+	currentScenario = sim.scene.dynamicScenario
+	runningScenarios = {currentScenario}
+	currentScenario._bindTo(sim.scene)
+	_globalParameters = dict(sim.scene.params)
+
+	# rebind globals that could be referenced by behaviors to their sampled values
+	for modName, (namespace, sampledNS, originalNS) in sim.scene.behaviorNamespaces.items():
+		namespace.clear()
+		namespace.update(sampledNS)
+
+def endSimulation(sim):
+	global currentSimulation, currentScenario, currentBehavior, runningScenarios
+	global _globalParameters
+	currentSimulation = None
+	currentScenario = None
+	runningScenarios = set()
+	currentBehavior = None
+	_globalParameters = {}
+
+	for modName, (namespace, sampledNS, originalNS) in sim.scene.behaviorNamespaces.items():
+		namespace.clear()
+		namespace.update(originalNS)
+
+def simulationInProgress():
+	return currentSimulation is not None
+
+# Requirements
+
+@contextmanager
+def executeInRequirement(scenario, boundEgo):
+	global evaluatingRequirement, currentScenario
+	assert not evaluatingRequirement
+	evaluatingRequirement = True
+	if currentScenario is None:
+		currentScenario = scenario
+		clearScenario = True
+	else:
+		assert currentScenario is scenario
+		clearScenario = False
+	oldEgo = currentScenario._ego
+	if boundEgo:
+		currentScenario._ego = boundEgo
+	try:
+		yield
+	finally:
+		evaluatingRequirement = False
+		currentScenario._ego = oldEgo
+		if clearScenario:
+			currentScenario = None
+
+# Dynamic scenarios
+
+def registerDynamicScenarioClass(cls):
+	scenarios.append(cls)
+
+@contextmanager
+def executeInScenario(scenario, inheritEgo=False):
+	global currentScenario
+	oldScenario = currentScenario
+	if inheritEgo and oldScenario is not None:
+		scenario._ego = oldScenario._ego 	# inherit ego from parent
+	currentScenario = scenario
+	try:
+		yield
+	finally:
+		currentScenario = oldScenario
+
+def prepareScenario(scenario):
+	if currentSimulation:
+		verbosePrint(f'Starting scenario {scenario}', level=3)
+
+def finishScenarioSetup(scenario):
+	global inInitialScenario
+	inInitialScenario = False
+
+def startScenario(scenario):
+	runningScenarios.add(scenario)
+
+def endScenario(scenario, reason):
+	runningScenarios.remove(scenario)
+	verbosePrint(f'Stopping scenario {scenario} because of: {reason}', level=3)
+
+# Dynamic behaviors
+
+@contextmanager
+def executeInBehavior(behavior):
+	global currentBehavior
+	oldBehavior = currentBehavior
+	currentBehavior = behavior
+	try:
+		yield
+	finally:
+		currentBehavior = oldBehavior
+
+@contextmanager
+def executeInGuard():
+	global evaluatingGuard
+	assert not evaluatingGuard
+	evaluatingGuard = True
+	try:
+		yield
+	finally:
+		evaluatingGuard = False
+
+### Parsing support
+
+class Modifier(typing.NamedTuple):
+	name: str
+	value: typing.Any
+	terminator: typing.Optional[str] = None
 
 ### Primitive statements and functions
 
@@ -131,73 +345,174 @@ def ego(obj=None):
 	The translator calls this with no arguments for loads, and with the source
 	value for stores.
 	"""
-	global egoObject
+	egoObject = currentScenario._ego
 	if obj is None:
 		if egoObject is None:
 			raise RuntimeParseError('referred to ego object not yet assigned')
 	elif not isinstance(obj, Object):
 		raise RuntimeParseError('tried to make non-object the ego object')
 	else:
-		egoObject = obj
+		currentScenario._ego = obj
+		for scenario in runningScenarios:
+			if scenario._ego is None:
+				scenario._ego = obj
 	return egoObject
 
 def require(reqID, req, line, prob=1):
 	"""Function implementing the require statement."""
 	if evaluatingRequirement:
 		raise RuntimeParseError('tried to create a requirement inside a requirement')
-	# the translator wrapped the requirement in a lambda to prevent evaluation,
-	# so we need to save the current values of all referenced names; throw in
-	# the ego object too since it can be referred to implicitly
-	assert reqID not in pendingRequirements
-	pendingRequirements[reqID] = (req, getAllGlobals(req), egoObject, line, prob)
+	if currentSimulation is not None:	# requirement being evaluated at runtime
+		if prob >= 1 or random.random() <= prob:
+			result = req()
+			assert not needsSampling(result)
+			if needsLazyEvaluation(result):
+				raise RuntimeParseError(f'requirement on line {line} uses value'
+										' undefined outside of object definition')
+			if not result:
+				raise RejectSimulationException(f'requirement on line {line}')
+	else:	# requirement being defined at compile time
+		currentScenario._addRequirement(requirements.RequirementType.require,
+                                        reqID, req, line, prob)
 
-def getAllGlobals(req, restrictTo=None):
-	"""Find all names the given lambda depends on, along with their current bindings."""
-	namespace = req.__globals__
-	if restrictTo is not None and restrictTo is not namespace:
-		return {}
-	externals = inspect.getclosurevars(req)
-	assert not externals.nonlocals		# TODO handle these
-	globs = dict(externals.builtins)
-	for name, value in externals.globals.items():
-		globs[name] = value
-		if inspect.isfunction(value):
-			subglobs = getAllGlobals(value, restrictTo=namespace)
-			for name, value in subglobs.items():
-				if name in globs:
-					assert value is globs[name]
-				else:
-					globs[name] = value
-	return globs
+def require_always(reqID, req, line):
+	"""Function implementing the 'require always' statement."""
+	makeRequirement(requirements.RequirementType.requireAlways, reqID, req, line)
+
+def terminate_when(reqID, req, line):
+	"""Function implementing the 'terminate when' statement."""
+	makeRequirement(requirements.RequirementType.terminateWhen, reqID, req, line)
+
+def terminate_simulation_when(reqID, req, line):
+	"""Function implementing the 'terminate simulation when' statement."""
+	makeRequirement(requirements.RequirementType.terminateSimulationWhen,
+                    reqID, req, line)
+
+def makeRequirement(ty, reqID, req, line):
+	if evaluatingRequirement:
+		raise RuntimeParseError(f'tried to use "{ty.value}" inside a requirement')
+	elif currentBehavior is not None:
+		raise RuntimeParseError(f'"{ty.value}" inside a behavior on line {line}')
+	elif currentSimulation is not None:
+		currentScenario._addDynamicRequirement(ty, req, line)
+	else:	# requirement being defined at compile time
+		currentScenario._addRequirement(ty, reqID, req, line, 1)
+
+def terminate_after(timeLimit, terminator=None):
+	if not isinstance(timeLimit, (float, int)):
+		raise RuntimeParseError('"terminate after N" with N not a number')
+	assert terminator in (None, 'seconds', 'steps')
+	inSeconds = (terminator != 'steps')
+	currentScenario._setTimeLimit(timeLimit, inSeconds=inSeconds)
 
 def resample(dist):
 	"""The built-in resample function."""
 	return dist.clone() if isinstance(dist, Distribution) else dist
 
-def verbosePrint(msg):
-	"""Built-in function printing a message when the verbosity is >0."""
+def verbosePrint(msg, file=sys.stdout, level=1):
+	"""Built-in function printing a message when the verbosity is >0.
+
+	(Or when the verbosity exceeds the specified level.)
+	"""
 	import scenic.syntax.translator as translator
-	if translator.verbosity >= 1:
-		indent = '  ' * activity if translator.verbosity >= 2 else '  '
-		print(indent + msg)
+	if translator.verbosity >= level:
+		if currentSimulation:
+			indent = '      ' if translator.verbosity >= 3 else '  '
+		else:
+			indent = '  ' * activity if translator.verbosity >= 2 else '  '
+		print(indent + msg, file=file)
+
+def localPath(relpath):
+	filename = traceback.extract_stack(limit=2)[0].filename
+	base = os.path.dirname(filename)
+	return os.path.join(base, relpath)
+
+def simulation():
+	if isActive():
+		raise RuntimeParseError('used simulation() outside a behavior')
+	assert currentSimulation is not None
+	return currentSimulation
+
+def simulator(sim):
+	global simulatorFactory
+	simulatorFactory = sim
+
+def in_initial_scenario():
+	return inInitialScenario
+
+def model(namespace, modelName):
+	global loadingModel
+	if loadingModel:
+		raise RuntimeParseError(f'Scenic world model itself uses the "model" statement')
+	if lockedModel is not None:
+		modelName = lockedModel
+	try:
+		loadingModel = True
+		module = importlib.import_module(modelName)
+	except ModuleNotFoundError as e:
+		if e.name == modelName:
+			raise InvalidScenarioError(f'could not import world model {modelName}') from None
+		else:
+			raise
+	finally:
+		loadingModel = False
+	names = module.__dict__.get('__all__', None)
+	if names is not None:
+		for name in names:
+			namespace[name] = getattr(module, name)
+	else:
+		for name, value in module.__dict__.items():
+			if not name.startswith('_'):
+				namespace[name] = value
+
+@distributionFunction
+def filter(function, iterable):
+	return list(builtins.filter(function, iterable))
 
 def param(*quotedParams, **params):
 	"""Function implementing the param statement."""
+	global loadingModel
 	if evaluatingRequirement:
 		raise RuntimeParseError('tried to create a global parameter inside a requirement')
+	elif currentSimulation is not None:
+		raise RuntimeParseError('tried to create a global parameter during a simulation')
 	for name, value in params.items():
-		globalParameters[name] = toDistribution(value)
+		if name not in lockedParameters and (not loadingModel or name not in _globalParameters):
+			_globalParameters[name] = toDistribution(value)
 	assert len(quotedParams) % 2 == 0, quotedParams
 	it = iter(quotedParams)
 	for name, value in zip(it, it):
-		globalParameters[name] = toDistribution(value)
+		if name not in lockedParameters:
+			_globalParameters[name] = toDistribution(value)
+
+class ParameterTableProxy(collections.abc.Mapping):
+	def __init__(self, map):
+		self._internal_map = map
+
+	def __getitem__(self, name):
+		return self._internal_map[name]
+
+	def __iter__(self):
+		return iter(self._internal_map)
+
+	def __len__(self):
+		return len(self._internal_map)
+
+	def __getattr__(self, name):
+		return self.__getitem__(name)	# allow namedtuple-like access
+
+	def _clone_table(self):
+		return ParameterTableProxy(self._internal_map.copy())
+
+def globalParameters():
+	return ParameterTableProxy(_globalParameters)
 
 def mutate(*objects):		# TODO update syntax
 	"""Function implementing the mutate statement."""
 	if evaluatingRequirement:
 		raise RuntimeParseError('used mutate statement inside a requirement')
 	if len(objects) == 0:
-		objects = allObjects
+		objects = currentScenario._objects
 	for obj in objects:
 		if not isinstance(obj, Object):
 			raise RuntimeParseError('"mutate X" with X not an object')
@@ -207,10 +522,13 @@ def mutate(*objects):		# TODO update syntax
 
 def Visible(region):
 	"""The 'visible <region>' operator."""
-	if not isinstance(region, Region):
-		raise RuntimeParseError('"visible X" with X not a Region')
-	# TODO: @Matthew ego().visibleRegion is a 3D region 
+	region = toType(region, Region, '"visible X" with X not a Region')
 	return region.intersect(ego().visibleRegion)
+
+def NotVisible(region):
+	"""The 'not visible <region>' operator."""
+	region = toType(region, Region, '"not visible X" with X not a Region')
+	return region.difference(ego().visibleRegion)
 
 # front of <object>, etc.
 ops = (
@@ -264,7 +582,7 @@ def RelativeTo(X, Y):
 			pos = context.position.toVector()
 			xp = X[pos] if xf else toType(X, fieldType, error)
 			yp = Y[pos] if yf else toType(Y, fieldType, error)
-			return xp + yp
+			return yp + xp
 		return DelayedArgument({'position'}, helper)
 	# elif isinstance(Y, Object) or isinstance(Y, OrientedPoint):
 	# 	if not isinstance(X, float):
@@ -284,10 +602,10 @@ def RelativeTo(X, Y):
 			X = toVector(X, '"X relative to Y" with Y an oriented point but X not a vector')
 			return Y.relativize(X)
 		else:
-			X = toTypes(X, (Vector, float), '"X relative to Y" with X neither a vector nor scalar')
-			Y = toTypes(Y, (Vector, float), '"X relative to Y" with Y neither a vector nor scalar')
-			return evaluateRequiringEqualTypes(lambda: X + Y, X, Y,
-			                                   '"X relative to Y" with vector and scalar')
+			X = toTypes(X, (Vector, Orientation), '"X relative to Y" with X neither a vector nor orientation')
+			Y = toTypes(Y, (Vector, Orientation), '"X relative to Y" with Y neither a vector nor orientation')
+			return evaluateRequiringEqualTypes(lambda: Y + X, X, Y,
+											   '"X relative to Y" with vector and orientation')
 
 def OffsetAlong(X, H, Y, specs=None):
 	"""The 'X offset along H by Y' polymorphic operator.
@@ -339,14 +657,20 @@ def ApparentHeading(X, Y=None):
 	return apparentHeadingAtPoint(X.position, X.heading, Y)
 
 def DistanceFrom(X, Y=None):
-	"""The 'distance from <vector> [to <vector>]' operator.
+	"""The ``distance from {X} to {Y}`` polymorphic operator.
 
-	If the 'to <vector>' is omitted, the position of ego is used.
+	Allowed forms:
+
+	* ``distance from`` <vector> [``to`` <vector>]
+	* ``distance from`` <region> [``to`` <vector>]
+	* ``distance from`` <vector> ``to`` <region>
+
+	If the ``to <vector>`` is omitted, the position of ego is used.
 	"""
-	X = toVector(X, '"distance from X to Y" with X not a vector')
+	X = toTypes(X, (Vector, Region), '"distance from X to Y" with X neither a vector nor region')
 	if Y is None:
 		Y = ego()
-	Y = toVector(Y, '"distance from X to Y" with Y not a vector')
+	Y = toTypes(Y, (Vector, Region), '"distance from X to Y" with Y neither a vector nor region')
 	return X.distanceTo(Y)
 
 def AngleTo(X):
@@ -413,8 +737,13 @@ def In(region):
 	position and orientation. 
 	"""
 	region = toType(region, Region, 'specifier "in R" with R not a Region')
-	extras = {'heading'} if alwaysProvidesOrientation(region) else {}
-	return Specifier({'position': 1, 'parentOrientation': 3}, {'position': Region.uniformPointIn(region), 'parentOrientation': 0})
+	pos = Region.uniformPointIn(region)
+	props = {'position': 1}
+	values = {'position': pos}
+	if alwaysProvidesOrientation(region):
+		props['parentOrientation'] = 3
+		values['parentOrientation'] = region.orientation[pos]
+	return Specifier(props, values)
 
 def On(region):
 	"""The 'on <X>' specifier.
@@ -430,17 +759,27 @@ def On(region):
 	"""
 	# TODO: @Matthew Helper function for delayed argument checks if modifying or not
 	region = toType(region, Region, 'specifier "on R" with R not a Region')
-	extras = {'heading'} if alwaysProvidesOrientation(region) else {}
-	return ModifyingSpecifier({'position': 1, 'parentOrientation': 2}, {'position': Region.uniformPointIn(region), 'parentOrientation': 0})
+	pos = Region.uniformPointIn(region)
+	props = {'position': 1}
+	values = {'position': pos}
+	if alwaysProvidesOrientation(region):
+		props['parentOrientation'] = 2
+		values['parentOrientation'] = region.orientation[pos]
+	return ModifyingSpecifier(props, values)
 
 def alwaysProvidesOrientation(region):
 	"""Whether a Region or distribution over Regions always provides an orientation."""
 	if isinstance(region, Region):
 		return region.orientation is not None
-	elif isinstance(region, Options):
-		return all(alwaysProvidesOrientation(opt) for opt in region.options)
-	else:
-		return False
+	elif (isinstance(region, Options)
+		  and all(alwaysProvidesOrientation(opt) for opt in region.options)):
+		return True
+	else:	# TODO improve somehow!
+		try:
+			sample = region.sample()
+			return sample.orientation is not None or sample is nowhere
+		except RejectionException:
+			return False
 
 def Beyond(pos, offset, fromPt=None):
 	"""The 'beyond X by Y [from Z]' polymorphic specifier.
@@ -467,7 +806,7 @@ def Beyond(pos, offset, fromPt=None):
 	# TODO: @Matthew `val` pos.offsetRotated() should be helper function defining both position and parent orientation
 	# as dictionary of values
 	return Specifier({'position': 1, 'parentOrientation': 3},
-	   				 {'position': pos.offsetRotated(lineOfSight, offset), 'parentOrientation': 0})
+	   				 {'position': pos.offsetRotated(lineOfSight, offset), 'parentOrientation': lineOfSight})
 
 def VisibleFrom(base):
 	"""The 'visible from <Point>' specifier.
@@ -508,7 +847,7 @@ def OffsetAlongSpec(direction, offset):
 		offset along <field> by <vector>
 	"""
 	pos = OffsetAlong(ego(), direction, offset)
-	parentOrientation = ego().parentOreintation
+	parentOrientation = ego().parentOrientation
 	return Specifier({'position': 1, 'parentOrientation': 3},  {'position': pos, 'parentOrientation': parentOrientation})
 
 def Facing(heading):
@@ -550,7 +889,7 @@ def FacingToward(pos):
 		direction = pos - context.position
 		inverseQuat = context.parentOrientation.invertRotation()
 		rotated = direction.applyRotation(inverseQuat)
-		sphericalCoords = rotated.cartestianToSpherical() # Ignore the rho, sphericalCoords[0]
+		sphericalCoords = rotated.cartesianToSpherical() # Ignore the rho, sphericalCoords[0]
 		return {'yaw': sphericalCoords[1], 'pitch': sphericalCoords[2]}
 	return Specifier({'yaw': 1, 'pitch': 3}, DelayedArgument({'position', 'parentOrientation'}, helper))
 
@@ -708,21 +1047,23 @@ def Below(pos, dist=0):
 
 def leftSpecHelper(syntax, pos, dist, axis, toComponents, makeOffset):
 	prop = {'position': 1}
-	dType = underlyingType(dist)
-	if dType is float or dType is int:
-		dx, dy, dz = toComponents(dist)
-	elif dType is Vector:
-		dx, dy, dz = dist
+	if canCoerce(dist, float):
+		dx, dy, dz = toComponents(coerce(dist, float))
+	elif canCoerce(dist, Vector):
+		dx, dy, dz = coerce(dist, Vector)
 	else:
 		raise RuntimeParseError(f'"{syntax} X by D" with D not a number or vector')
 	if isinstance(pos, OrientedPoint):		# TODO too strict?
 		prop['parentOrientation'] = 3
-		val = lambda self, spec: {'position': pos.relativize(makeOffset(self, dx, dy, dz)), 'parentOrientation': 0}
+		val = lambda self, spec: {
+			'position': pos.relativize(makeOffset(self, dx, dy, dz)),
+			'parentOrientation': pos.orientation
+		}
 		new = DelayedArgument({axis}, val)
 	else:
 		pos = toVector(pos, f'specifier "{syntax} X" with X not a vector')
-		val = lambda self, spec: {'position': pos.offsetRotated(self.heading, makeOffset(self, dx, dy, dz))}
-		new = DelayedArgument({axis, 'parentOrientation'}, val)
+		val = lambda self, spec: {'position': pos.offsetRotated(self.orientation, makeOffset(self, dx, dy, dz))}
+		new = DelayedArgument({axis, 'orientation'}, val)
 	return Specifier(prop, new)
 
 def Following(field, dist, fromPt=None):
@@ -744,6 +1085,7 @@ def Following(field, dist, fromPt=None):
 	fromPt = toVector(fromPt, '"following F from X for D" with X not a vector')
 	dist = toScalar(dist, '"following F for D" with D not a number')
 	pos = field.followFrom(fromPt, dist)
-	heading = field[pos]
-	val = OrientedVector(*pos, heading)
-	return Specifier({'position': 1, 'parentOrientation': 3}, {'position': val, 'parentOrientation': 0})
+	orientation = field[pos]
+	val = OrientedVector.make(pos, orientation)
+	return Specifier({'position': 1, 'parentOrientation': 3},
+	                 {'position': val, 'parentOrientation': orientation})

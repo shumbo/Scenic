@@ -1,23 +1,28 @@
-"""Assorted utility functions and common exceptions."""
+"""Assorted utility functions."""
 
-import functools
 import math
+
+import wrapt
 
 sqrt2 = math.sqrt(2)
 
 def cached(oldMethod):
     """Decorator for making a method with no arguments cache its result"""
     storageName = f'_cached_{oldMethod.__name__}'
-    @functools.wraps(oldMethod)
-    def newMethod(self):
+    @wrapt.decorator
+    def wrapper(wrapped, instance, args, kwargs):
+        self = args[0]
         try:
             # Use __getattribute__ for direct lookup in case self is a Distribution
             return self.__getattribute__(storageName)
         except AttributeError:
-            value = oldMethod(self)
+            value = wrapped(self)
             setattr(self, storageName, value)
             return value
-    return newMethod
+    return wrapper(oldMethod)
+
+def cached_property(oldMethod):
+    return property(cached(oldMethod))
 
 def cached_property(oldMethod):
     return property(cached(oldMethod))
@@ -38,7 +43,8 @@ def areEquivalent(a, b):
         X = (0, 1)
         Y = (0, 1)
 
-    does not make X and Y always have equal values!"""
+    does not make X and Y always have equal values!
+    """
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
         if len(a) != len(b):
             return False
@@ -79,21 +85,3 @@ def areEquivalent(a, b):
         return b.isEquivalentTo(a)
     else:
         return a == b
-
-class ParseError(Exception):
-    """An error produced by attempting to parse an invalid Scenic program."""
-    pass
-
-class RuntimeParseError(ParseError):
-    """A Scenic parse error generated during execution of the translated Python."""
-    pass
-
-class InvalidScenarioError(Exception):
-    """Error raised for syntactically-valid but otherwise problematic Scenic programs."""
-    pass
-
-class InconsistentScenarioError(InvalidScenarioError):
-    """Error for scenarios with inconsistent requirements."""
-    def __init__(self, line, message):
-        self.lineno = line
-        super().__init__('Inconsistent requirement on line ' + str(line) + ': ' + message)

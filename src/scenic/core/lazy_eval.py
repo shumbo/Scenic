@@ -3,6 +3,7 @@
 
 import itertools
 import types
+import inspect
 
 class LazilyEvaluable:
 	"""Values which may require evaluation in the context of an object being constructed.
@@ -35,12 +36,30 @@ class DelayedArgument(LazilyEvaluable):
 	The value of a DelayedArgument is given by a function mapping the context (object under
 	construction) to a value.
 	"""
-	def __init__(self, requiredProps, value):
+	def __new__(cls, *args, _internal=False, **kwargs):
+		darg = super().__new__(cls)
+		if _internal:
+			return darg
+		# at runtime, evaluate immediately in the context of the current agent
+		import scenic.syntax.veneer as veneer
+		if veneer.simulationInProgress() and veneer.currentBehavior:
+			behavior = veneer.currentBehavior
+			assert behavior.agent
+			darg.__init__(*args, **kwargs)
+			return darg.evaluateIn(behavior.agent)
+		else:
+			return darg
+
+	def __init__(self, requiredProps, value, _internal=False):
 		self.value = value
+		self.suppressModifying = (len(inspect.signature(value).parameters) == 1)
 		super().__init__(requiredProps)
 
 	def evaluateInner(self, context, modifying={}):
-		return self.value(context, modifying)
+		if self.suppressModifying:
+			return self.value(context)
+		else:
+			return self.value(context, modifying)
 
 	def __getattr__(self, name):
 		return DelayedArgument(self._requiredProperties,
@@ -108,10 +127,10 @@ def valueInContext(value, context, modifying={}):
 	except AttributeError:
 		return value
 
-def toDelayedArgument(thing):
+def toDelayedArgument(thing, internal=False):
 	if isinstance(thing, DelayedArgument):
 		return thing
-	return DelayedArgument(set(), lambda context, specifier: thing)
+	return DelayedArgument(set(), lambda context, modifying: thing, _internal=internal)
 
 def requiredProperties(thing):
 	if hasattr(thing, '_requiredProperties'):

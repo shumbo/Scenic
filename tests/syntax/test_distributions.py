@@ -3,8 +3,8 @@ import pytest
 import math
 import random
 
-from scenic.syntax.translator import InterpreterParseError, InvalidScenarioError
-from tests.utils import compileScenic, sampleEgo, sampleParamP
+from scenic.core.errors import RuntimeParseError, InvalidScenarioError
+from tests.utils import compileScenic, sampleScene, sampleEgo, sampleParamP
 
 ## Utilities
 
@@ -22,27 +22,27 @@ def lazyTestScenario(expr, offset='0'):
 ## Options and Uniform
 
 def test_options_empty_domain():
-    with pytest.raises(InterpreterParseError):
+    with pytest.raises(RuntimeParseError):
         compileScenic('x = Options([])')
-    with pytest.raises(InterpreterParseError):
+    with pytest.raises(RuntimeParseError):
         compileScenic('x = Options({})')
-    with pytest.raises(InterpreterParseError):
+    with pytest.raises(RuntimeParseError):
         compileScenic('x = Uniform()')
-    with pytest.raises(InterpreterParseError):
+    with pytest.raises(RuntimeParseError):
         compileScenic('x = Discrete({})')
 
 def test_options_invalid_weight():
-    with pytest.raises(InterpreterParseError):
+    with pytest.raises(RuntimeParseError):
         compileScenic('x = Options({0: 1, 1: -2})')
-    with pytest.raises(InterpreterParseError):
+    with pytest.raises(RuntimeParseError):
         compileScenic('x = Options({0: 1, 1: []})')
-    with pytest.raises(InterpreterParseError):
-        compileScenic('x = Options({0: 1, 1: (3, 5)})')
+    with pytest.raises(RuntimeParseError):
+        compileScenic('x = Options({0: 1, 1: Range(3, 5)})')
 
 def test_uniform_interval_wrong_type():
-    with pytest.raises(InterpreterParseError):
+    with pytest.raises(RuntimeParseError):
         compileScenic('x = Range([], 4)')
-    with pytest.raises(InterpreterParseError):
+    with pytest.raises(RuntimeParseError):
         compileScenic('x = Range(-10, [])')
 
 def test_uniform_interval():
@@ -67,18 +67,18 @@ def test_uniform_discrete_lazy():
     assert any(h == 1.2 for h in hs)
     assert any(h == pytest.approx(1) for h in hs)
 
-def test_options():
-    for name in ('Options', 'Discrete'):
-        scenario = compileScenic(f'ego = Object at {name}({{0: 1, 1: 9}}) @ 0')
-        xs = [sampleEgo(scenario).position.x for i in range(400)]
-        assert all(x == 0 or x == 1 for x in xs)
-        assert sum(xs) >= 300
+@pytest.mark.parametrize('dist', ('Options', 'Discrete'))
+def test_options(dist):
+    scenario = compileScenic(f'ego = Object at {dist}({{0: 1, 1: 9}}) @ 0')
+    xs = [sampleEgo(scenario).position.x for i in range(200)]
+    assert all(x == 0 or x == 1 for x in xs)
+    assert 145 <= sum(xs) < 200
 
 def test_options_lazy():
     scenario = lazyTestScenario('Options({0: 1, x: 9})')
-    hs = [sampleEgo(scenario).heading for i in range(400)]
+    hs = [sampleEgo(scenario).heading for i in range(200)]
     assert all(h == 0 or h == pytest.approx(1) for h in hs)
-    assert sum(hs) >= 300
+    assert 145 <= sum(hs) < 200
 
 ## Functions, methods, attributes, operators
 
@@ -118,15 +118,15 @@ def test_method():
 def test_method_lazy():
     # There are no distributionMethods built into the core language at this time,
     # so we need to define our own
-    scenario = compileScenic(
-        'from scenic.core.distributions import distributionMethod\n'
-        'class Foo(object):\n'
-        '    @distributionMethod\n'
-        '    def bar(self, arg):\n'
-        '        return -arg\n'
-        'vf = VectorField("Baz", lambda pos: 1 + pos.x)\n'
-        'ego = Object facing Foo().bar(Range(100, 200) * (0 relative to vf))'
-    )
+    scenario = compileScenic("""
+        from scenic.core.distributions import distributionMethod
+        class Foo(object):
+            @distributionMethod
+            def bar(self, arg):
+                return -arg
+        vf = VectorField("Baz", lambda pos: 1 + pos.x)
+        ego = Object facing Foo().bar(Range(100, 200) * (0 relative to vf))
+    """)
     angles = [sampleEgo(scenario).heading for i in range(60)]
     assert all(-200 <= x <= -100 for x in angles)
     assert any(x < -150 for x in angles)
@@ -230,6 +230,32 @@ def test_list_object_lazy():
     assert any(h == pytest.approx(1) for h in hs)
     assert any(h == pytest.approx(2) for h in hs)
 
+def test_list_nested():
+    scenario = compileScenic("""
+        mylist = Uniform(list(range(1000)), [1000])
+        ego = Object with foo Uniform(*mylist)
+    """)
+    vs = [sampleEgo(scenario).foo for i in range(60)]
+    assert 5 <= sum((v == 1000) for v in vs) <= 55
+
+def test_list_nested_argument():
+    scenario = compileScenic("""
+        mylist = Uniform(list(range(1000)), [1, 1, 1, 1, 2000])
+        ego = Object with foo max(*mylist)
+    """)
+    vs = [sampleEgo(scenario).foo for i in range(60)]
+    assert 5 <= sum((v == 2000) for v in vs) <= 55
+
+def test_list_filtered():
+    scenario = compileScenic("""
+        mylist = [Range(-10, -5), Range(3, 7), Range(-1, 1)]
+        filtered = filter(lambda x: x > 0, mylist)
+        ego = Object with foo Uniform(*filtered)
+    """)
+    vs = [sampleEgo(scenario).foo for i in range(60)]
+    assert all(v > 0 for v in vs)
+    assert any(v < 1 for v in vs)
+
 def test_tuple():
     scenario = compileScenic('ego = Object with foo tuple([3, Uniform(1, 2)])')
     ts = [sampleEgo(scenario).foo for i in range(60)]
@@ -262,6 +288,7 @@ def test_namedtuple():
 
 ## Reproducibility
 
+@pytest.mark.slow
 def test_reproducibility():
     scenario = compileScenic(
         'ego = Object\n'
@@ -311,7 +338,7 @@ def test_shared_dependency_lazy():
         'other = Object at -1 @ 0, facing x'
     )
     for i in range(60):
-        scene, iterations = scenario.generate(maxIterations=1)
+        scene = sampleScene(scenario, maxIterations=1)
         egoH = scene.objects[0].heading
         assert 2 <= egoH <= 3
         otherH = scene.objects[1].heading
@@ -325,3 +352,15 @@ def test_inside_delayed_argument():
     assert any(h == 1.2 for h in hs)
     assert any(h == pytest.approx(0) for h in hs)
     assert any(h == pytest.approx(2) for h in hs)
+
+## Typechecking
+
+def test_object_expression():
+    scenario = compileScenic("""
+        v = Uniform((Object at Range(-2,-1) @ 0), Object at Range(1,2) @ 5).position.x
+        ego = Object facing v, at 0 @ 10
+        require abs(v) > 1.5
+    """)
+    for i in range(3):
+        scene = sampleScene(scenario, maxIterations=50)
+        assert len(scene.objects) == 3

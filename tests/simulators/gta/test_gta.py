@@ -1,6 +1,10 @@
 
 import pytest
 
+# Skip tests if Pillow or OpenCV not installed
+pytest.importorskip("PIL")
+pytest.importorskip("cv2")
+
 from tests.utils import compileScenic
 
 def test_basic(loadLocalScenario):

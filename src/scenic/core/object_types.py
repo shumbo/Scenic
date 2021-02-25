@@ -1,25 +1,26 @@
 """Implementations of the built-in Scenic classes."""
 
-import inspect
 import collections
 import math
 import random
-import pymesh
-
 from abc import ABC, abstractmethod
+
+import pymesh
 
 from scenic.core.distributions import Samplable, needsSampling
 from scenic.core.specifiers import Specifier, PropertyDefault, ModifyingSpecifier
 from scenic.core.vectors import Vector, Orientation
-from scenic.core.geometry import RotatedRectangle, averageVectors, hypot, min, pointIsInCone
+from scenic.core.geometry import (_RotatedRectangle, averageVectors, hypot, min,
+                                  pointIsInCone)
 from scenic.core.regions import CircularRegion, SectorRegion
-from scenic.core.type_support import toVector, toScalar
+from scenic.core.type_support import toVector, toHeading, toType, toScalar
 from scenic.core.lazy_eval import needsLazyEvaluation
-from scenic.core.utils import areEquivalent, cached_property, RuntimeParseError
+from scenic.core.utils import areEquivalent, cached_property
+from scenic.core.errors import RuntimeParseError
 
 ## Abstract base class
 
-class Constructible(Samplable):
+class _Constructible(Samplable):
 	"""Abstract base class for Scenic objects.
 
 	Scenic objects, which are constructed using specifiers, are implemented
@@ -30,24 +31,31 @@ class Constructible(Samplable):
 	"""
 
 	def __init_subclass__(cls):
+		super().__init_subclass__()
 		# find all defaults provided by the class or its superclasses
 		allDefs = collections.defaultdict(list)
-		for sc in inspect.getmro(cls):
-			if hasattr(sc, '__annotations__'):
+		for sc in cls.__mro__:
+			if issubclass(sc, _Constructible) and hasattr(sc, '__annotations__'):
 				for prop, value in sc.__annotations__.items():
 					allDefs[prop].append(PropertyDefault.forValue(value))
 
-		# resolve conflicting defaults
+		# resolve conflicting defaults and gather dynamic properties
 		resolvedDefs = {}
+		dyns = []
 		for prop, defs in allDefs.items():
 			primary, rest = defs[0], defs[1:]
 			spec = primary.resolveFor(prop, rest)
 			resolvedDefs[prop] = spec
-		cls.defaults = resolvedDefs
+
+			if any(defn.isDynamic for defn in defs):
+				dyns.append(prop)
+		cls._defaults = resolvedDefs
+		cls._dynamicProperties = tuple(dyns)
 
 	@classmethod
 	def withProperties(cls, props):
-		assert all(reqProp in props for reqProp in cls.defaults)
+		assert all(reqProp in props for reqProp in cls._defaults)
+		assert all(not needsLazyEvaluation(val) for val in props.values())
 		return cls(_internal=True, **props)
 
 	def __init__(self, *args, _internal=False, **kwargs):
@@ -58,18 +66,18 @@ class Constructible(Samplable):
 				object.__setattr__(self, prop, value)
 			super().__init__(kwargs.values())
 			self.properties = set(kwargs.keys())
-			return 
+			return
 
 		# Validate specifiers
-		name = type(self).__name__
+		name = self.__class__.__name__
 		specifiers = list(args)
 		for prop, val in kwargs.items():	# kwargs supported for internal use
-			specifiers.append(Specifier({prop: 1}, val))
+			specifiers.append(Specifier({prop: 1}, val, internal=True))
 		properties = dict()
 		modified = dict()
 		priorities = dict()
 		optionals = collections.defaultdict(list)
-		defs = self.__class__.defaults
+		defs = self.__class__._defaults
 
 		# TODO: @Matthew Check for incompatible specifiers used with modifying specifier (itself or `at`)
 
@@ -170,6 +178,7 @@ class Constructible(Samplable):
 					spec.modifying[mod] = True
 
 		# Evaluate and apply specifiers
+		self.properties = set()		# will be filled by calls to _specify below
 		for spec in order:
 			spec.applyTo(self, spec.modifying)
 
@@ -179,13 +188,22 @@ class Constructible(Samplable):
 			assert hasattr(self, prop)
 			val = getattr(self, prop)
 			deps.append(val)
-
 		super().__init__(deps)
-		self.properties = set(properties)
-		self.modified = set(modified)
 
 		# Possibly register this object
 		self._register()
+
+	def _specify(self, prop, value):
+		assert prop not in self.properties
+
+		# Normalize types of some built-in properties
+		if prop == 'position':
+			value = toVector(value, f'"position" of {self} not a vector')
+		elif prop in ('yaw', 'pitch', 'roll'):
+			value = toScalar(value, f'"{prop}" of {self} not a scalar')
+
+		self.properties.add(prop)
+		object.__setattr__(self, prop, value)
 
 	def _register(self):
 		pass	# do nothing by default; may be overridden by subclasses
@@ -211,7 +229,7 @@ class Constructible(Samplable):
 		if hasattr(self, 'properties') and 'name' in self.properties:
 			return self.name
 		else:
-			return super().__repr__()
+			return f'unnamed {self.__class__.__name__} ({id(self)})'
 
 	def __repr__(self):
 		if hasattr(self, 'properties'):
@@ -246,8 +264,7 @@ class PositionMutator(Mutator):
 
 	def appliedTo(self, obj):
 		noise = Vector(random.gauss(0, self.stddev), random.gauss(0, self.stddev))
-		pos = toVector(obj.position, '"position" not a vector')
-		pos = pos + noise
+		pos = obj.position + noise
 		return (obj.copyWith(position=pos), True)		# allow further mutation
 
 	def __eq__(self, other):
@@ -301,32 +318,33 @@ class Shape(ABC):
 
 ## Point
 
-class Point(Constructible):
-	"""Implementation of the Scenic class ``Point``.
+class Point(_Constructible):
+	"""Implementation of the Scenic base class ``Point``.
 
 	The default mutator for `Point` adds Gaussian noise to ``position`` with
 	a standard deviation given by the ``positionStdDev`` property.
 
-	Attributes:
-		position (`Vector`): Position of the point. Default value is the origin.
+	Properties:
+		position (`Vector`; dynamic): Position of the point. Default value is the origin.
 		visibleDistance (float): Distance for ``can see`` operator. Default value 50.
 		width (float): Default value zero (only provided for compatibility with
 		  operators that expect an `Object`).
 		length (float): Default value zero.
+
+	.. note::
+
+		If you're looking into Scenic's internals, note that `Point` is actually a
+		subclass of the internal Python class `_Constructible`.
 	"""
-	position: Vector(0, 0, 0)
+	position: PropertyDefault((), {'dynamic'}, lambda self: Vector(0, 0, 0))
 	width: 0
 	length: 0
 	visibleDistance: 50
 
 	mutationEnabled: False
 	mutator: PropertyDefault({'positionStdDev'}, {'additive'},
-							 lambda self, specifier: PositionMutator(self.positionStdDev))
+							 lambda self: PositionMutator(self.positionStdDev))
 	positionStdDev: 1
-
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
-		self.position = toVector(self.position, f'"position" of {self} not a vector')
 
 	@cached_property
 	def visibleRegion(self):
@@ -336,11 +354,11 @@ class Point(Constructible):
 	def corners(self):
 		return (self.position,)
 
-	def toVector(self):
-		return self.position.toVector()
+	def toVector(self) -> Vector:
+		return self.position
 
-	# TODO: @Matthew Does this work for 3D space? 
-	def canSee(self, other):	# TODO improve approximation?
+	# TODO: @Matthew Does this work for 3D space?
+	def canSee(self, other) -> bool:	# TODO improve approximation?
 		for corner in other.corners:
 			if self.visibleRegion.containsPoint(corner):
 				return True
@@ -373,39 +391,38 @@ class OrientedPoint(Point):
 	with a standard deviation given by the ``headingStdDev`` property, then
 	applies the mutator for `Point`.
 
-	Attributes:
-		heading (float): Heading of the `OrientedPoint`. Default value 0 (North).
+	Properties:
+		heading (float; dynamic): Heading of the `OrientedPoint`. Default value 0
+			(North).
 		viewAngle (float): View cone angle for ``can see`` operator. Default
 		  value :math:`2\\pi`.
 	"""
-	viewAngle: math.tau # TODO: @Matthew Implement 2-tuple view angle for 3D views 
+	# primitive orientation properties
+	yaw: 0
 	pitch: 0
 	roll: 0
-	yaw: 0
-	parentOrientation: Orientation.fromEuler(0,0,0)
+	parentOrientation: Orientation.fromEuler(0, 0, 0)
+
+	# derived orientation properties that cannot be overwritten
+	orientation: PropertyDefault(
+	    {'yaw', 'pitch', 'roll', 'parentOrientation'},
+	    {'final'},
+	    lambda self: (Orientation.fromEuler(self.yaw, self.pitch, self.roll)
+	                  * self.parentOrientation)
+	)
+	heading: PropertyDefault({'orientation'}, {'final'},
+	                         lambda self: self.orientation.getEuler()[0])
+
+	viewAngle: math.tau # TODO: @Matthew Implement 2-tuple view angle for 3D views 
 
 	mutator: PropertyDefault({'headingStdDev'}, {'additive'},
-		lambda self, specifier: HeadingMutator(self.headingStdDev))
+		lambda self: HeadingMutator(self.headingStdDev))
 	headingStdDev: math.radians(5)
-
-	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs)
-		# self.heading = toScalar(self.heading, f'"heading" of {self} not a scalar')
 
 	@cached_property
 	def visibleRegion(self):
 		return SectorRegion(self.position, self.visibleDistance,
 		                    self.heading, self.viewAngle)
-
-	@cached_property
-	def orientation(self):
-		o = Orientation.fromEuler(self.yaw, self.pitch, self.roll)
-		return o * self.parentOrientation
-
-	@cached_property
-	def heading(self):
-		eulerAngles = self.orientation.getEuler()
-		return eulerAngles[0] * self.orientation.invertRotation().x 
 
 	def relativize(self, vec):
 		pos = self.relativePosition(vec)
@@ -414,20 +431,22 @@ class OrientedPoint(Point):
 	def relativePosition(self, vec):
 		return self.position.offsetRotated(self.heading, vec)
 
-	def toHeading(self):
+	def toHeading(self) -> float:
 		return self.heading
 
 ## Object
 
-class Object(OrientedPoint, RotatedRectangle):
+class Object(OrientedPoint, _RotatedRectangle):
 	"""Implementation of the Scenic class ``Object``.
 
-	Attributes:
+	This is the default base class for Scenic classes.
+
+	Properties:
 		width (float): Width of the object, i.e. extent along its X axis.
 		  Default value 1.
-		height (float): Height of the object, i.e. extent along its Y axis.
+		length (float): Length of the object, i.e. extent along its Y axis.
 		  Default value 1.
-		length (float): Length of the object, i.e. extent along its Z axis.
+		height (float): Height of the object, i.e. extent along its Z axis.
 		  Default value 1. 
 		allowCollisions (bool): Whether the object is allowed to intersect
 		  other objects. Default value ``False``.
@@ -438,29 +457,71 @@ class Object(OrientedPoint, RotatedRectangle):
 		  contained in the scenario's workspace.
 		cameraOffset (`Vector`): Position of the camera for the ``can see``
 		  operator, relative to the object's ``position``. Default ``0 @ 0``.
+
+		speed (float; dynamic): Speed in dynamic simulations. Default value 0.
+		velocity (`Vector`; *dynamic*): Velocity in dynamic simulations. Default value is
+			the velocity determined by ``self.speed`` and ``self.orientation``.
+		angularSpeed (float; *dynamic*): Angular speed in dynamic simulations. Default
+			value 0.
+
+		behavior: Behavior for dynamic agents, if any (see :ref:`dynamics`). Default
+			value ``None``.
 	"""
 	width: 1
-	height: 1
 	length: 1
+	height: 1
+
 	allowCollisions: False
 	requireVisible: True
 	regionContainedIn: None
 	cameraOffset: Vector(0, 0)
 	# TODO: @Matthew Object needs a `shape` property 
 
+	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
+	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))
+	speed: PropertyDefault((), {'dynamic'}, lambda self: 0)
+	angularSpeed: PropertyDefault((), {'dynamic'}, lambda self: 0)
+
+	behavior: None
+	lastActions: None
+
+	def __new__(cls, *args, **kwargs):
+		obj = super().__new__(cls)
+		# The _dynamicProxy attribute stores a mutable copy of the object used during
+		# simulations, intercepting all attribute accesses to the original object;
+		# we set this attribute very early to prevent problems during unpickling.
+		object.__setattr__(obj, '_dynamicProxy', obj)
+		return obj
+
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.hw = hw = self.width / 2
-		self.hh = hh = self.height / 2
 		self.hl = hl = self.length / 2
-		self.radius = hypot(hw, hl)	# circumcircle; for collision detection
-		self.inradius = min(hw, hl)	# incircle; for collision detection
+		self.hh = hh = self.height / 2
+		self.radius = hypot(hw, hl, hh)	# circumcircle; for collision detection
+		self.inradius = min(hw, hl, hh)	# incircle; for collision detection
 
 		self._relations = []
+
+	def _specify(self, prop, value):
+		# Normalize types of some built-in properties
+		if prop == 'behavior':
+			import scenic.syntax.veneer as veneer	# TODO improve?
+			value = toType(value, veneer.Behavior,
+			               f'"behavior" of {self} not a behavior')
+		super()._specify(prop, value)
 
 	def _register(self):
 		import scenic.syntax.veneer as veneer	# TODO improve?
 		veneer.registerObject(self)
+
+	def __getattribute__(self, name):
+		proxy = object.__getattribute__(self, '_dynamicProxy')
+		return object.__getattribute__(proxy, name)
+
+	def __setattr__(self, name, value):
+		proxy = object.__getattribute__(self, '_dynamicProxy')
+		object.__setattr__(proxy, name, value)
 
 	@cached_property
 	def left(self):
@@ -581,3 +642,12 @@ class Object(OrientedPoint, RotatedRectangle):
 		x, y = zip(*triangle)
 		plt.fill(x, y, "w")
 		plt.plot(x + (x[0],), y + (y[0],), color="k", linewidth=1)
+
+def enableDynamicProxyFor(obj):
+	object.__setattr__(obj, '_dynamicProxy', obj.copyWith())
+
+def setDynamicProxyFor(obj, proxy):
+	object.__setattr__(obj, '_dynamicProxy', proxy)
+
+def disableDynamicProxyFor(obj):
+	object.__setattr__(obj, '_dynamicProxy', obj)
