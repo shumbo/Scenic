@@ -43,7 +43,8 @@ class WebotsObject:
 class Car(WebotsObject):
 	regionContainedIn: road
 	position: Point on road
-	heading: (roadDirection at self.position) + self.roadDeviation
+	parentOrientation: roadDirection at self.position
+	yaw: self.roadDeviation
 	roadDeviation: 0
 	model: Uniform(*carModels)
 	width: self.model.width
@@ -51,11 +52,7 @@ class Car(WebotsObject):
 	webotsType: self.model.name
 	viewAngle: 90 deg
 	cameraOffset: 0 @ (self.length / 2)		# camera is at the front
-<<<<<<< HEAD
-	color: CarColor.defaultColor()
-=======
 	color: CarColor.defaultCarColor()
->>>>>>> public-branch
 
 class SmallCar(Car):
 	model: Uniform(*smallVehicles)
@@ -92,7 +89,7 @@ class Motorcycle(Car):
 class Pedestrian(WebotsObject):
 	regionContainedIn: walkway
 	position: Point on walkway
-	heading: Range(0, 360) deg
+	yaw: Range(0, 360) deg
 	width: 0.5
 	length: 0.5
 	shirtColor: CarColor.uniformColor()

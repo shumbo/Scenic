@@ -276,7 +276,8 @@ class DummySimulation(Simulation):
         pass
 
     def getProperties(self, obj, properties):
-        vals = dict(position=obj.position, heading=obj.heading,
+        vals = dict(position=obj.position,
+                    yaw=obj.yaw, pitch=obj.pitch, roll=obj.roll,
                     velocity=Vector(0, 0), speed=0, angularSpeed=0)
         for prop in properties:
             if prop not in vals:

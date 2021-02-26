@@ -82,14 +82,15 @@ from scenic.core.distributions import (RejectionException, Distribution,
 									   TupleDistribution, StarredDistribution, toDistribution,
 									   needsSampling, canUnpackDistributions, distributionFunction)
 from scenic.core.type_support import (isA, toType, toTypes, toScalar, toHeading, toVector,
-									  evaluateRequiringEqualTypes, underlyingType,
+									  evaluateRequiringEqualTypes, underlyingType, toOrientation,
 									  canCoerce, coerce)
 from scenic.core.geometry import normalizeAngle, apparentHeadingAtPoint
 from scenic.core.object_types import _Constructible
 from scenic.core.specifiers import Specifier, ModifyingSpecifier
-from scenic.core.lazy_eval import DelayedArgument, needsLazyEvaluation
+from scenic.core.lazy_eval import (DelayedArgument, needsLazyEvaluation, toDelayedArgument,
+                                   valueInContext)
 from scenic.core.errors import RuntimeParseError, InvalidScenarioError
-from scenic.core.vectors import OrientedVector, Orientation
+from scenic.core.vectors import Orientation
 from scenic.core.external_params import ExternalParameter
 import scenic.core.requirements as requirements
 from scenic.core.simulators import RejectSimulationException
@@ -618,8 +619,8 @@ def OffsetAlong(X, H, Y, specs=None):
 	Y = toVector(Y, '"X offset along H by Y" with Y not a vector')
 	if isinstance(H, VectorField):
 		H = H[X]
-	H = toHeading(H, '"X offset along H by Y" with H not a heading or vector field')
-	return X.offsetRotated(H, Y) # TODO: @Matthew Update to 3D coordinate system? 
+	H = toOrientation(H, '"X offset along H by Y" with H not an orientation or vector field')
+	return X.offsetRotated(H, Y)
 
 def RelativePosition(X, Y=None):
 	"""The 'relative position of <vector> [from <vector>]' operator.
@@ -639,10 +640,11 @@ def RelativeHeading(X, Y=None):
 	"""
 	X = toHeading(X, '"relative heading of X from Y" with X not a heading')
 	if Y is None:
-		Y = ego().heading
+		Y = (ego().heading, 0, 0)
 	else:
 		Y = toHeading(Y, '"relative heading of X from Y" with Y not a heading')
-	return normalizeAngle(X - Y)
+	# TODO: should we actually return a tripple of 3 angles?
+	return normalizeAngle(X[0] - Y[0]) 
 
 def ApparentHeading(X, Y=None):
 	"""The 'apparent heading of <oriented point> [from <vector>]' operator.
@@ -800,13 +802,17 @@ def Beyond(pos, offset, fromPt=None):
 		raise RuntimeParseError('specifier "beyond X by Y" with Y not a number or vector')
 	if fromPt is None:
 		fromPt = ego()
+	if isinstance(fromPt, OrientedPoint):
+		orientation = fromPt.orientation
+	else:
+		orientation = Orientation.fromEuler(0,0,0)
 	fromPt = toVector(fromPt, 'specifier "beyond X by Y from Z" with Z not a vector')
 	# TODO: @Matthew Compute orientation along line of sight
 	lineOfSight = fromPt.angleTo(pos)
 	# TODO: @Matthew `val` pos.offsetRotated() should be helper function defining both position and parent orientation
 	# as dictionary of values
 	return Specifier({'position': 1, 'parentOrientation': 3},
-	   				 {'position': pos.offsetRotated(lineOfSight, offset), 'parentOrientation': lineOfSight})
+	   				 {'position': pos.offsetRotated(lineOfSight, offset), 'parentOrientation': orientation})
 
 def VisibleFrom(base):
 	"""The 'visible from <Point>' specifier.
@@ -869,14 +875,17 @@ def Facing(heading):
 			# return heading[context.position]
 		return Specifier({'yaw': 1, 'pitch': 1, 'roll': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 	else:
+		heading = toHeading(heading, "facing x with x not a heading")
+		heading = toDelayedArgument(heading)
+		headingDeps = heading._requiredProperties
 		def helper(context, spec):
-			orientation = Orientation.fromEuler(heading[0], heading[1], heading[2])
-			inverseQuat = context.parentOrientation.invertRotation()
-			desiredQuat = inverseQuat * orientation 
-			euler = desiredQuat.getEuler()
+			nonlocal heading
+			heading = valueInContext(heading, context)
+			euler = context.parentOrientation.globalToLocalAngles(heading[0], heading[1], heading[2])
 			return {'yaw': euler[0], 'pitch': euler[1], 'roll': euler[2]}
 			# return toHeading(heading, 'specifier "facing X" with X not a heading or vector field')
-		return Specifier({'yaw': 1, 'pitch': 1, 'roll': 1}, DelayedArgument({'parentOrientation'}, helper))
+
+		return Specifier({'yaw': 1, 'pitch': 1, 'roll': 1}, DelayedArgument({'parentOrientation'}|headingDeps, helper))
 
 def FacingToward(pos):
 	"""The 'facing toward <vector>' specifier.
@@ -972,7 +981,7 @@ def LeftSpec(pos, dist=0, specs=None):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('left of', pos, dist, 'width', lambda dist: (dist, 0, 0),
-	                      lambda self, dx, dy, dz: Vector(-self.width / 2 - dx, dy, dz))
+						  lambda self, dx, dy, dz: Vector(-self.width / 2 - dx, dy, dz))
 
 def RightSpec(pos, dist=0):
 	"""The 'right of X [by Y]' polymorphic specifier.
@@ -986,7 +995,7 @@ def RightSpec(pos, dist=0):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('right of', pos, dist, 'width', lambda dist: (dist, 0, 0),
-	                      lambda self, dx, dy, dz: Vector(self.width / 2 + dx, dy, dz))
+						  lambda self, dx, dy, dz: Vector(self.width / 2 + dx, dy, dz))
 
 def Ahead(pos, dist=0):
 	"""The 'ahead of X [by Y]' polymorphic specifier.
@@ -1001,7 +1010,7 @@ def Ahead(pos, dist=0):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('ahead of', pos, dist, 'length', lambda dist: (0, dist, 0),
-	                      lambda self, dx, dy, dz: Vector(dx, self.length / 2 + dy, dz))
+						  lambda self, dx, dy, dz: Vector(dx, self.length / 2 + dy, dz))
 
 def Behind(pos, dist=0):
 	"""The 'behind X [by Y]' polymorphic specifier.
@@ -1015,7 +1024,7 @@ def Behind(pos, dist=0):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('behind', pos, dist, 'length', lambda dist: (0, dist, 0),
-	                      lambda self, dx, dy, dz: Vector(dx, -self.length / 2 - dy, dz))
+						  lambda self, dx, dy, dz: Vector(dx, -self.length / 2 - dy, dz))
 
 def Above(pos, dist=0):
 	"""The 'above X [by Y]' polymorphic specifier.
@@ -1086,6 +1095,5 @@ def Following(field, dist, fromPt=None):
 	dist = toScalar(dist, '"following F for D" with D not a number')
 	pos = field.followFrom(fromPt, dist)
 	orientation = field[pos]
-	val = OrientedVector.make(pos, orientation)
 	return Specifier({'position': 1, 'parentOrientation': 3},
-	                 {'position': val, 'parentOrientation': orientation})
+	                 {'position': pos, 'parentOrientation': orientation})

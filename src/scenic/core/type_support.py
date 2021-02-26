@@ -6,10 +6,10 @@ import numbers
 import typing
 
 from scenic.core.distributions import (Distribution, RejectionException, StarredDistribution,
-                                       distributionFunction)
+									   TupleDistribution, distributionFunction)
 from scenic.core.lazy_eval import (DelayedArgument, valueInContext, requiredProperties,
-                                   needsLazyEvaluation, toDelayedArgument)
-from scenic.core.vectors import Vector, Orientation
+								   needsLazyEvaluation, toDelayedArgument)
+from scenic.core.vectors import Vector, Orientation, EulerAngles
 from scenic.core.errors import RuntimeParseError, saveErrorLocation
 
 # Typing and coercion rules:
@@ -83,7 +83,9 @@ def canCoerceType(typeA, typeB):
 	elif typeB is Heading:
 		if typeA is tuple or typeA is list:
 			return True
-		return canCoerceType(typeA, float) or hasattr(typeA, 'toHeading')
+		return canCoerceType(typeA, float) or hasattr(typeA, 'toHeading') or canCoerceType(typeA, Orientation)
+	elif typeB is Orientation:
+		return issubclass(typeA, (Orientation, int, float))
 	elif typeB is Vector:
 		return issubclass(typeA, (tuple, list)) or hasattr(typeA, 'toVector')
 	elif typeB is veneer.Behavior:
@@ -111,8 +113,8 @@ def coerce(thing, ty, error='wrong type'):
 		coercer = coerceToFloat
 	elif ty is Heading:
 		coercer = coerceToHeading
-		ty = numbers.Real
-		realType = float
+	elif ty is Orientation:
+		coercer = coerceToOrientation
 	elif ty is Vector:
 		coercer = coerceToVector
 	elif ty is veneer.Behavior:
@@ -122,6 +124,12 @@ def coerce(thing, ty, error='wrong type'):
 
 	if isinstance(thing, Distribution):
 		vt = thing.valueType
+		if ty is Heading:  # TODO improve special case?
+			if isinstance(thing, TupleDistribution) and len(thing) == 3:
+				return thing    # no coercion necessary
+			elif vt is float:
+				return TupleDistribution(thing, 0, 0)
+
 		if typing.get_origin(vt) is typing.Union:
 			possibleTypes = typing.get_args(vt)
 		else:
@@ -144,17 +152,31 @@ class CoercionFailure(Exception):
 def coerceToFloat(thing) -> float:
 	return float(thing)
 
-def coerceToHeading(thing) -> float:
-	if hasattr(thing, 'toHeading'):
-		return thing.toHeading()
-	return float(thing)
+def coerceToHeading(thing) -> Heading:
+	if isinstance(thing, (tuple, list)):
+		if len(thing) == 3:
+			return thing
+		else:
+			raise CoercionFailure("heading tuple must have 3 components")
+	elif isinstance(thing, Orientation):
+		return tuple(thing.getEuler())
+	h = thing.toHeading() if hasattr(thing, 'toHeading') else float(thing)
+	return (h, 0, 0)
+
+def coerceToOrientation(thing) -> Orientation:
+	if isinstance(thing, (float, int)):
+		return Orientation.fromEuler(thing, 0, 0)
+	elif isinstance(thing, Orientation):
+		return thing
+	else:
+		raise CoercionFailure
 
 def coerceToVector(thing) -> Vector:
 	if isinstance(thing, (tuple, list)):
 		l = len(thing)
-		if l != 2:
-			raise CoercionFailure('expected 2D vector, got '
-			                      f'{type(thing).__name__} of length {l}')
+		if not 2 <= l <= 3:
+			raise CoercionFailure('expected 2D/3D vector, got '
+								  f'{type(thing).__name__} of length {l}')
 		return Vector(*thing)
 	else:
 		return thing.toVector()
@@ -203,7 +225,7 @@ def coerceToAny(thing, types, error):
 			return coerce(thing, ty, error)
 	from scenic.syntax.veneer import verbosePrint
 	verbosePrint(f'Failed to coerce {thing} of type {underlyingType(thing)} to {types}',
-	             file=sys.stderr)
+				 file=sys.stderr)
 	raise RuntimeParseError(error)
 
 ## Top-level type checking/conversion API
@@ -227,6 +249,14 @@ def toScalar(thing, typeError='non-scalar in scalar context'):
 def toHeading(thing, typeError='non-heading in heading context'):
 	"""Convert something to a heading, printing an error if impossible."""
 	return toType(thing, Heading, typeError)
+
+def toEulerAngles(thing, typeError='non-heading in heading context'):
+	"""Convert something to a heading, printing an error if impossible."""
+	return toType(thing, EulerAngles, typeError)
+
+def toOrientation(thing, typeError='non-orientation in orientation context'):
+	"""Convert something to an orientation, printing an error if impossible."""
+	return toType(thing, Orientation, typeError)
 
 def toVector(thing, typeError='non-vector in vector context'):
 	"""Convert something to a vector, printing an error if impossible."""

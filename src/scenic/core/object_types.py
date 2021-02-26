@@ -42,6 +42,7 @@ class _Constructible(Samplable):
 		# resolve conflicting defaults and gather dynamic properties
 		resolvedDefs = {}
 		dyns = []
+		finals = []
 		for prop, defs in allDefs.items():
 			primary, rest = defs[0], defs[1:]
 			spec = primary.resolveFor(prop, rest)
@@ -49,8 +50,11 @@ class _Constructible(Samplable):
 
 			if any(defn.isDynamic for defn in defs):
 				dyns.append(prop)
+			if primary.isFinal:
+				finals.append(prop)
 		cls._defaults = resolvedDefs
 		cls._dynamicProperties = tuple(dyns)
+		cls._finalProperties = tuple(finals)
 
 	@classmethod
 	def withProperties(cls, props):
@@ -78,6 +82,7 @@ class _Constructible(Samplable):
 		priorities = dict()
 		optionals = collections.defaultdict(list)
 		defs = self.__class__._defaults
+		finals = self.__class__._finalProperties
 
 		# TODO: @Matthew Check for incompatible specifiers used with modifying specifier (itself or `at`)
 
@@ -94,6 +99,9 @@ class _Constructible(Samplable):
 			assert isinstance(spec, Specifier), (name, spec)
 			props = spec.priorities
 			for p in props:
+				if p in finals:
+					assert not _internal
+					raise RuntimeParseError(f'property "{p}" of {name} cannot be directly specified')
 				if isinstance(spec, ModifyingSpecifier):
 					if p in modified:
 						raise RuntimeParseError(f'property "{p}" of {name} modified twice')
@@ -398,9 +406,9 @@ class OrientedPoint(Point):
 		  value :math:`2\\pi`.
 	"""
 	# primitive orientation properties
-	yaw: 0
-	pitch: 0
-	roll: 0
+	yaw: PropertyDefault((), {'dynamic'}, lambda self: 0)
+	pitch: PropertyDefault((), {'dynamic'}, lambda self: 0)
+	roll: PropertyDefault((), {'dynamic'}, lambda self: 0)
 	parentOrientation: Orientation.fromEuler(0, 0, 0)
 
 	# derived orientation properties that cannot be overwritten
@@ -426,7 +434,7 @@ class OrientedPoint(Point):
 
 	def relativize(self, vec):
 		pos = self.relativePosition(vec)
-		return OrientedPoint(position=pos, heading=self.heading)
+		return OrientedPoint(position=pos, yaw=0, pitch=0, roll=0, parentOrientation=self.orientation)
 
 	def relativePosition(self, vec):
 		return self.position.offsetRotated(self.heading, vec)

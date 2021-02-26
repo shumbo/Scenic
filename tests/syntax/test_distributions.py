@@ -11,13 +11,15 @@ from tests.utils import compileScenic, sampleScene, sampleEgo, sampleParamP
 def lazyTestScenario(expr, offset='0'):
     """Scenario for testing a lazily-evaluated value inside a distribution.
 
-    Here the value 'x' lazily evaluates to 1 (plus the offset, if any).
+    Here the value 'x' lazily evaluates to 1 (plus the offset, if any, which
+    should be between -1 and 1). The given expression is stored as the 'result'
+    property of the ego object.
     """
-    return compileScenic(
-        'vf = VectorField("Foo", lambda pos: 2 * pos.x)\n'
-        f'x = {offset} relative to vf\n'
-        f'ego = Object at 0.5 @ 0, facing {expr}'
-    )
+    return compileScenic(f"""
+        vf = VectorField("Foo", lambda pos: 2 * pos.x)
+        x = ({offset} relative to vf).yaw
+        ego = Object at 0.5 @ 0, with result {expr}
+    """)
 
 ## Options and Uniform
 
@@ -62,10 +64,10 @@ def test_uniform_discrete():
 
 def test_uniform_discrete_lazy():
     scenario = lazyTestScenario('Uniform(1.2, x)')
-    hs = [sampleEgo(scenario).heading for i in range(60)]
-    assert all(h == 1.2 or h == pytest.approx(1) for h in hs)
-    assert any(h == 1.2 for h in hs)
-    assert any(h == pytest.approx(1) for h in hs)
+    rs = [sampleEgo(scenario).result for i in range(60)]
+    assert all(r == 1.2 or r == pytest.approx(1) for r in rs)
+    assert any(r == 1.2 for r in rs)
+    assert any(r == pytest.approx(1) for r in rs)
 
 @pytest.mark.parametrize('dist', ('Options', 'Discrete'))
 def test_options(dist):
@@ -76,9 +78,9 @@ def test_options(dist):
 
 def test_options_lazy():
     scenario = lazyTestScenario('Options({0: 1, x: 9})')
-    hs = [sampleEgo(scenario).heading for i in range(200)]
-    assert all(h == 0 or h == pytest.approx(1) for h in hs)
-    assert 145 <= sum(hs) < 200
+    rs = [sampleEgo(scenario).result for i in range(200)]
+    assert all(r == 0 or r == pytest.approx(1) for r in rs)
+    assert 145 <= sum(rs) < 200
 
 ## Functions, methods, attributes, operators
 
@@ -92,28 +94,28 @@ def test_function():
 
 def test_function_lazy():
     scenario = lazyTestScenario('hypot(Uniform(5, 35), 12 * x)')
-    hs = [sampleEgo(scenario).heading for i in range(60)]
-    assert all(h == pytest.approx(13) or h == pytest.approx(37) for h in hs)
-    assert any(h == pytest.approx(13) for h in hs)
-    assert any(h == pytest.approx(37) for h in hs)
+    rs = [sampleEgo(scenario).result for i in range(60)]
+    assert all(r == pytest.approx(13) or r == pytest.approx(37) for r in rs)
+    assert any(r == pytest.approx(13) for r in rs)
+    assert any(r == pytest.approx(37) for r in rs)
 
 def test_function_lazy_2():
     scenario = lazyTestScenario('sin(x * 90 deg)', offset='Uniform(-1, 0)')
-    hs = [sampleEgo(scenario).heading for i in range(60)]
-    assert all(h == pytest.approx(0) or h == pytest.approx(1) for h in hs)
-    assert any(h == pytest.approx(0) for h in hs)
-    assert any(h == pytest.approx(1) for h in hs)
+    rs = [sampleEgo(scenario).result for i in range(60)]
+    assert all(r == pytest.approx(0) or r == pytest.approx(1) for r in rs)
+    assert any(r == pytest.approx(0) for r in rs)
+    assert any(r == pytest.approx(1) for r in rs)
 
 def test_method():
     scenario = compileScenic(
         'field = VectorField("Foo", lambda pos: pos[1])\n'
-        'ang = field[0 @ Range(100, 200)]\n'
-        'ego = Object facing ang'
+        'ang = field[0 @ Range(0.5, 1.5)].yaw\n'
+        'ego = Object with foo ang'
     )
-    angles = [sampleEgo(scenario).heading for i in range(60)]
-    assert all(100 <= x <= 200 for x in angles)
-    assert any(x < 150 for x in angles)
-    assert any(150 < x for x in angles)
+    values = [sampleEgo(scenario).foo for i in range(60)]
+    assert all(0.5 <= x <= 1.5 for x in values)
+    assert any(x < 1 for x in values)
+    assert any(1 < x for x in values)
 
 def test_method_lazy():
     # There are no distributionMethods built into the core language at this time,
@@ -125,28 +127,28 @@ def test_method_lazy():
             def bar(self, arg):
                 return -arg
         vf = VectorField("Baz", lambda pos: 1 + pos.x)
-        ego = Object facing Foo().bar(Range(100, 200) * (0 relative to vf))
+        ego = Object with foo Foo().bar(Range(100, 200) * (0 relative to vf).yaw)
     """)
-    angles = [sampleEgo(scenario).heading for i in range(60)]
-    assert all(-200 <= x <= -100 for x in angles)
-    assert any(x < -150 for x in angles)
-    assert any(-150 < x for x in angles)
+    values = [sampleEgo(scenario).foo for i in range(60)]
+    assert all(-200 <= x <= -100 for x in values)
+    assert any(x < -150 for x in values)
+    assert any(-150 < x for x in values)
 
 def test_method_lazy_2():
     # See previous comment
-    scenario = compileScenic(
-        'from scenic.core.distributions import distributionMethod\n'
-        'class Foo(object):\n'
-        '    @distributionMethod\n'
-        '    def bar(self, arg):\n'
-        '        return -arg * Range(100, 200)\n'
-        'vf = VectorField("Baz", lambda pos: 1 + pos.x)\n'
-        'ego = Object facing Foo().bar(0 relative to vf)'
-    )
-    angles = [sampleEgo(scenario).heading for i in range(60)]
-    assert all(-200 <= x <= -100 for x in angles)
-    assert any(x < -150 for x in angles)
-    assert any(-150 < x for x in angles)
+    scenario = compileScenic("""
+        from scenic.core.distributions import distributionMethod
+        class Foo(object):
+            @distributionMethod
+            def bar(self, arg):
+                return -arg.yaw * Range(100, 200)
+        vf = VectorField("Baz", lambda pos: 1 + pos.x)
+        ego = Object with foo Foo().bar(0 relative to vf)
+    """)
+    values = [sampleEgo(scenario).foo for i in range(60)]
+    assert all(-200 <= x <= -100 for x in values)
+    assert any(x < -150 for x in values)
+    assert any(-150 < x for x in values)
 
 def test_attribute():
     scenario = compileScenic(
@@ -168,10 +170,10 @@ def test_operator():
 
 def test_operator_lazy():
     scenario = lazyTestScenario('Uniform(0, 1) * x')
-    hs = [sampleEgo(scenario).heading for i in range(60)]
-    assert all(h == pytest.approx(0) or h == pytest.approx(1) for h in hs)
-    assert any(h == pytest.approx(0) for h in hs)
-    assert any(h == pytest.approx(1) for h in hs)
+    rs = [sampleEgo(scenario).result for i in range(60)]
+    assert all(r == pytest.approx(0) or r == pytest.approx(1) for r in rs)
+    assert any(r == pytest.approx(0) for r in rs)
+    assert any(r == pytest.approx(1) for r in rs)
 
 ## Vectors
 
@@ -184,15 +186,15 @@ def test_vector_operator():
 
 def test_vector_method_lazy_1():
     scenario = lazyTestScenario('vf.followFrom(Uniform(0, 90 deg) @ 0, x, steps=1).y')
-    hs = [sampleEgo(scenario).heading for i in range(60)]
-    assert all(h == pytest.approx(1) or h == pytest.approx(-1) for h in hs)
-    assert any(h == pytest.approx(1) for h in hs)
-    assert any(h == pytest.approx(-1) for h in hs)
+    rs = [sampleEgo(scenario).result for i in range(60)]
+    assert all(r == pytest.approx(1) or r == pytest.approx(-1) for r in rs)
+    assert any(r == pytest.approx(1) for r in rs)
+    assert any(r == pytest.approx(-1) for r in rs)
 
 def test_vector_method_lazy_2():
     scenario = lazyTestScenario('vf.followFrom(90 deg @ 0, x, steps=1).y')
-    h = sampleEgo(scenario).heading
-    assert h == pytest.approx(-1)
+    r = sampleEgo(scenario).result
+    assert r == pytest.approx(-1)
 
 ## Lists, tuples, namedtuples
 
@@ -216,19 +218,19 @@ def test_list_param():
 
 def test_list_param_lazy():
     with pytest.raises(InvalidScenarioError):
-        compileScenic(
-            'vf = VectorField("Foo", lambda pos: 2 * pos.x)\n'
-            'x = 0 relative to vf\n'
-            'param p = Uniform([0, x], [0, x*2])[1]\n'
-            'ego = Object'
-        )
+        compileScenic("""
+            vf = VectorField("Foo", lambda pos: 2 * pos.x)
+            x = 0 relative to vf
+            param p = Uniform([0, x], [0, x*2])[1]
+            ego = Object
+        """)
 
 def test_list_object_lazy():
     scenario = lazyTestScenario('Uniform([0, x], [1, x])[1]', offset='Uniform(0, 1)')
-    hs = [sampleEgo(scenario).heading for i in range(60)]
-    assert all(h == pytest.approx(1) or h == pytest.approx(2) for h in hs)
-    assert any(h == pytest.approx(1) for h in hs)
-    assert any(h == pytest.approx(2) for h in hs)
+    rs = [sampleEgo(scenario).result for i in range(60)]
+    assert all(r == pytest.approx(1) or r == pytest.approx(2) for r in rs)
+    assert any(r == pytest.approx(1) for r in rs)
+    assert any(r == pytest.approx(2) for r in rs)
 
 def test_list_nested():
     scenario = compileScenic("""
@@ -321,10 +323,10 @@ def test_independence():
 ## Dependencies and lazy evaluation
 
 def test_shared_dependency():
-    scenario = compileScenic(
-        'x = Range(-1, 1)\n'
-        'ego = Object at (x * x) @ 0'
-    )
+    scenario = compileScenic("""
+        x = Range(-1, 1)
+        ego = Object at (x * x) @ 0
+    """)
     xs = [sampleEgo(scenario).position.x for i in range(60)]
     assert all(0 <= x <= 1 for x in xs)
     assert any(x < 0.25 for x in xs)
@@ -347,11 +349,11 @@ def test_shared_dependency_lazy():
 
 def test_inside_delayed_argument():
     scenario = lazyTestScenario('Uniform(1.2, x)', offset='Uniform(-1, 1)')
-    hs = [sampleEgo(scenario).heading for i in range(140)]
-    assert all(h == 1.2 or h == pytest.approx(0) or h == pytest.approx(2) for h in hs)
-    assert any(h == 1.2 for h in hs)
-    assert any(h == pytest.approx(0) for h in hs)
-    assert any(h == pytest.approx(2) for h in hs)
+    rs = [sampleEgo(scenario).result for i in range(140)]
+    assert all(r == 1.2 or r == pytest.approx(0) or r == pytest.approx(2) for r in rs)
+    assert any(r == 1.2 for r in rs)
+    assert any(r == pytest.approx(0) for r in rs)
+    assert any(r == pytest.approx(2) for r in rs)
 
 ## Typechecking
 

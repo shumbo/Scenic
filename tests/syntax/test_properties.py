@@ -23,20 +23,24 @@ def test_position_numpy_types():
     """)
     assert tuple(ego.position) == pytest.approx((3.4, 7, 0))
 
-def test_heading_wrong_type():
+def test_yaw_wrong_type():
     with pytest.raises(RuntimeParseError):
-        compileScenic('ego = Object with heading 4 @ 1')
+        compileScenic('ego = Object with yaw 4 @ 1')
 
-def test_heading_numpy_types():
+def test_yaw_numpy_types():
     ego = sampleEgoFrom("""
         import numpy as np
-        ego = Object with heading np.single(3.4)
+        ego = Object with yaw np.single(3.4)
     """)
-    assert ego.heading == pytest.approx(3.4)
+    assert ego.yaw == pytest.approx(3.4)
 
 def test_left():
     ego = sampleEgoFrom("""
         other = Object with width 4
         ego = Object at other.left offset by 0@5
     """)
-    assert tuple(ego.position) == pytest.approx((-2, 5))
+    assert tuple(ego.position) == pytest.approx((-2, 5, 0))
+
+def test_heading_set_directly():
+    with pytest.raises(InterpreterParseError):
+        compileScenic('ego = Object with heading 4')

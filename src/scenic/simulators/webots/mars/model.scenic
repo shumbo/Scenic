@@ -22,7 +22,7 @@ class Rover:
 class Debris:
 	"""Abstract class for debris scattered randomly in the workspace."""
 	position: Point in workspace
-	heading: Range(0, 360) deg
+	yaw: Range(0, 360) deg
 
 class BigRock(Debris):
 	"""Large rock."""

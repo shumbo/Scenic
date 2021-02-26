@@ -22,7 +22,7 @@ class Specifier:
 		self.modifying = dict()
 		if deps is None:
 			deps = set()
-		deps |= requiredProperties(value)
+		deps |= requiredProperties(self.value)
 		for p in priorities:
 			if p in deps: 
 				raise RuntimeParseError(f'specifier for property {p} depends on itself')
@@ -78,6 +78,9 @@ class PropertyDefault:
 
 	def resolveFor(self, prop, overriddenDefs):
 		"""Create a Specifier for a property from this default and any superclass defaults."""
+		for other in overriddenDefs:
+			if other.isFinal:
+				raise RuntimeParseError(f'"{prop}" property cannot be overridden')
 		if self.isAdditive:
 			allReqs = self.requiredProperties
 			for other in overriddenDefs:

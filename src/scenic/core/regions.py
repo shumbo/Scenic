@@ -447,9 +447,8 @@ class PolylineRegion(Region):
 			points = list(lineString.coords)
 			if len(points) < 2:
 				raise RuntimeError('LineString has fewer than 2 points')
-			last = Vector(*points[0][:2])
+			last = points[0]
 			for point in points[1:]:
-				point = point[:2]
 				segments.append((last, point))
 				last = point
 			return segments
@@ -469,11 +468,11 @@ class PolylineRegion(Region):
 		pointA, pointB = random.choices(self.segments,
 		                                cum_weights=self.cumulativeLengths)[0]
 		interpolation = random.random()
-		x, y = averageVectors(pointA, pointB, weight=interpolation)
+		x, y, z = averageVectors(pointA, pointB, weight=interpolation)
 		if self.usingDefaultOrientation:
-			return OrientedVector(x, y, headingOfSegment(pointA, pointB))
+			return OrientedVector(x, y, z, headingOfSegment(pointA, pointB))
 		else:
-			return self.orient(Vector(x, y))
+			return self.orient(Vector(x, y, z))
 
 	def intersect(self, other, triedReversed=False):
 		poly = toPolygon(other)

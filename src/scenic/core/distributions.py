@@ -246,7 +246,7 @@ class CustomDistribution(Distribution):
 			and self.name == other.name
 			and self.evaluator == other.evaluator)
 
-	def __str__(self):
+	def __repr__(self):
 		return f'{self.name}{argsToString(self.dependencies)}'
 
 class TupleDistribution(Distribution, collections.abc.Sequence):
@@ -278,9 +278,14 @@ class TupleDistribution(Distribution, collections.abc.Sequence):
 		return (areEquivalent(self.coordinates, other.coordinates)
 			and self.builder == other.builder)
 
-	def __str__(self):
+	def __repr__(self):
 		coords = ', '.join(str(c) for c in self.coordinates)
-		return f'({coords}, builder={self.builder})'
+		if self.builder is list:
+			return f'[{coords}]'
+		elif self.builder is tuple:
+			return f'({coords})'
+		else:
+			return f'TupleDistribution({coords}, builder={self.builder})'
 
 def toDistribution(val):
 	"""Wrap Python data types with Distributions, if necessary.
@@ -347,7 +352,7 @@ class FunctionDistribution(Distribution):
 			and areEquivalent(self.kwargs, other.kwargs)
 			and self.support == other.support)
 
-	def __str__(self):
+	def __repr__(self):
 		args = argsToString(itertools.chain(self.arguments, self.kwargs.items()))
 		return f'{self.function.__name__}{args}'
 
@@ -398,10 +403,10 @@ class StarredDistribution(Distribution):
 	def sampleGiven(self, value):
 		return value[self.value]
 
-	def evaluateInner(self, context):
-		return StarredDistribution(valueInContext(self.value, context))
+	def evaluateInner(self, context, modifying):
+		return StarredDistribution(valueInContext(self.value, context, modifying), self.lineno)
 
-	def __str__(self):
+	def __repr__(self):
 		return f'*{self.value}'
 
 class MethodDistribution(Distribution):
@@ -441,7 +446,7 @@ class MethodDistribution(Distribution):
 			and areEquivalent(self.arguments, other.arguments)
 			and areEquivalent(self.kwargs, other.kwargs))
 
-	def __str__(self):
+	def __repr__(self):
 		args = argsToString(itertools.chain(self.arguments, self.kwargs.items()))
 		return f'{self.object}.{self.method.__name__}{args}'
 
@@ -505,7 +510,7 @@ class AttributeDistribution(Distribution):
 			retTy = None
 		return OperatorDistribution('__call__', self, args, valueType=retTy)
 
-	def __str__(self):
+	def __repr__(self):
 		return f'{self.object}.{self.attribute}'
 
 class OperatorDistribution(Distribution):
@@ -518,11 +523,21 @@ class OperatorDistribution(Distribution):
 		self.operator = operator
 		self.object = obj
 		self.operands = operands
+		self.symbol = allowedReversibleOperators.get(operator)
+		if self.symbol:
+			if operator[:3] == '__r':
+				self.reverse = '__' + operator[3:]
+			else:
+				self.reverse = '__r' + operator[2:]
+		else:
+			self.reverse = None
 
 	@staticmethod
 	def inferType(obj, operator):
 		if issubclass(obj.valueType, (float, int)):
-			return float
+			return float	# all allowed operators on floats return floats
+		elif func := getattr(obj.valueType, operator, None):
+			return typing.get_type_hints(func).get('return')
 		return None
 
 	def sampleGiven(self, value):
@@ -530,15 +545,18 @@ class OperatorDistribution(Distribution):
 		rest = [value[child] for child in self.operands]
 		op = getattr(first, self.operator)
 		result = op(*rest)
-		# handle horrible int/float mismatch
-		# TODO what is the right way to fix this???
-		if result is NotImplemented and isinstance(first, int):
-			first = float(first)
-			op = getattr(first, self.operator)
-			result = op(*rest)
+		if result is NotImplemented and self.reverse:
+			assert len(rest) == 1
+			rop = getattr(rest[0], self.reverse)
+			result = rop(first)
+		if result is NotImplemented and self.symbol:
+			raise TypeError(f"unsupported operand type(s) for {self.symbol}: "
+			                f"'{type(first).__name__}' and '{type(rest[0]).__name__}'")
 		return result
 
 	def evaluateInner(self, context, modifying):
+		if self.operator == '__mul__' and isinstance(self.object, Range):
+			breakpoint()
 		obj = valueInContext(self.object, context)
 		operands = tuple(valueInContext(arg, context) for arg in self.operands)
 		return OperatorDistribution(self.operator, obj, operands)
@@ -575,7 +593,7 @@ class OperatorDistribution(Distribution):
 			and areEquivalent(self.object, other.object)
 			and areEquivalent(self.operands, other.operands))
 
-	def __str__(self):
+	def __repr__(self):
 		return f'{self.object}.{self.operator}{argsToString(self.operands)}'
 
 # Operators which can be applied to distributions.
@@ -585,22 +603,26 @@ allowedOperators = (
 	'__neg__',
 	'__pos__',
 	'__abs__',
-	'__add__', '__radd__',
-	'__sub__', '__rsub__',
-	'__mul__', '__rmul__',
-	'__truediv__', '__rtruediv__',
-	'__floordiv__', '__rfloordiv__',
-	'__mod__', '__rmod__',
-	'__divmod__', '__rdivmod__',
-	'__pow__', '__rpow__',
 	'__round__',
 	'__getitem__',
 )
+allowedReversibleOperators = {
+	'__add__': '+', '__radd__': '+',
+	'__sub__': '-', '__rsub__': '-',
+	'__mul__': '*', '__rmul__': '*',
+	'__truediv__': '/', '__rtruediv__': '/',
+	'__floordiv__': '//', '__rfloordiv__': '//',
+	'__mod__': '%', '__rmod__': '%',
+	'__divmod__': 'divmod()', '__rdivmod__': 'divmod()',
+	'__pow__': '**', '__rpow__': '**',
+}
 def makeOperatorHandler(op):
 	def handler(self, *args):
+		if op == '__mul__':
+			breakpoint()
 		return OperatorDistribution(op, self, args)
 	return handler
-for op in allowedOperators:
+for op in itertools.chain(allowedOperators, allowedReversibleOperators):
 	setattr(Distribution, op, makeOperatorHandler(op))
 
 import scenic.core.type_support as type_support
@@ -675,7 +697,7 @@ class Range(Distribution):
 		return (areEquivalent(self.low, other.low)
 			and areEquivalent(self.high, other.high))
 
-	def __str__(self):
+	def __repr__(self):
 		return f'Range({self.low}, {self.high})'
 
 class Normal(Distribution):
@@ -750,7 +772,7 @@ class Normal(Distribution):
 		return (areEquivalent(self.mean, other.mean)
 			and areEquivalent(self.stddev, other.stddev))
 
-	def __str__(self):
+	def __repr__(self):
 		return f'Normal({self.mean}, {self.stddev})'
 
 class TruncatedNormal(Normal):
@@ -822,7 +844,7 @@ class TruncatedNormal(Normal):
 			and areEquivalent(self.stddev, other.stddev)
 			and self.low == other.low and self.high == other.high)
 
-	def __str__(self):
+	def __repr__(self):
 		return f'TruncatedNormal({self.mean}, {self.stddev}, {self.low}, {self.high})'
 
 class DiscreteRange(Distribution):
@@ -864,7 +886,7 @@ class DiscreteRange(Distribution):
 		return (self.low == other.low and self.high == other.high
 		        and self.weights == other.weights)
 
-	def __str__(self):
+	def __repr__(self):
 		return f'DiscreteRange({self.low}, {self.high}, {self.weights})'
 
 class Options(MultiplexerDistribution):
@@ -908,9 +930,9 @@ class Options(MultiplexerDistribution):
 
 	def evaluateInner(self, context, modifying):
 		if self.optWeights is None:
-			return type(self)(valueInContext(opt, context) for opt in self.options)
+			return type(self)(valueInContext(opt, context, modifying) for opt in self.options)
 		else:
-			return type(self)({valueInContext(opt, context): wt
+			return type(self)({valueInContext(opt, context, modifying): wt
 			                  for opt, wt in self.optWeights.items() })
 
 	def isEquivalentTo(self, other):
@@ -919,7 +941,7 @@ class Options(MultiplexerDistribution):
 		return (areEquivalent(self.index, other.index)
 		        and areEquivalent(self.options, other.options))
 
-	def __str__(self):
+	def __repr__(self):
 		if self.optWeights is not None:
 			return f'{type(self).__name__}({self.optWeights})'
 		else:
@@ -961,9 +983,9 @@ class UniformDistribution(Distribution):
 			raise RejectionException('uniform distribution over empty domain')
 		return random.choice(opts)
 
-	def evaluateInner(self, context):
-		opts = tuple(valueInContext(opt, context) for opt in self.options)
+	def evaluateInner(self, context, modifying):
+		opts = tuple(valueInContext(opt, context, modifying) for opt in self.options)
 		return UniformDistribution(opts)
 
-	def __str__(self):
+	def __repr__(self):
 		return f'UniformDistribution({self.options})'

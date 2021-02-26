@@ -70,7 +70,9 @@ def test_with():
 
 def test_at():
     ego = sampleEgoFrom('ego = Object at 149 @ 42')
-    assert tuple(ego.position) == pytest.approx((149, 42))
+    assert tuple(ego.position) == pytest.approx((149, 42, 0))
+
+# TODO: make a test that tests all three coordinates like above
 
 def test_offset_by():
     ego = sampleEgoFrom(
@@ -265,7 +267,7 @@ def test_following():
                          minSteps=4, defaultStepSize=1)
         ego = Object following vf from 1@1 for 4
     """)
-    assert tuple(ego.position) == pytest.approx((-1, 3))
+    assert tuple(ego.position) == pytest.approx((-1, 3, 0))
     assert ego.heading == pytest.approx(math.radians(90))
 
 def test_following_random():
@@ -274,4 +276,4 @@ def test_following_random():
         x = Range(1, 2)
         ego = Object following vf from 1@2 for x, facing x
     """)
-    assert tuple(ego.position) == pytest.approx((1+ego.heading, 2))
+    assert tuple(ego.position) == pytest.approx((1+ego.heading, 2, 0))

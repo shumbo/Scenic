@@ -204,7 +204,7 @@ class Scenario:
 				assert not needsSampling(sampledObj)
 				# position, heading
 				assert isinstance(sampledObj.position, Vector)
-				sampledObj.heading = float(sampledObj.heading)
+				assert isinstance(sampledObj.heading, float)
 				# behavior
 				behavior = sampledObj.behavior
 				if behavior is not None and not isinstance(behavior, Behavior):

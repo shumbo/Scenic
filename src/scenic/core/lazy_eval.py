@@ -63,7 +63,7 @@ class DelayedArgument(LazilyEvaluable):
 
 	def __getattr__(self, name):
 		return DelayedArgument(self._requiredProperties,
-			lambda context, specifier: getattr(self.evaluateIn(context), name))
+			lambda context, modifying: getattr(self.evaluateIn(context, modifying), name))
 
 	def __call__(self, *args, **kwargs):
 		dargs = [toDelayedArgument(arg) for arg in args]
@@ -130,7 +130,18 @@ def valueInContext(value, context, modifying={}):
 def toDelayedArgument(thing, internal=False):
 	if isinstance(thing, DelayedArgument):
 		return thing
-	return DelayedArgument(set(), lambda context, modifying: thing, _internal=internal)
+	# check if dictionary - check if delayed arg - dependencies for all values
+	if isinstance(thing, dict):
+		properties = set()
+		for val in thing.values():
+			if reqs := requiredProperties(val):
+				properties.update(reqs)
+		def helper(context, modifying):
+			return { key: valueInContext(val, context, modifying)
+					 for key, val in thing.items() }
+		return DelayedArgument(properties, helper, _internal=internal)
+	else:
+		return DelayedArgument(set(), lambda context, modifying: thing, _internal=internal)
 
 def requiredProperties(thing):
 	if hasattr(thing, '_requiredProperties'):

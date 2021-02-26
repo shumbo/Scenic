@@ -3,11 +3,7 @@ from scenic.simulators.webots.mars.model import *
 
 ego = Rover at 0 @ -2
 
-<<<<<<< HEAD
-goal = Goal at Range(-2, 2) @ (2, 2.5)
-=======
 goal = Goal at Range(-2, 2) @ Range(2, 2.5)
->>>>>>> public-branch
 
 # Bottleneck made of two pipes with a rock in between
 
