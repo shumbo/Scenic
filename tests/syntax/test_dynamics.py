@@ -205,7 +205,7 @@ def test_behavior_lazy():
     scenario = compileScenic("""
         vf = VectorField("Foo", lambda pos: pos.x)
         behavior Foo():
-            take 1 relative to vf
+            take (1 relative to vf).yaw
         ego = Object at 0.5@0, with behavior Foo
     """)
     actions = sampleEgoActions(scenario, maxSteps=1)
@@ -216,16 +216,16 @@ def test_behavior_lazy_nested():
         vf = VectorField("Foo", lambda pos: pos.x)
         behavior Foo():
             do Bar()
-            take -1 relative to vf
+            take (-1 relative to vf).yaw
         behavior Bar():
-            take 1 relative to vf
+            take (1 relative to vf).yaw
         behavior Baz():
             do Bar(); do Bar()
-        Object at -10@0, with behavior Baz
+        Object at -1.25@0, with behavior Baz
         ego = Object at 0.5@0, with behavior Foo
     """)
     actions = sampleActions(scenario, maxSteps=2)
-    assert tuple(actions) == (pytest.approx((1.5, -9)), pytest.approx((-0.5, -9)))
+    assert tuple(actions) == (pytest.approx((1.5, -0.25)), pytest.approx((-0.5, -0.25)))
 
 # Termination
 

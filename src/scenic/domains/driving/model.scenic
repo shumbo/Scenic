@@ -249,7 +249,8 @@ class Vehicle(DrivingObject):
     """
     regionContainedIn: roadOrShoulder
     position: Point on road
-    heading: (roadDirection at self.position) + self.roadDeviation
+    parentOrientation: roadDirection at self.position
+    yaw: self.roadDeviation
     roadDeviation: 0
     viewAngle: 90 deg
     width: 2
@@ -278,7 +279,7 @@ class Pedestrian(DrivingObject):
     """
     regionContainedIn: network.walkableRegion
     position: Point on network.walkableRegion
-    heading: Range(0, 360) deg
+    yaw: Range(0, 360) deg
     viewAngle: 90 deg
     width: 0.75
     length: 0.75

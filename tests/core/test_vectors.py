@@ -6,11 +6,13 @@ from scenic.core.distributions import Options, underlyingFunction
 def test_equality():
     v = Vector(1, 4)
     assert v == Vector(1, 4)
+    assert v == Vector(1, 4, 0)
     assert v != Vector(1, 5)
-    assert v == (1, 4)
+    assert v != Vector(1, 4, 9)
+    assert v == (1, 4, 0)
     assert v != (1,)
     assert v != (1, 4, 9)
-    assert v == [1, 4]
+    assert v == [1, 4, 0]
     assert v != [1]
     assert v != [1, 4, 9]
 

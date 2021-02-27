@@ -42,5 +42,5 @@ def test_left():
     assert tuple(ego.position) == pytest.approx((-2, 5, 0))
 
 def test_heading_set_directly():
-    with pytest.raises(InterpreterParseError):
+    with pytest.raises(RuntimeParseError):
         compileScenic('ego = Object with heading 4')

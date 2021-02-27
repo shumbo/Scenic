@@ -9,7 +9,7 @@ import pymesh
 
 from scenic.core.distributions import Samplable, needsSampling
 from scenic.core.specifiers import Specifier, PropertyDefault, ModifyingSpecifier
-from scenic.core.vectors import Vector, Orientation
+from scenic.core.vectors import Vector, Orientation, alwaysGlobalOrientation
 from scenic.core.geometry import (_RotatedRectangle, averageVectors, hypot, min,
                                   pointIsInCone)
 from scenic.core.regions import CircularRegion, SectorRegion
@@ -419,7 +419,7 @@ class OrientedPoint(Point):
 	                  * self.parentOrientation)
 	)
 	heading: PropertyDefault({'orientation'}, {'final'},
-	                         lambda self: self.orientation.getEuler()[0])
+	    lambda self: self.yaw if alwaysGlobalOrientation(self.parentOrientation) else self.orientation.yaw)
 
 	viewAngle: math.tau # TODO: @Matthew Implement 2-tuple view angle for 3D views 
 
@@ -434,7 +434,7 @@ class OrientedPoint(Point):
 
 	def relativize(self, vec):
 		pos = self.relativePosition(vec)
-		return OrientedPoint(position=pos, yaw=0, pitch=0, roll=0, parentOrientation=self.orientation)
+		return OrientedPoint(position=pos, parentOrientation=self.orientation)
 
 	def relativePosition(self, vec):
 		return self.position.offsetRotated(self.heading, vec)

@@ -90,7 +90,7 @@ from scenic.core.specifiers import Specifier, ModifyingSpecifier
 from scenic.core.lazy_eval import (DelayedArgument, needsLazyEvaluation, toDelayedArgument,
                                    valueInContext)
 from scenic.core.errors import RuntimeParseError, InvalidScenarioError
-from scenic.core.vectors import Orientation
+from scenic.core.vectors import Orientation, alwaysGlobalOrientation
 from scenic.core.external_params import ExternalParameter
 import scenic.core.requirements as requirements
 from scenic.core.simulators import RejectSimulationException
@@ -693,8 +693,8 @@ def Follow(F, X, D):
 	X = toVector(X, '"follow F from X for D" with X not a vector')
 	D = toScalar(D, '"follow F from X for D" with D not a number')
 	pos = F.followFrom(X, D)
-	heading = F[pos]
-	return OrientedPoint(position=pos, heading=heading)
+	orientation = F[pos]
+	return OrientedPoint(position=pos, parentOrientation=orientation)
 
 def CanSee(X, Y):
 	"""The 'X can see Y' polymorphic operator.
@@ -867,11 +867,13 @@ def Facing(heading):
 	# TODO: @Matthew Type check 'heading' to aovid IndexError 
 	if isinstance(heading, VectorField):
 		def helper(context, spec):
-			headingAtPos = heading[context.position] # TODO: @Matthew Needs to return an orientation
-			inverseQuat = context.parentOrientation.invertRotation()
-			desiredQuat = inverseQuat * headingAtPos 
-			euler = desiredQuat.getEuler()
-			return {'yaw': euler[0], 'pitch': euler[1], 'roll': euler[2]}
+			headingAtPos = heading[context.position]
+			if alwaysGlobalOrientation(context.parentOrientation):
+				orientation = headingAtPos	# simplify expr tree in common case
+			else:
+				inverseQuat = context.parentOrientation.invertRotation()
+				orientation = inverseQuat * headingAtPos
+			return {'yaw': orientation.yaw, 'pitch': orientation.pitch, 'roll': orientation.roll}
 			# return heading[context.position]
 		return Specifier({'yaw': 1, 'pitch': 1, 'roll': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 	else:

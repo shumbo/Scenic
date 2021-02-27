@@ -159,7 +159,7 @@ def coerceToHeading(thing) -> Heading:
 		else:
 			raise CoercionFailure("heading tuple must have 3 components")
 	elif isinstance(thing, Orientation):
-		return tuple(thing.getEuler())
+		return tuple(thing.eulerAngles)
 	h = thing.toHeading() if hasattr(thing, 'toHeading') else float(thing)
 	return (h, 0, 0)
 

@@ -20,7 +20,7 @@ def test_mutate():
         'from scenic.simulators.gta.map import setLocalMap\n'
         f'setLocalMap("{__file__}", "map.npz")\n'
         'from scenic.simulators.gta.model import *\n'
-        'ego = EgoCar with color CarColor(0, 0, 1)\n'
+        'ego = EgoCar with color Color(0, 0, 1)\n'
         'mutate'
     )
     scene, _ = scenario.generate(maxIterations=50)

@@ -10,10 +10,10 @@ def test_polygon_sampling():
     )
     r = PolygonalRegion(polygon=p)
     pts = [r.uniformPointInner() for i in range(3000)]
-    for x, y in pts:
-        assert 0 <= x <= 3 and 0 <= y <= 3
+    for x, y, z in pts:
+        assert 0 <= x <= 3 and 0 <= y <= 3 and z == 0
         assert not (1 < x < 2 and 1 < y < 2)
-    xs, ys = zip(*pts)
+    xs, ys, zs = zip(*pts)
     assert sum(1 <= x <= 2 for x in xs) <= 870
     assert sum(1 <= y <= 2 for y in ys) <= 870
     assert sum(x >= 1.5 for x in xs) >= 1250

@@ -11,6 +11,7 @@ import itertools
 import shapely.geometry
 import wrapt
 from scipy.spatial.transform import Rotation
+import numpy
 
 from scenic.core.distributions import (Samplable, Distribution, MethodDistribution,
     needsSampling, makeOperatorHandler, distributionMethod, distributionFunction,
@@ -172,24 +173,25 @@ class Orientation:
 	@property
 	def yaw(self) -> float:
 		"""Yaw in the global coordinate system."""
-		return self.getEuler()[0]
+		return self.eulerAngles[0]
 
 	@property
 	def pitch(self) -> float:
 		"""Pitch in the global coordinate system."""
-		return self.getEuler()[1]
+		return self.eulerAngles[1]
 
 	@property
 	def roll(self) -> float:
 		"""Roll in the global coordinate system."""
-		return self.getEuler()[2]
+		return self.eulerAngles[2]
 
 	@classmethod 
 	@distributionFunction
 	def fromEuler(cls, yaw, pitch, roll) -> Orientation:
 		return Orientation(Rotation.from_euler('ZXY', [yaw, pitch, roll], degrees=False).as_quat())
 
-	def getEuler(self) -> EulerAngles:
+	@utils.cached_property
+	def eulerAngles(self) -> EulerAngles:
 		"""Global intrinsic Euler angles yaw, pitch, roll."""
 		r = Rotation.from_quat(self.q)
 		return r.as_euler('ZXY', degrees=False)
@@ -237,8 +239,22 @@ class Orientation:
 		orientation = Orientation.fromEuler(yaw, pitch, roll)
 		inverseQuat = self.invertRotation()
 		desiredQuat = inverseQuat * orientation 
-		euler = desiredQuat.getEuler()
-		return euler
+		return desiredQuat.eulerAngles
+
+	def __eq__(self, other):
+		if not isinstance(other, Orientation):
+			return NotImplemented
+		return numpy.array_equal(self.q, other.q) or numpy.array_equal(self.q, -other.q)
+
+globalOrientation = Orientation.fromEuler(0, 0, 0)
+
+def alwaysGlobalOrientation(orientation):
+	"""Whether this orientation is always aligned with the global coordinate system.
+
+	Returns False if the orientation is a distribution or delayed argument, since
+	then the value cannot be known at this time.
+	"""
+	return isinstance(orientation, Orientation) and orientation == globalOrientation
 
 class EulerAngles(TupleDistribution):	# TODO replace with Tuple[float,float,float] ?
 	"""Triple of Euler angles. Used mainly for typechecking."""

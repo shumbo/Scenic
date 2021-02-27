@@ -7,6 +7,7 @@ import shapely.geometry
 import shapely.geos
 
 from scenic.core.distributions import (Samplable, MethodDistribution, OperatorDistribution,
+                                       AttributeDistribution,
                                        needsSampling, supportInterval, underlyingFunction)
 from scenic.core.object_types import Point, Object
 from scenic.core.geometry import normalizeAngle, polygonUnion, plotPolygon
@@ -45,10 +46,13 @@ def matchPolygonalField(heading, position):
     bounded disturbance. Returns a triplet consisting of the matched field if
     any, together with lower/upper bounds on the disturbance.
     """
-    if (isMethodCall(heading, VectorField.__getitem__)
-        and isinstance(heading.object, PolygonalVectorField)
-        and heading.arguments == (position,)):
-        return heading.object, 0, 0
+    if (isinstance(heading, AttributeDistribution)
+        and heading.attribute == 'yaw'):    # TODO generalize to other 3D angles?
+        orientation = heading.object
+        if (isMethodCall(orientation, VectorField.__getitem__)
+            and isinstance(orientation.object, PolygonalVectorField)
+            and orientation.arguments == (position,)):
+            return orientation.object, 0, 0
     elif isinstance(heading, OperatorDistribution) and heading.operator in ('__add__', '__radd__'):
         field, lower, upper = matchPolygonalField(heading.object, position)
         if field is not None:

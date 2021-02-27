@@ -1231,9 +1231,9 @@ noArgs = ast.arguments(
 	args=[], vararg=None,
 	kwonlyargs=[], kw_defaults=[],
 	kwarg=None, defaults=[])
-defaultValueArgs = ast.arguments(
+selfArg = ast.arguments(
     posonlyargs=[],
-    args=[ast.arg(arg='self', annotation=None), ast.arg(arg='spec', annotation=None)], vararg=None,
+    args=[ast.arg(arg='self', annotation=None)], vararg=None,
     kwonlyargs=[], kw_defaults=[],
     kwarg=None, defaults=[])
 tempArg = ast.arguments(
@@ -1984,7 +1984,7 @@ class ASTSurgeon(NodeTransformer):
 				args = [
 					Set([Str(prop) for prop in properties]),
 					Set([Str(attr) for attr in metaAttrs]),
-					Lambda(defaultValueArgs, origValue)
+					Lambda(selfArg, origValue)
 				]
 				value = Call(Name(createDefault, Load()), args, [])
 				copy_location(value, origValue)

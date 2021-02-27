@@ -23,12 +23,17 @@ def toPolygon(thing):
 	if needsSampling(thing):
 		return None
 	if hasattr(thing, 'polygon'):
-		return thing.polygon
-	if hasattr(thing, 'polygons'):
-		return thing.polygons
-	if hasattr(thing, 'lineString'):
-		return thing.lineString
-	return None
+		poly = thing.polygon
+	elif hasattr(thing, 'polygons'):
+		poly = thing.polygons
+	elif hasattr(thing, 'lineString'):
+		poly = thing.lineString
+	else:
+		return None
+	if poly.has_z:	# TODO revisit once we have 3D regions
+		return shapely.ops.transform(lambda x, y, z: (x, y), poly)
+	else:
+		return poly
 
 def regionFromShapelyObject(obj, orientation=None):
 	"""Build a 'Region' from Shapely geometry."""
@@ -402,7 +407,7 @@ class PolylineRegion(Region):
 			self.usingDefaultOrientation = False
 		super().__init__(name, orientation=orientation)
 		if points is not None:
-			points = tuple(points)
+			points = tuple(pt[:2] for pt in points)
 			if len(points) < 2:
 				raise RuntimeError('tried to create PolylineRegion with < 2 points')
 			self.points = points
@@ -468,11 +473,11 @@ class PolylineRegion(Region):
 		pointA, pointB = random.choices(self.segments,
 		                                cum_weights=self.cumulativeLengths)[0]
 		interpolation = random.random()
-		x, y, z = averageVectors(pointA, pointB, weight=interpolation)
+		x, y = averageVectors(pointA, pointB, weight=interpolation)
 		if self.usingDefaultOrientation:
-			return OrientedVector(x, y, z, headingOfSegment(pointA, pointB))
+			return OrientedVector(x, y, 0, headingOfSegment(pointA, pointB))
 		else:
-			return self.orient(Vector(x, y, z))
+			return self.orient(Vector(x, y, 0))
 
 	def intersect(self, other, triedReversed=False):
 		poly = toPolygon(other)
@@ -624,7 +629,7 @@ class PolygonalRegion(Region):
 		if polygon is None and points is None:
 			raise RuntimeError('must specify points or polygon for PolygonalRegion')
 		if polygon is None:
-			points = tuple(points)
+			points = tuple(pt[:2] for pt in points)
 			if len(points) == 0:
 				raise RuntimeError('tried to create PolygonalRegion from empty point list!')
 			for point in points:

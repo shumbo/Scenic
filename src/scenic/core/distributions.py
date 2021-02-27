@@ -472,7 +472,12 @@ def distributionMethod(method):
 class AttributeDistribution(Distribution):
 	"""Distribution resulting from accessing an attribute of a distribution"""
 	def __init__(self, attribute, obj):
-		super().__init__(obj)
+		valueType = None
+		vty = obj.valueType
+		if (vty is not object and (func := getattr(vty, attribute, None))
+		    and isinstance(func, property)):
+			valueType = typing.get_type_hints(func.fget).get('return')
+		super().__init__(obj, valueType=valueType)
 		self.attribute = attribute
 		self.object = obj
 

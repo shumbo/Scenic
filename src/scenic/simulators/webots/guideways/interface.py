@@ -47,7 +47,7 @@ class Guideway(Bordered):
 	def directionAt(self, point):
 		# TODO improve?
 		median = self.medianPoints
-		pt = np.array(point)
+		pt = np.array(point[:2])
 		# find closest point on median
 		dists = np.linalg.norm(median - pt, axis=1)
 		i, dist = min(enumerate(dists), key=lambda p: p[1])

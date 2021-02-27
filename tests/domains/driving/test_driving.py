@@ -93,7 +93,7 @@ def test_intersection(cached_maps):
         intersection = ego.intersection
         assert intersection is not None
         directions = intersection.nominalDirectionsAt(ego)
-        assert any(ego.heading == pytest.approx(direction) for direction in directions)
+        assert any(ego.orientation.q == pytest.approx(direction.q) for direction in directions)
 
 def test_curb(cached_maps):
     scenario = compileDrivingScenario(cached_maps, """

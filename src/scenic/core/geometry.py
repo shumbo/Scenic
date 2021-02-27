@@ -59,10 +59,10 @@ def subtractVectors(a, b):
 	return (ax - bx, ay - by)
 
 def averageVectors(a, b, weight=0.5):
-	ax, ay, az = a[0], a[1], a[2]
-	bx, by, bz = b[0], b[1], b[2]
+	ax, ay = a[0], a[1]
+	bx, by = b[0], b[1]
 	aw, bw = 1.0 - weight, weight
-	return (ax * aw + bx * bw, ay * aw + by * bw, az * aw + bz * bw)
+	return (ax * aw + bx * bw, ay * aw + by * bw)
 
 def rotateVector(vector, angle):
 	x, y = vector
@@ -90,8 +90,8 @@ def positionRelativeToPoint(point, heading, offset):
 
 def headingOfSegment(pointA, pointB):
 	# TODO: @pytest Update to 3D. Requires orientation
-	ax, ay, az = pointA
-	bx, by, bz = pointB
+	ax, ay = pointA
+	bx, by = pointB
 	return normalizeAngle(math.atan2(by - ay, bx - ax) - (math.pi / 2.0))
 
 # TODO: @pytest Update to 3D view angle. Requires orientation
