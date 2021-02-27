@@ -127,7 +127,7 @@ class Samplable(LazilyEvaluable):
 
 	def evaluateIn(self, context, modifying):
 		"""See LazilyEvaluable.evaluateIn."""
-		value = super().evaluateIn(context)
+		value = super().evaluateIn(context, modifying)
 		# Check that all dependencies have been evaluated
 		assert all(not needsLazyEvaluation(dep) for dep in value._dependencies)
 		return value
@@ -555,8 +555,6 @@ class OperatorDistribution(Distribution):
 		return result
 
 	def evaluateInner(self, context, modifying):
-		if self.operator == '__mul__' and isinstance(self.object, Range):
-			breakpoint()
 		obj = valueInContext(self.object, context)
 		operands = tuple(valueInContext(arg, context) for arg in self.operands)
 		return OperatorDistribution(self.operator, obj, operands)
@@ -618,8 +616,6 @@ allowedReversibleOperators = {
 }
 def makeOperatorHandler(op):
 	def handler(self, *args):
-		if op == '__mul__':
-			breakpoint()
 		return OperatorDistribution(op, self, args)
 	return handler
 for op in itertools.chain(allowedOperators, allowedReversibleOperators):

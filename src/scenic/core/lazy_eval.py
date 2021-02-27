@@ -136,12 +136,12 @@ def toDelayedArgument(thing, internal=False):
 		for val in thing.values():
 			if reqs := requiredProperties(val):
 				properties.update(reqs)
-		def helper(context, modifying):
-			return { key: valueInContext(val, context, modifying)
-					 for key, val in thing.items() }
-		return DelayedArgument(properties, helper, _internal=internal)
-	else:
-		return DelayedArgument(set(), lambda context, modifying: thing, _internal=internal)
+		if properties:
+			def helper(context, modifying):
+				return { key: valueInContext(val, context, modifying)
+						 for key, val in thing.items() }
+			return DelayedArgument(properties, helper, _internal=internal)
+	return DelayedArgument(set(), lambda context, modifying: thing, _internal=internal)
 
 def requiredProperties(thing):
 	if hasattr(thing, '_requiredProperties'):
