@@ -620,11 +620,12 @@ python-versions = "*"
 [extras]
 dev = ["pytest-randomly", "pytest", "sphinx", "sphinx_rtd_theme", "tox", "astor", "pyproj"]
 guideways = ["pyproj"]
+test = ["pytest-randomly", "pytest"]
 
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "bf84cf74f80d42fa4a40eb25afad0d50d07f31c6c0117e19e61ef346d0469007"
+content-hash = "b7e7f6ed6e8b91972e20a65efc6e9c4cd4dcd79227f2722724912e876cdf4589"
 
 [metadata.files]
 alabaster = [
