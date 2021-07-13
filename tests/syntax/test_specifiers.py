@@ -249,12 +249,12 @@ def test_in_distribution():
     assert any(x > 5 for x in xs)
 
 def test_in_heading_distribution():
-    scenario = compileScenic(
-        'ra = RectangularRegion(0@0, 0, 2, 2)\n'
-        'ra.orientation = VectorField("foo", lambda pt: 1)\n'
-        'rb = PolylineRegion([0 @ 0, 1 @ 1])\n'
-        'ego = Object in Uniform(ra, rb)'
-    )
+    scenario = compileScenic("""
+         ra = RectangularRegion(0@0, 0, 2, 2)
+         ra.orientation = VectorField("foo", lambda pt: 1)
+         rb = PolylineRegion([0 @ 0, 1 @ 1])
+         ego = Object in Uniform(ra, rb)
+    """)
     hs = [sampleEgo(scenario).heading for i in range(60)]
     h2 = pytest.approx(-math.pi/4)
     assert all(h == 1 or h == h2 for h in hs)

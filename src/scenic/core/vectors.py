@@ -8,8 +8,8 @@ import random
 import collections
 import itertools
 
+import decorator
 import shapely.geometry
-import wrapt
 from scipy.spatial.transform import Rotation
 import numpy
 
@@ -38,10 +38,10 @@ class CustomVectorDistribution(VectorDistribution):
 	def sampleGiven(self, value):
 		return self.sampler(value)
 
-	def evaluateInner(self, context):
+	def evaluateInner(self, context, modifying):
 		if self.evaluator is None:
 			raise NotImplementedError('evaluateIn() not supported by this distribution')
-		return self.evaluator(self, context)
+		return self.evaluator(self, context, modifying)
 
 	def __str__(self):
 		deps = utils.argsToString(self.dependencies)
@@ -61,9 +61,9 @@ class VectorOperatorDistribution(VectorDistribution):
 		op = getattr(first, self.operator)
 		return op(*rest)
 
-	def evaluateInner(self, context):
-		obj = valueInContext(self.object, context)
-		operands = tuple(valueInContext(arg, context) for arg in self.operands)
+	def evaluateInner(self, context, modifying):
+		obj = valueInContext(self.object, context, modifying)
+		operands = tuple(valueInContext(arg, context, modifying) for arg in self.operands)
 		return VectorOperatorDistribution(self.operator, obj, operands)
 
 	def __str__(self):
@@ -99,12 +99,12 @@ def scalarOperator(method):
 	op = method.__name__
 	setattr(VectorDistribution, op, makeOperatorHandler(op))
 
-	@wrapt.decorator
-	def wrapper(wrapped, instance, args, kwargs):
+	@decorator.decorator
+	def wrapper(wrapped, instance, *args, **kwargs):
 		if any(needsSampling(arg) for arg in itertools.chain(args, kwargs.values())):
 			return MethodDistribution(method, instance, args, kwargs)
 		else:
-			return wrapped(*args, **kwargs)
+			return wrapped(instance, *args, **kwargs)
 	return wrapper(method)
 
 def makeVectorOperatorHandler(op):
@@ -116,8 +116,8 @@ def vectorOperator(method):
 	op = method.__name__
 	setattr(VectorDistribution, op, makeVectorOperatorHandler(op))
 
-	@wrapt.decorator
-	def wrapper(wrapped, instance, args, kwargs):
+	@decorator.decorator
+	def wrapper(wrapped, instance, *args, **kwargs):
 		def helper(*args):
 			if needsSampling(instance):
 				return VectorOperatorDistribution(op, instance, args)
@@ -127,14 +127,14 @@ def vectorOperator(method):
 				# see analogous comment in distributionFunction
 				return makeDelayedFunctionCall(helper, args, {})
 			else:
-				return wrapped(*args)
+				return wrapped(instance, *args)
 		return helper(*args)
 	return wrapper(method)
 
 def vectorDistributionMethod(method):
 	"""Decorator for methods that produce vectors. See distributionMethod."""
-	@wrapt.decorator
-	def wrapper(wrapped, instance, args, kwargs):
+	@decorator.decorator
+	def wrapper(wrapped, instance, *args, **kwargs):
 		def helper(*args, **kwargs):
 			if any(needsSampling(arg) for arg in itertools.chain(args, kwargs.values())):
 				return VectorMethodDistribution(method, instance, args, kwargs)
@@ -143,7 +143,7 @@ def vectorDistributionMethod(method):
 				# see analogous comment in distributionFunction
 				return makeDelayedFunctionCall(helper, args, kwargs)
 			else:
-				return wrapped(*args, **kwargs)
+				return wrapped(instance, *args, **kwargs)
 		return helper(*args, **kwargs)
 	return wrapper(method)
 
@@ -416,6 +416,11 @@ class OrientedVector(Vector):
 
 	def toHeading(self):
 		return self.heading
+
+	def evaluateInner(self, context, modifying):
+		hdg = valueInContext(self.heading, context, modifying)
+		return OrientedVector(*(valueInContext(coord, context, modifying)
+		                        for coord in self.coordinates), hdg)
 
 	def __eq__(self, other):
 		if type(other) is not OrientedVector:
