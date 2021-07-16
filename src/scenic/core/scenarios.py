@@ -13,6 +13,7 @@ from scenic.core.utils import areEquivalent
 from scenic.core.errors import InvalidScenarioError
 from scenic.core.dynamics import Behavior
 from scenic.core.requirements import BoundRequirement
+from scenic.core.object_types import DefaultShape
 
 class Scene:
 	"""Scene()
@@ -181,6 +182,7 @@ class Scenario:
 		rejection = True
 		iterations = 0
 		while rejection is not None:
+
 			if iterations > 0:	# rejected the last sample
 				if verbosity >= 2:
 					print(f'  Rejected sample {iterations} because of: {rejection}')
@@ -198,9 +200,12 @@ class Scenario:
 				continue
 			rejection = None
 			ego = sample[self.egoObject]
+
 			# Normalize types of some built-in properties
 			for obj in objects:
 				sampledObj = sample[obj]
+				from scenic.core.distributions import dependencies
+				print(dependencies(sampledObj))
 				assert not needsSampling(sampledObj)
 				# position, heading
 				assert isinstance(sampledObj.position, Vector)
