@@ -806,9 +806,8 @@ class PolygonalRegion(Region):
 		state.pop('_cached_prepared', None)		# prepared geometries are not picklable
 		return state
 
-class PolyhedronRegion(Region):
-	"""Region given by a Polyhedron"""
-	# TODO: @Matthew Implement. 
+class MeshRegion(Region):
+	"""Region given by an oriented and positioned mesh"""
 	def __init__(self, name=None, polyhedron=None, orientation=None):
 		super().__init__('Polyhedron', orientation=orientation)
 

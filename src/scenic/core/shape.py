@@ -22,18 +22,6 @@ class Shape(ABC):
     def getBoundingBoxExtents(self):
         pass
 
-    # @abstractmethod
-    # def containsPoint(self, point):
-    #     pass
-
-    # @abstractmethod
-    # def intersects(self, shape):
-    #     pass
-
-    # @abstractmethod
-    # def samplePoint(self):
-    #     pass
-
 class DefaultShape(Shape):
     def __init__(self, parent):
         self.parent = parent
@@ -109,10 +97,9 @@ class BoxShape(MeshShape, Samplable):
         self.mesh = None
 
     def sampleGiven(self, value):
-        self.width = value[self.width]
-        self.length = value[self.length]
-        self.height = value[self.height]
+        width = value[self.width]
+        length = value[self.length]
+        height = value[self.height]
 
-        super().__init__(trimesh.creation.box((self.width, self.length, self.height)))
-
-        assert False
+        # TODO: Lazy transformation into a mesh if needed.
+        return MeshShape(trimesh.creation.box((width, length, height)))

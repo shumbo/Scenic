@@ -495,13 +495,8 @@ class Object(OrientedPoint, _RotatedRectangle):
 
 		# Resolve DefaultShape if necessary
 		if isinstance(self.shape, DefaultShape):
-			print("Begin")
-			print(self.shape)
 			self.shape.resolve()
-			print(self.shape)
-			print("End")
-			from scenic.core.distributions import dependencies
-			print("Initial deps=", dependencies(self.shape))
+			self._dependencies = self._dependencies + (self.shape,)
 
 		#TODO: Add scaling of mesh if w/l/h have been overidden.
 
@@ -535,6 +530,10 @@ class Object(OrientedPoint, _RotatedRectangle):
 	# 		other.shape.resolve_default_mesh()
 
 	# 	return self.shape.intersects(other.shape)
+
+	@cached_property
+	def getRegion(self):
+		pass
 
 	@cached_property
 	def left(self):

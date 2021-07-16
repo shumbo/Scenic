@@ -204,12 +204,6 @@ class Scenario:
 			# Normalize types of some built-in properties
 			for obj in objects:
 				sampledObj = sample[obj]
-				from scenic.core.distributions import dependencies
-				print("FULL DEPS:")
-				print(dependencies(sampledObj))
-				for dep in dependencies(sampledObj):
-					print(dependencies(dep))
-				print()
 				assert not needsSampling(sampledObj)
 				# position, heading
 				assert isinstance(sampledObj.position, Vector)
