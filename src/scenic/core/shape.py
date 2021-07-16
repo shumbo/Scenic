@@ -44,7 +44,7 @@ class DefaultShape(Shape):
     def resolve(self):
         self.parent.shape = BoxShape(self.parent.width, self.parent.length, self.parent.height)
 
-class MeshShape(Shape, Samplable):
+class MeshShape(Shape):
     """ A Shape subclass defined by a Trimesh object.
 
     :param mesh: A trimesh.Trimesh mesh object.
@@ -113,6 +113,6 @@ class BoxShape(MeshShape, Samplable):
         self.length = value[self.length]
         self.height = value[self.height]
 
-        self.mesh = trimesh.creation.box((self.width, self.length, self.height))
-        
+        super().__init__(trimesh.creation.box((self.width, self.length, self.height)))
+
         assert False
