@@ -34,7 +34,7 @@ class Shape(ABC):
     # def samplePoint(self):
     #     pass
 
-class DefaultShape(Shape, Samplable):
+class DefaultShape(Shape):
     def __init__(self, parent):
         self.parent = parent
 
@@ -42,21 +42,9 @@ class DefaultShape(Shape, Samplable):
         return (1,1,1)
 
     def resolve(self):
-        extents = (self.parent.width, self.parent.length, self.parent.height)
+        self.parent.shape = BoxShape(self.parent.width, self.parent.length, self.parent.height)
 
-        print("dependencies")
-        print(extents)
-
-        Samplable.__init__(self, extents)
-
-        self.parent.shape = MeshShape.createBoxShape(extents)
-
-    def sampleGiven(self, values):
-        print("VALUES:")
-        print(values)
-        assert False
-
-class MeshShape(Shape):
+class MeshShape(Shape, Samplable):
     """ A Shape subclass defined by a Trimesh object.
 
     :param mesh: A trimesh.Trimesh mesh object.
@@ -110,9 +98,21 @@ class MeshShape(Shape):
 
     #     return oriented_mesh
 
-    @staticmethod
-    @distributionFunction
-    def createBoxShape(extents):
-        mesh = trimesh.creation.box(extents)
+class BoxShape(MeshShape, Samplable):
+    def __init__(self, width, length, height):
+        Samplable.__init__(self, [width, length, height])
 
-        return MeshShape(mesh)
+        self.width = width
+        self.length = length
+        self.height = height
+
+        self.mesh = None
+
+    def sampleGiven(self, value):
+        self.width = value[self.width]
+        self.length = value[self.length]
+        self.height = value[self.height]
+
+        self.mesh = trimesh.creation.box((self.width, self.length, self.height))
+        
+        assert False

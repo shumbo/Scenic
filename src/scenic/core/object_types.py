@@ -500,6 +500,8 @@ class Object(OrientedPoint, _RotatedRectangle):
 			self.shape.resolve()
 			print(self.shape)
 			print("End")
+			from scenic.core.distributions import dependencies
+			print("Initial deps=", dependencies(self.shape))
 
 		#TODO: Add scaling of mesh if w/l/h have been overidden.
 
