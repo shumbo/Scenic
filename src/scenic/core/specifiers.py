@@ -2,7 +2,7 @@
 
 import itertools
 
-from scenic.core.lazy_eval import (DelayedArgument, toDelayedArgument, requiredProperties,
+from scenic.core.lazy_eval import (DelayedArgument, valueInContext, requiredProperties,
                                    needsLazyEvaluation)
 from scenic.core.distributions import toDistribution
 from scenic.core.errors import RuntimeParseError
@@ -18,7 +18,7 @@ class Specifier:
 		if not isinstance(priorities, dict):
 			priorities = {priorities: -1}
 		self.priorities = priorities
-		self.value = toDelayedArgument(value, internal)
+		self.value = value
 		self.modifying = dict()
 		if deps is None:
 			deps = set()
@@ -30,7 +30,7 @@ class Specifier:
 
 	def applyTo(self, obj, modifying):
 		"""Apply specifier to an object, including the specified modified properties."""
-		val = self.value.evaluateIn(obj, modifying)
+		val = valueInContext(self.value, obj, modifying)
 		if isinstance(val, dict):
 			for prop in modifying:
 				distV = toDistribution(val[prop])

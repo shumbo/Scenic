@@ -244,9 +244,9 @@ class CircularRegion(Region):
 		return CircularRegion(value[self.center], value[self.radius],
 		                      name=self.name, resolution=self.resolution)
 
-	def evaluateInner(self, context):
-		center = valueInContext(self.center, context)
-		radius = valueInContext(self.radius, context)
+	def evaluateInner(self, context, modifying):
+		center = valueInContext(self.center, context, modifying)
+		radius = valueInContext(self.radius, context, modifying)
 		return CircularRegion(center, radius,
 		                      name=self.name, resolution=self.resolution)
 
@@ -312,11 +312,11 @@ class SectorRegion(Region):
 			value[self.heading], value[self.angle],
 			name=self.name, resolution=self.resolution)
 
-	def evaluateInner(self, context):
-		center = valueInContext(self.center, context)
-		radius = valueInContext(self.radius, context)
-		heading = valueInContext(self.heading, context)
-		angle = valueInContext(self.angle, context)
+	def evaluateInner(self, context, modifying):
+		center = valueInContext(self.center, context, modifying)
+		radius = valueInContext(self.radius, context, modifying)
+		heading = valueInContext(self.heading, context, modifying)
+		angle = valueInContext(self.angle, context, modifying)
 		return SectorRegion(center, radius, heading, angle,
 		                    name=self.name, resolution=self.resolution)
 
@@ -365,11 +365,11 @@ class RectangularRegion(_RotatedRectangle, Region):
 			value[self.width], value[self.length],
 			name=self.name)
 
-	def evaluateInner(self, context):
-		position = valueInContext(self.position, context)
-		heading = valueInContext(self.heading, context)
-		width = valueInContext(self.width, context)
-		length = valueInContext(self.length, context)
+	def evaluateInner(self, context, modifying):
+		position = valueInContext(self.position, context, modifying)
+		heading = valueInContext(self.heading, context, modifying)
+		width = valueInContext(self.width, context, modifying)
+		length = valueInContext(self.length, context, modifying)
 		return RectangularRegion(position, heading, width, length,
 		                         name=self.name)
 
@@ -998,9 +998,9 @@ class IntersectionRegion(Region):
 		return IntersectionRegion(*regs, orientation=value[self.orientation],
 		                          sampler=self.sampler, name=self.name)
 
-	def evaluateInner(self, context):
-		regs = (valueInContext(reg, context) for reg in self.regions)
-		orientation = valueInContext(self.orientation, context)
+	def evaluateInner(self, context, modifying):
+		regs = (valueInContext(reg, context, modifying) for reg in self.regions)
+		orientation = valueInContext(self.orientation, context, modifying)
 		return IntersectionRegion(*regs, orientation=orientation, sampler=self.sampler,
 		                          name=self.name)
 
@@ -1049,10 +1049,10 @@ class DifferenceRegion(Region):
 		return DifferenceRegion(regionA, regionB, orientation=value[self.orientation],
 		                        sampler=self.sampler, name=self.name)
 
-	def evaluateInner(self, context):
-		regionA = valueInContext(self.regionA, context)
-		regionB = valueInContext(self.regionB, context)
-		orientation = valueInContext(self.orientation, context)
+	def evaluateInner(self, context, modifying):
+		regionA = valueInContext(self.regionA, context, modifying)
+		regionB = valueInContext(self.regionB, context, modifying)
+		orientation = valueInContext(self.orientation, context, modifying)
 		return DifferenceRegion(regionA, regionB, orientation=orientation,
 		                        sampler=self.sampler, name=self.name)
 

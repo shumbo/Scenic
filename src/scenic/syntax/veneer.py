@@ -87,7 +87,7 @@ from scenic.core.type_support import (isA, toType, toTypes, toScalar, toHeading,
 from scenic.core.geometry import normalizeAngle, apparentHeadingAtPoint
 from scenic.core.object_types import _Constructible
 from scenic.core.specifiers import Specifier, ModifyingSpecifier
-from scenic.core.lazy_eval import (DelayedArgument, needsLazyEvaluation, toDelayedArgument,
+from scenic.core.lazy_eval import (DelayedArgument, needsLazyEvaluation, requiredProperties,
                                    valueInContext)
 from scenic.core.errors import RuntimeParseError, InvalidScenarioError
 from scenic.core.vectors import Orientation, alwaysGlobalOrientation
@@ -200,11 +200,11 @@ def wrapStarredValue(value, lineno):
 	else:
 		raise RuntimeParseError(f'iterable unpacking cannot be applied to {value}')
 
-def callWithStarArgs(func, /, *args, **kwargs):
-	if not canUnpackDistributions(func):
+def callWithStarArgs(_func_to_call, *args, **kwargs):
+	if not canUnpackDistributions(_func_to_call):
 		# wrap function to delay evaluation until starred distributions are sampled
-		func = distributionFunction(func)
-	return func(*args, **kwargs)
+		_func_to_call = distributionFunction(_func_to_call)
+	return _func_to_call(*args, **kwargs)
 
 # Simulations
 
@@ -878,8 +878,7 @@ def Facing(heading):
 		return Specifier({'yaw': 1, 'pitch': 1, 'roll': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 	else:
 		heading = toHeading(heading, "facing x with x not a heading")
-		heading = toDelayedArgument(heading)
-		headingDeps = heading._requiredProperties
+		headingDeps = requiredProperties(heading)
 		def helper(context, spec):
 			nonlocal heading
 			heading = valueInContext(heading, context)
