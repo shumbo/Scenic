@@ -10,12 +10,13 @@ from scenic.core.specifiers import Specifier, PropertyDefault, ModifyingSpecifie
 from scenic.core.vectors import Vector, Orientation, alwaysGlobalOrientation
 from scenic.core.geometry import (_RotatedRectangle, averageVectors, hypot, min,
                                   pointIsInCone)
-from scenic.core.regions import CircularRegion, SectorRegion
+from scenic.core.regions import CircularRegion, SectorRegion, MeshRegion
 from scenic.core.type_support import toVector, toHeading, toType, toScalar
 from scenic.core.lazy_eval import needsLazyEvaluation
 from scenic.core.utils import DefaultIdentityDict, areEquivalent, cached_property
 from scenic.core.errors import RuntimeParseError
 from scenic.core.shape import Shape, DefaultShape, MeshShape
+from scenic.core.regions import IntersectionRegion
 
 ## Abstract base class
 
@@ -526,20 +527,20 @@ class Object(OrientedPoint, _RotatedRectangle):
 		proxy = object.__getattribute__(self, '_dynamicProxy')
 		object.__delattr__(proxy, name)
 
-	# def containsPoint(self, point):
-	# 	return self.shape.countainsPoint(point)
+	def containsPoint(self, point):
+		return self.getRegion().containsPoint(point)
 
-	# def intersects(self, other):
-	# 	assert isinstance(other, Object)
+	def intersects(self, other):
+		assert isinstance(other, Object)
 
-	# 	if isinstance(other.shape, DefaultShape):
-	# 		other.shape.resolve_default_mesh()
+		if needsSampling(self.shape) or needsSampling(other.shape):
+			return IntersectionRegion(self, other)
+		else:
+			other_region = other.getRegion()
+			return self.getRegion().intersects(other_region)
 
-	# 	return self.shape.intersects(other.shape)
-
-	@cached_property
 	def getRegion(self):
-		pass
+		return MeshRegion(mesh=self.shape.mesh, position=self.position, orientation=self.orientation)
 
 	@cached_property
 	def left(self):
