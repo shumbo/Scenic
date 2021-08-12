@@ -5,18 +5,18 @@ import math
 import random
 from abc import ABC, abstractmethod
 
-import pymesh
-
-from scenic.core.distributions import Samplable, needsSampling
+from scenic.core.distributions import Samplable, needsSampling, distributionMethod
 from scenic.core.specifiers import Specifier, PropertyDefault, ModifyingSpecifier
 from scenic.core.vectors import Vector, Orientation, alwaysGlobalOrientation
 from scenic.core.geometry import (_RotatedRectangle, averageVectors, hypot, min,
                                   pointIsInCone)
-from scenic.core.regions import CircularRegion, SectorRegion
+from scenic.core.regions import CircularRegion, SectorRegion, MeshRegion
 from scenic.core.type_support import toVector, toHeading, toType, toScalar
 from scenic.core.lazy_eval import needsLazyEvaluation
 from scenic.core.utils import DefaultIdentityDict, areEquivalent, cached_property
 from scenic.core.errors import RuntimeParseError
+from scenic.core.shape import Shape, DefaultShape, MeshShape
+from scenic.core.regions import IntersectionRegion
 
 ## Abstract base class
 
@@ -307,25 +307,6 @@ class HeadingMutator(Mutator):
 	def __hash__(self):
 		return hash(self.stddev)
 
-
-## Shapes
-# TODO: @Matthew `Shape` subclasses include voxels, mesh, etc 
-class Shape(ABC):
-	"""An abstract base class for Scenic objects.
-
-	Scenic objects have a shape property associated with them that are 
-	implemented internally as meshes that describe its geometry. This 
-	abstract class implements the procedure to perform mesh processing
-	as well as several common methods supported by meshes that an object
-	will use. 
-	"""
-	def __init__(self):
-		pass
-
-	@abstractmethod
-	def foo(self):
-		pass
-
 ## Point
 
 class Point(_Constructible):
@@ -457,7 +438,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 		length (float): Length of the object, i.e. extent along its Y axis.
 		  Default value 1.
 		height (float): Height of the object, i.e. extent along its Z axis.
-		  Default value 1. 
+		  Default value 1.
 		allowCollisions (bool): Whether the object is allowed to intersect
 		  other objects. Default value ``False``.
 		requireVisible (bool): Whether the object is required to be visible
@@ -465,6 +446,8 @@ class Object(OrientedPoint, _RotatedRectangle):
 		regionContainedIn (`Region` or ``None``): A `Region` the object is
 		  required to be contained in. If ``None``, the object need only be
 		  contained in the scenario's workspace.
+		shape: A Shape object to be used internally to handle collision detection,
+		  amongst other boolean operators for geometry.
 		cameraOffset (`Vector`): Position of the camera for the ``can see``
 		  operator, relative to the object's ``position``. Default ``0 @ 0``.
 
@@ -477,15 +460,15 @@ class Object(OrientedPoint, _RotatedRectangle):
 		behavior: Behavior for dynamic agents, if any (see :ref:`dynamics`). Default
 			value ``None``.
 	"""
-	width: 1
-	length: 1
-	height: 1
+	width: PropertyDefault(('shape',), {}, lambda self: self.shape.getBoundingBoxExtents()[0])
+	length: PropertyDefault(('shape',), {}, lambda self: self.shape.getBoundingBoxExtents()[1])
+	height: PropertyDefault(('shape',), {}, lambda self: self.shape.getBoundingBoxExtents()[2])
 
 	allowCollisions: False
 	requireVisible: True
 	regionContainedIn: None
 	cameraOffset: Vector(0, 0)
-	# TODO: @Matthew Object needs a `shape` property 
+	shape: PropertyDefault((), {}, lambda self: DefaultShape(self))
 
 	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
 	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))
@@ -509,9 +492,16 @@ class Object(OrientedPoint, _RotatedRectangle):
 		self.hl = hl = self.length / 2
 		self.hh = hh = self.height / 2
 		self.radius = hypot(hw, hl, hh)	# circumcircle; for collision detection
-		self.inradius = min(hw, hl, hh)	# incircle; for collision detection
+		self.inradius = 0 #min(hw, hl, hh)	# incircle; for collision detection
 
 		self._relations = []
+
+		# Resolve DefaultShape if necessary
+		if isinstance(self.shape, DefaultShape):
+			self.shape.resolve()
+			self._dependencies = self._dependencies + (self.shape,)
+
+		#TODO: Add scaling of mesh if w/l/h have been overidden.
 
 	def _specify(self, prop, value):
 		# Normalize types of some built-in properties
@@ -536,6 +526,21 @@ class Object(OrientedPoint, _RotatedRectangle):
 	def __delattr__(self, name):
 		proxy = object.__getattribute__(self, '_dynamicProxy')
 		object.__delattr__(proxy, name)
+
+	def containsPoint(self, point):
+		return self.getRegion().containsPoint(point)
+
+	def intersects(self, other):
+		assert isinstance(other, Object)
+
+		if needsSampling(self.shape) or needsSampling(other.shape):
+			return IntersectionRegion(self, other)
+		else:
+			other_region = other.getRegion()
+			return self.getRegion().intersects(other_region)
+
+	def getRegion(self):
+		return MeshRegion(mesh=self.shape.mesh, position=self.position, orientation=self.orientation)
 
 	@cached_property
 	def left(self):

@@ -13,6 +13,7 @@ from scenic.core.utils import areEquivalent
 from scenic.core.errors import InvalidScenarioError
 from scenic.core.dynamics import Behavior
 from scenic.core.requirements import BoundRequirement
+from scenic.core.object_types import DefaultShape
 
 class Scene:
 	"""Scene()
@@ -141,15 +142,15 @@ class Scenario:
 			if staticVisibility and oi.requireVisible is True and oi is not self.egoObject:
 				if not self.egoObject.canSee(oi):
 					raise InvalidScenarioError(f'Object at {oi.position} is not visible from ego')
-			if not oi.allowCollisions:
-				# Require object to not intersect another object
-				for j in range(i):
-					oj = objects[j]
-					if oj.allowCollisions or not staticBounds[j]:
-						continue
-					if oi.intersects(oj):
-						raise InvalidScenarioError(f'Object at {oi.position} intersects'
-												   f' object at {oj.position}')
+			# if not oi.allowCollisions:
+			# 	# Require object to not intersect another object
+			# 	for j in range(i):
+			# 		oj = objects[j]
+			# 		if oj.allowCollisions or not staticBounds[j]:
+			# 			continue
+			# 		if oi.intersects(oj):
+			# 			raise InvalidScenarioError(f'Object at {oi.position} intersects'
+			# 									   f' object at {oj.position}')
 
 	def hasStaticBounds(self, obj):
 		if needsSampling(obj.position):
@@ -182,6 +183,7 @@ class Scenario:
 		rejection = True
 		iterations = 0
 		while rejection is not None:
+
 			if iterations > 0:	# rejected the last sample
 				if verbosity >= 2:
 					print(f'  Rejected sample {iterations} because of: {rejection}')
@@ -199,6 +201,7 @@ class Scenario:
 				continue
 			rejection = None
 			ego = sample[self.egoObject]
+
 			# Normalize types of some built-in properties
 			for obj in objects:
 				sampledObj = sample[obj]
@@ -225,12 +228,12 @@ class Scenario:
 					rejection = 'object visibility'
 					break
 				# Require object to not intersect another object
-				if not vi.allowCollisions:
-					for j in range(i):
-						vj = sample[objects[j]]
-						if not vj.allowCollisions and vi.intersects(vj):
-							rejection = 'object intersection'
-							break
+				# if not vi.allowCollisions:
+				# 	for j in range(i):
+				# 		vj = sample[objects[j]]
+				# 		if not vj.allowCollisions and vi.intersects(vj):
+				# 			rejection = 'object intersection'
+				# 			break
 				if rejection is not None:
 					break
 			if rejection is not None:

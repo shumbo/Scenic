@@ -9,6 +9,9 @@ import shapely.geometry
 import shapely.ops
 import shapely.prepared
 
+import trimesh
+from trimesh.transformations import translation_matrix, quaternion_matrix, concatenate_matrices
+
 from scenic.core.distributions import (Samplable, RejectionException, needsSampling,
                                        distributionMethod)
 from scenic.core.lazy_eval import valueInContext
@@ -806,36 +809,6 @@ class PolygonalRegion(Region):
 		state.pop('_cached_prepared', None)		# prepared geometries are not picklable
 		return state
 
-class PolyhedronRegion(Region):
-	"""Region given by a Polyhedron"""
-	# TODO: @Matthew Implement. 
-	def __init__(self, name=None, polyhedron=None, orientation=None):
-		super().__init__('Polyhedron', orientation=orientation)
-
-	def uniformPointInner(self):
-		pass
-
-	def intersect(self, other):
-		pass
-	
-	def union(self, other):
-		pass
-
-	def containsPoint(self, point):
-		pass
-
-	def containsObject(self, obj):
-		pass
-
-	def __str__(self):
-		return '<PolyhedronRegion>'
-
-	def __str__(self):
-		return '<PolyhedronRegion>'
-
-	def __eq__(self, other):
-		pass
-
 class PointSetRegion(Region):
 	"""Region consisting of a set of discrete points.
 
@@ -1081,3 +1054,50 @@ class DifferenceRegion(Region):
 
 	def __repr__(self):
 		return f'DifferenceRegion({self.regionA}, {self.regionB})'
+
+class MeshRegion(Region):
+	"""Region given by an oriented and positioned mesh. The mesh is first placed so the
+	origin is at the center of the bounding box. The mesh is then translated so the center
+	of the bounding box of the mesh is at positon, and rotated to orientation.
+	"""
+	def __init__(self, mesh, name=None, position=(0,0,0), orientation=(1,0,0,0)):
+		super().__init__(name=name, orientation=orientation)
+		self.mesh = mesh.copy()
+		self.mesh.vertices -= self.mesh.bounding_box.center_mass
+
+		position_matrix = translation_matrix(position)
+		rotation_matrix = quaternion_matrix(orientation.q)
+
+		transform_matrix = concatenate_matrices(position_matrix, rotation_matrix)
+
+		self.mesh.apply_transform(transform_matrix)
+
+	def containsPoint(self, point):
+		return self.mesh.contains([point])
+
+	def intersects(self, region):
+		assert isinstance(region, MeshRegion)  # TODO: Generalize to non mesh objects
+
+		collision_manager = trimesh.collision.CollisionManager()
+
+		collision_manager.add_object("SelfRegion", self.mesh)
+		collision_manager.add_object("OtherRegion", region.mesh)
+
+		is_collision = collision_manager.in_collision_internal()[0]
+
+		return is_collision
+
+	def intersection(self, other):
+		raise NotImplementedError()
+	
+	def union(self, other):
+		raise NotImplementedError()
+
+	def samplePointSurface(self):
+		raise NotImplementedError()
+
+	def samplePointVolume(self):
+		raise NotImplementedError()
+
+	def containsObject(self, obj):
+		raise NotImplementedError()
