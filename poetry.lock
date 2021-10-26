@@ -727,7 +727,7 @@ test = ["pytest-randomly", "pytest"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "498bdc0f8fd57fbbbf78c8795eff9728593c61248cc40b78417564f43b254e19"
+content-hash = "83536caafd766d2fc3b4bf3fe93c17cf246c3942c3f49cc9dbb24412e4560e84"
 
 [metadata.files]
 alabaster = [
