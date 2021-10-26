@@ -146,6 +146,7 @@ def pruneRelativeHeading(scenario, verbosity):
     of F which satisfy the relative heading requirements w.r.t. some cell of F' which
     is within the distance bound.
     """
+    # TODO Add test for empty pruned polygon (Might cause crash?)
     # Check which objects are (approximately) aligned to polygonal vector fields
     fields = {}
     for obj in scenario.objects:

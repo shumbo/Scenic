@@ -499,7 +499,8 @@ class Object(OrientedPoint, _RotatedRectangle):
 		# Resolve DefaultShape if necessary
 		if isinstance(self.shape, DefaultShape):
 			self.shape.resolve()
-			self._dependencies = self._dependencies + (self.shape,)
+			if needsSampling(self.shape):
+				self._dependencies = self._dependencies + (self.shape,)
 
 		#TODO: Add scaling of mesh if w/l/h have been overidden.
 

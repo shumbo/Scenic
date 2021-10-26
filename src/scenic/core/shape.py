@@ -30,7 +30,10 @@ class DefaultShape(Shape):
         return (1,1,1)
 
     def resolve(self):
-        self.parent.shape = BoxShape(self.parent.width, self.parent.length, self.parent.height)
+        if needsSampling(self.parent.width) or needsSampling(self.parent.length) or needsSampling(self.parent.height):
+            self.parent.shape = BoxShape(self.parent.width, self.parent.length, self.parent.height)
+        else:
+            self.parent.shape = MeshShape(trimesh.creation.box((self.parent.width, self.parent.length, self.parent.height)))
 
 class MeshShape(Shape):
     """ A Shape subclass defined by a Trimesh object.

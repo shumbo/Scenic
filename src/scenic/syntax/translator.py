@@ -240,7 +240,7 @@ dumpTranslatedPython = False
 dumpFinalAST = False
 dumpASTPython = False
 verbosity = 0
-usePruning = False
+usePruning = True
 
 ## Preamble
 # (included at the beginning of every module to be translated;
