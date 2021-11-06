@@ -62,6 +62,14 @@ def test_distance():
     """)
     assert p == pytest.approx(math.hypot(7 - 5, -4 - 10))
 
+def test_distance_3d():
+    p = sampleParamPFrom("""
+        ego = Object at (5, 10, 20)
+        other = Object at (7, -4, 15)
+        param p = distance to other
+    """)
+    assert p == pytest.approx(math.hypot(7 - 5, -4 - 10, 15 - 20))
+
 def test_distance_no_ego():
     with pytest.raises(RuntimeParseError):
         compileScenic("""
@@ -72,6 +80,10 @@ def test_distance_no_ego():
 def test_distance_from():
     ego = sampleEgoFrom('ego = Object with wobble distance from -3@2 to 4@5')
     assert ego.wobble == pytest.approx(math.hypot(4 - -3, 5 - 2))
+
+def test_distance_from_3d():
+    ego = sampleEgoFrom('ego = Object with wobble distance from (-3, 2, 1) to (4, 5, 6)')
+    assert ego.wobble == pytest.approx(math.hypot(4 - -3, 5 - 2, 6 - 1))
 
 def test_distance_to_region():
     p = sampleParamPFrom("""
@@ -91,6 +103,14 @@ def test_angle():
     """)
     assert p == pytest.approx(math.radians(-45))
 
+def test_angle_3d():
+    p = sampleParamPFrom("""
+        ego = Object facing (30 deg, 0 deg, 30 deg)
+        other = Object facing (65 deg, 0 deg, 65 deg), at (10, 10, 10)
+        param p = angle to other
+    """)
+    assert p == pytest.approx(math.radians(-45)) # passes, but shouldn't? 
+
 def test_angle_no_ego():
     with pytest.raises(RuntimeParseError):
         compileScenic("""
@@ -101,6 +121,10 @@ def test_angle_no_ego():
 def test_angle_from():
     ego = sampleEgoFrom('ego = Object facing angle from 2@4 to 3@5')
     assert ego.heading == pytest.approx(math.radians(-45))
+
+def test_angle_from_3d():
+    ego = sampleEgoFrom('ego = Object facing angle from (2, 4, 5) to (3, 5, 6)')
+    assert ego.heading == pytest.approx(math.radians(-45)) # passes, but shouldn't
 
 ## Boolean operators
 
@@ -224,12 +248,20 @@ def test_offset_by():
     ego = sampleEgoFrom('ego = Object at 3@2 offset by -4@10')
     assert tuple(ego.position) == pytest.approx((-1, 12, 0))
 
+def test_offset_by_3d():
+    ego = sampleEgoFrom('ego = Object at (3, 2, 1) offset by (-4, 10, 5)')
+    assert tuple(ego.position) == pytest.approx((-1, 12, 6))
+
 # offset along
 
 def test_offset_along_heading():
     ego = sampleEgoFrom('ego = Object at 3@2 offset along 45 deg by -4@10')
     d = 1 / math.sqrt(2)
     assert tuple(ego.position) == pytest.approx((3 - 10*d - 4*d, 2 + 10*d - 4*d, 0))
+
+def test_offset_along_heading_3d():
+    ego = sampleEgoFrom('ego = Object at (3, 2, 5) offset along (90 deg, 0 deg, 90 deg) by (4, 10, 5)')
+    assert tuple(ego.position) == pytest.approx((-7, 7, 1))
 
 def test_offset_along_field():
     ego = sampleEgoFrom("""
@@ -238,6 +270,14 @@ def test_offset_along_field():
     """)
     d = 1 / math.sqrt(2)
     assert tuple(ego.position) == pytest.approx((15 + 3*d + 2*d, 7 - 3*d + 2*d, 0))
+
+def test_offset_along_field_3d():
+    ego = sampleEgoFrom("""
+        vf = VectorField("Foo", lambda pos: 3 deg * pos.x) 
+        ego = Object at (15, 7, 5) offset along vf by (2, -3, 4) 
+    """)
+    d = 1 / math.sqrt(2)
+    assert tuple(ego.position) == pytest.approx((15 + 3*d + 2*d, 7 - 3*d + 2*d, 9))
 
 # follow
 
@@ -249,6 +289,16 @@ def test_follow():
         ego = Object at p, facing p.heading
     """)
     assert tuple(ego.position) == pytest.approx((-1, 3, 0))
+    assert ego.heading == pytest.approx(math.radians(90))
+
+def test_follow_3d():
+    ego = sampleEgoFrom("""
+        vf = VectorField("Foo", lambda pos: 90 deg * (pos.x + pos.y - 1),
+                         minSteps=4, defaultStepSize=1)
+        p = follow vf from (1, 1, 1) for 4
+        ego = Object at p, facing p.heading
+    """)
+    assert tuple(ego.position) == pytest.approx((-1, 3, 1))
     assert ego.heading == pytest.approx(math.radians(90))
 
 ## Region operators

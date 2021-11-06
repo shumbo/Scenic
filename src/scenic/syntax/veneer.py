@@ -753,7 +753,7 @@ def On(region):
 	Specifies 'position' and 'parentOrientation' with no dependencies.
 
 	May be used to modify an already specified 'position' property if a compatible
-	specifier has already done so. 
+	specifier has already done so.
 
 	Allowed forms:
 		on <region>

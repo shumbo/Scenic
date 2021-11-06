@@ -1066,7 +1066,7 @@ class MeshRegion(Region):
 		self.mesh.vertices -= self.mesh.bounding_box.center_mass
 
 		position_matrix = translation_matrix(position)
-		rotation_matrix = quaternion_matrix(orientation.q)
+		rotation_matrix = quaternion_matrix((orientation.w, orientation.x, orientation.y, orientation.z))
 
 		transform_matrix = concatenate_matrices(position_matrix, rotation_matrix)
 
