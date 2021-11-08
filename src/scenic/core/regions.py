@@ -1083,9 +1083,6 @@ class MeshRegion(Region):
 		collision_manager.add_object("SelfRegion", self.mesh)
 		collision_manager.add_object("OtherRegion", region.mesh)
 
-		print(repr(self.mesh))
-		print(repr(region.mesh))
-
 		is_collision = collision_manager.in_collision_internal()
 
 		return is_collision

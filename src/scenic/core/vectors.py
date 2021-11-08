@@ -313,8 +313,8 @@ class Vector(Samplable, collections.abc.Sequence):
 		return Vector((c * x) - (s * y), (s * x) + (c * y), z)
 
 	@vectorOperator
-	def offsetRotated(self, heading, offset) -> Vector:
-		ro = offset.rotatedBy(heading)
+	def offsetRotated(self, angleOrOrientation, offset) -> Vector:
+		ro = offset.rotatedBy(angleOrOrientation)
 		return self + ro
 
 	@vectorOperator

@@ -794,25 +794,53 @@ def Beyond(pos, offset, fromPt=None):
 
 	If the 'from <vector>' is omitted, the position of ego is used.
 	"""
+	# Ensure X can be coaxed into  vector form
 	pos = toVector(pos, 'specifier "beyond X by Y" with X not a vector')
-	dType = underlyingType(offset)
-	if dType is float or dType is int:
-		offset = Vector(0, offset, 0)
-	elif dType is not Vector:
-		raise RuntimeParseError('specifier "beyond X by Y" with Y not a number or vector')
+
+	# If no from vector is specified, assume ego
 	if fromPt is None:
 		fromPt = ego()
+
+	fromPt = toVector(fromPt, 'specifier "beyond X by Y from Z" with Z not a vector')
+
+	dType = underlyingType(offset)
+
+	if dType is float or dType is int:
+		offset = Vector(0, offset, 0)
+	else:
+		# offset is not float or int, so try to coax it into vector form.
+		offset = toVector(offset, 'specifier "beyond X by Y" with X not a number or vector')
+
+	# If the from vector is oriented, set that to orientation. Else assume global coords.
 	if isinstance(fromPt, OrientedPoint):
 		orientation = fromPt.orientation
 	else:
 		orientation = Orientation.fromEuler(0,0,0)
-	fromPt = toVector(fromPt, 'specifier "beyond X by Y from Z" with Z not a vector')
+
 	# TODO: @Matthew Compute orientation along line of sight
-	lineOfSight = fromPt.angleTo(pos)
 	# TODO: @Matthew `val` pos.offsetRotated() should be helper function defining both position and parent orientation
 	# as dictionary of values
+
+	print("pos", pos)
+	print("frompt", fromPt)
+	print("offset", offset)
+
+	direction = pos - fromPt
+	sphericalCoords = direction.cartesianToSpherical()
+	offsetRotation = Orientation.fromEuler(sphericalCoords[1], sphericalCoords[2], 0)
+
+	new_direction = pos + offset.applyRotation(offsetRotation)
+
+	# def helper(context, spec):
+	# 	direction = pos - context.position
+	# 	inverseQuat = context.parentOrientation.invertRotation()
+	# 	rotated = direction.applyRotation(inverseQuat)
+	# 	sphericalCoords = rotated.cartesianToSpherical() # Ignore the rho, sphericalCoords[0]
+	# 	return {'yaw': sphericalCoords[1], 'pitch': sphericalCoords[2]}
+	# return Specifier({'yaw': 1, 'pitch': 3}, DelayedArgument({'position', 'parentOrientation'}, helper))
+
 	return Specifier({'position': 1, 'parentOrientation': 3},
-	   				 {'position': pos.offsetRotated(lineOfSight, offset), 'parentOrientation': orientation})
+	   				 {'position': new_direction, 'parentOrientation': orientation})
 
 def VisibleFrom(base):
 	"""The 'visible from <Point>' specifier.

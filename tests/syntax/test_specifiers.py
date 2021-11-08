@@ -95,6 +95,15 @@ def test_offset_by_3d_2():
     )
     assert tuple(ego.position) == pytest.approx((5, 30, 25))
 
+def test_offset_by_3d_3():
+    ego = sampleEgoFrom(
+        'ego = Object at (10,40,35), facing (90 deg,90 deg,90 deg)\n'
+        'ego = Object offset by (5, 10, 15)'
+    )
+    # Check that new ego has correct position and that it has correctly
+    # inherited orientation.
+    assert tuple(ego.position) == pytest.approx((5, 55, 45))
+
 def test_offset_by_no_ego():
     with pytest.raises(RuntimeParseError):
         compileScenic('ego = Object offset by 10 @ 40')

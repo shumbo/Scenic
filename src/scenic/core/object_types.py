@@ -420,7 +420,7 @@ class OrientedPoint(Point):
 		return OrientedPoint(position=pos, parentOrientation=self.orientation)
 
 	def relativePosition(self, vec):
-		return self.position.offsetRotated(self.heading, vec)
+		return self.position.offsetRotated(self.orientation, vec)
 
 	def toHeading(self) -> float:
 		return self.heading
