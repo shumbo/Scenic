@@ -10,7 +10,7 @@ import shapely.geometry
 import shapely.ops
 
 import scenic.simulators.webots.world_parser as world_parser
-from scenic.simulators.webots.common import webotsToScenicPosition, webotsToScenicRotation
+from scenic.simulators.webots.utils import webotsToScenicPosition, webotsToScenicRotation
 from scenic.core.workspaces import Workspace
 from scenic.core.vectors import PolygonalVectorField
 from scenic.core.regions import PolygonalRegion, PolylineRegion, nowhere
@@ -28,7 +28,7 @@ def polygonWithPoints(points):
 	return polygon
 
 def regionWithPolygons(polygons, orientation=None):
-	if len(polygons) == 0:
+	if polygons.is_empty:
 		return nowhere
 	else:
 		return PolygonalRegion(polygon=polygons, orientation=orientation)
@@ -268,7 +268,7 @@ class WebotsWorkspace(Workspace):
 			allCells.extend(road.cells)
 		for crossroad in self.crossroads:
 			if crossroad.region is not None:
-				for poly in crossroad.region.polygons:
+				for poly in crossroad.region.polygons.geoms:
 					allCells.append((poly, None))
 		if not allCells:
 			raise RuntimeError('Webots world has no drivable geometry!')
@@ -347,7 +347,6 @@ class WebotsWorkspace(Workspace):
 		super().__init__(self.workspaceRegion)
 
 	def show(self, plt):
-		plt.gca().set_aspect('equal')
 		self.drivableRegion.show(plt)
 		for road in self.roads:
 			road.show(plt)

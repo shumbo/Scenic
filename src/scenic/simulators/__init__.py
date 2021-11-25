@@ -1,16 +1,17 @@
-"""World models and associated code for particular simulators.
+"""World models and interfaces for particular simulators.
 
 .. raw:: html
 
    <h2>Submodules</h2>
 
 .. autosummary::
-   :toctree: _autosummary
+   :toctree:
 
+   newtonian
    carla
    gta
+   lgsvl
    webots
    xplane
-   formats
+   utils
 """
-

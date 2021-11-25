@@ -1,23 +1,31 @@
-"""Assorted utility functions and common exceptions."""
+"""Assorted utility functions."""
 
-import functools
+import collections
 import math
+import sys
+import typing
+
+import decorator
 
 sqrt2 = math.sqrt(2)
 
 def cached(oldMethod):
     """Decorator for making a method with no arguments cache its result"""
     storageName = f'_cached_{oldMethod.__name__}'
-    @functools.wraps(oldMethod)
-    def newMethod(self):
+    @decorator.decorator
+    def wrapper(wrapped, *args, **kwargs):
+        self = args[0]
         try:
             # Use __getattribute__ for direct lookup in case self is a Distribution
             return self.__getattribute__(storageName)
         except AttributeError:
-            value = oldMethod(self)
+            value = wrapped(self)
             setattr(self, storageName, value)
             return value
-    return newMethod
+    return wrapper(oldMethod)
+
+def cached_property(oldMethod):
+    return property(cached(oldMethod))
 
 def cached_property(oldMethod):
     return property(cached(oldMethod))
@@ -38,7 +46,8 @@ def areEquivalent(a, b):
         X = (0, 1)
         Y = (0, 1)
 
-    does not make X and Y always have equal values!"""
+    does not make X and Y always have equal values!
+    """
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
         if len(a) != len(b):
             return False
@@ -80,20 +89,49 @@ def areEquivalent(a, b):
     else:
         return a == b
 
-class ParseError(Exception):
-    """An error produced by attempting to parse an invalid Scenic program."""
-    pass
+class DefaultIdentityDict:
+    """Dictionary which is the identity map by default.
 
-class RuntimeParseError(ParseError):
-    """A Scenic parse error generated during execution of the translated Python."""
-    pass
+    The map works on all objects, even unhashable ones, but doesn't support all
+    of the standard mapping operations.
+    """
+    def __init__(self):
+        self.storage = {}
 
-class InvalidScenarioError(Exception):
-    """Error raised for syntactically-valid but otherwise problematic Scenic programs."""
-    pass
+    def __getitem__(self, key):
+        return self.storage.get(id(key), key)
 
-class InconsistentScenarioError(InvalidScenarioError):
-    """Error for scenarios with inconsistent requirements."""
-    def __init__(self, line, message):
-        self.lineno = line
-        super().__init__('Inconsistent requirement on line ' + str(line) + ': ' + message)
+    def __setitem__(self, key, value):
+        self.storage[id(key)] = value
+
+    def __contains__(self, key):
+        return id(key) in self.storage
+
+    def __repr__(self):
+        pairs = (f'{hex(key)}: {value!r}' for key, value in self.storage.items())
+        allPairs = ', '.join(pairs)
+        return f'<DefaultIdentityDict {{{allPairs}}}>'
+
+# Generic type introspection functions backported to Python 3.7
+# (code taken from Python 3.8 implementation)
+
+def get_type_origin(tp):
+    assert sys.version_info >= (3, 7)
+    if sys.version_info >= (3, 8):
+        return typing.get_origin(tp)
+    if isinstance(tp, typing._GenericAlias):
+        return tp.__origin__
+    if tp is typing.Generic:
+        return typing.Generic
+    return None
+
+def get_type_args(tp):
+    assert sys.version_info >= (3, 7)
+    if sys.version_info >= (3, 8):
+        return typing.get_args(tp)
+    if isinstance(tp, typing._GenericAlias) and not tp._special:
+        res = tp.__args__
+        if get_type_origin(tp) is collections.abc.Callable and res[0] is not Ellipsis:
+            res = (list(res[:-1]), res[-1])
+        return res
+    return ()

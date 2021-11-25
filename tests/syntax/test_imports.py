@@ -1,9 +1,16 @@
+"""Tests for imports of Scenic modules.
+
+Note that this is different from modular scenarios defined using the 'scenario'
+statement. This file simply tests imports of old-style Scenic modules; the new
+system of modular scenarios is tested in 'test_modular.py'.
+"""
 
 import os.path
 import pytest
 
-from scenic import scenarioFromFile, scenarioFromString as compileScenic
+from scenic import scenarioFromFile
 from scenic.syntax.translator import InvalidScenarioError
+from tests.utils import compileScenic, sampleScene, sampleSceneFrom
 
 def test_import_top_absolute(request):
     base = os.path.dirname(request.fspath)
@@ -69,6 +76,46 @@ def test_inherit_requirements(runLocally):
             constrainedObj = scene.objects[1]
             assert constrainedObj.position.x > 0
 
+def test_inherit_constructors(runLocally):
+    with runLocally():
+        scenario = compileScenic(
+            'from helper import Caerbannog\n'
+            'ego = Caerbannog'
+        )
+
+def test_multiple_imports(runLocally):
+    with runLocally():
+        scenario = compileScenic("""
+            import helper
+            import helper
+            ego = Object
+            import helper
+        """)
+        assert len(scenario.objects) == 2
+        scene = sampleScene(scenario)
+        assert len(scene.objects) == 2
+
+def test_import_in_try(runLocally):
+    with runLocally():
+        scenario = compileScenic("""
+            try:
+                from helper import Caerbannog
+                x = 12
+            finally:
+                y = 4
+            ego = Caerbannog at x @ y
+        """)
+
+def test_import_in_except(runLocally):
+    with runLocally():
+        scenario = compileScenic("""
+            try:
+                import __non_ex_ist_ent___
+            except ImportError:
+                from helper import Caerbannog
+            ego = Caerbannog
+        """)
+
 def test_import_multiline_1():
     compileScenic(
         'from math import factorial, \\\n'
@@ -82,3 +129,19 @@ def test_import_multiline_2():
         '  pow)\n'
         'ego = Object with width pow(factorial(4), 2)'
     )
+
+def test_import_override_param():
+    scene = sampleSceneFrom("""
+        param helper_file = 'foo'
+        import tests.syntax.helper
+        ego = Object
+    """)
+    assert scene.params['helper_file'] != 'foo'
+
+def test_model_not_override_param():
+    scene = sampleSceneFrom("""
+        param helper_file = 'foo'
+        model tests.syntax.helper
+        ego = Object
+    """)
+    assert scene.params['helper_file'] == 'foo'
