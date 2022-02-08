@@ -50,6 +50,7 @@ from ast import RShift, Starred, Lambda, AnnAssign, Set, Str, Subscript, Index, 
 from ast import Num, Yield, YieldFrom, FunctionDef, Attribute, Constant, Assign, Expr
 from ast import Return, Raise, If, UnaryOp, Not, ClassDef, Nonlocal, Global, Compare, Is, Try
 from ast import Break, Continue, AsyncFunctionDef, Pass, While
+from ast import Or, And, Not, List
 
 from scenic.core.distributions import Samplable, RejectionException, needsSampling, toDistribution
 from scenic.core.lazy_eval import needsLazyEvaluation
@@ -483,6 +484,9 @@ prefixOperators = {
 	('follow',): 'Follow',
 	('visible',): 'Visible',
 	('not', 'visible'): 'NotVisible',
+	('always',): 'Always',
+	('eventually',): 'Eventually',
+	('next',): 'Next',
 }
 assert all(1 <= len(op) <= 2 for op in prefixOperators)
 prefixIncipits = { op[0] for op in prefixOperators }
@@ -573,6 +577,9 @@ for op in infixOperators:
 		else:
 			infixImplementations[node] = (op.arity, imp)
 generalInfixOps = { tokens: op.token for tokens, op in infixTokens.items() if not op.contexts }
+
+## temporal operators also need special handling to wrap their argument in a closure
+requirementOperators = ("Always", "Eventually", "Next")
 
 ## Direct syntax replacements
 
@@ -1335,6 +1342,17 @@ class LocalFinder(NodeVisitor):
 			self.names.add(node.name)
 		self.generic_visit(node)
 
+# TODO(shun): Move those to an appropriate place
+ALWAYS = "Always"
+EVENTUALLY = "Eventually"
+NEXT = "Next"
+REQUIREMENT_AND = "RequirementAnd"
+REQUIREMENT_OR = "RequirementOr"
+REQUIREMENT_NOT = "RequirementNot"
+ATOMIC_PROPOSITION = "AtomicProposition"
+
+TEMPORAL_REQUIREMENT_FACTORIES = [ALWAYS, EVENTUALLY, NEXT, REQUIREMENT_AND, REQUIREMENT_OR, REQUIREMENT_NOT, ATOMIC_PROPOSITION]
+
 class ASTSurgeon(NodeTransformer):
 	def __init__(self, constructors, filename):
 		super().__init__()
@@ -1407,6 +1425,88 @@ class ASTSurgeon(NodeTransformer):
 			newNode = BinOp(self.visit(left), op, self.visit(right))
 		return copy_location(newNode, node)
 
+	def create_atomic_proposition_factory(self, node):
+		"""
+		Given an expression, create an atomic proposition factory.
+
+		Note: You must call `self.visit(node)` manually. This method does not make the surgeon visit the node.
+		"""
+		lineNum = Constant(node.lineno)
+		copy_location(lineNum, node)
+
+		closure = Lambda(noArgs, node)
+		copy_location(closure, node)
+
+		ap = Call(
+				func=Name(
+					id=ATOMIC_PROPOSITION,
+					ctx=Load()
+				),
+				args=[closure, lineNum],
+				keywords=[],
+			)
+		return ap
+
+	def is_temporal_requirement_factory(self, node):
+		return isinstance(node, Call) and isinstance(node.func, Name) and node.func.id in TEMPORAL_REQUIREMENT_FACTORIES
+
+	def visit_BoolOp(self, node):
+		if self.inRequire:
+			# convert `and` and `or` inside requirements into function calls
+			# Note: BoolOp is either `and` or `or` so it always needs transformation inside a requirement
+			lineNum = Constant(node.lineno)
+			copy_location(lineNum, node) # TODO(shun): what should be the second argument?
+
+			# 1. wrap each operand with a lambda function
+			operands = []
+			for operand in node.values:
+				if self.is_temporal_requirement_factory(operand):
+					# if the operand is already an temporal requirement factory, keep it
+					operands.append(self.visit(operand))
+					continue
+				# if the operand is not an temporal requirement factory, make it an AP
+				closure = self.create_atomic_proposition_factory(self.visit(operand))
+				operands.append(closure)
+			
+			# 2. create a function call and pass operands
+			# TODO(shun): Move this dictionary to an appropriate location
+			boolOpToFunctionName = {
+				Or: "RequirementOr",
+				And: "RequirementAnd"
+			}
+			funcId = boolOpToFunctionName.get(type(node.op))
+			newNode = Call(
+				func=Name(
+					id=funcId,
+					ctx=Load()
+				),
+				# pass a list of operands as the first argument
+				args=[List(elts=operands, ctx=Load()), lineNum],
+				keywords=[],
+			)
+			return copy_location(newNode, node)
+		return self.generic_visit(node)
+	
+	def visit_UnaryOp(self, node):
+		# rewrite `not` in requirements into function calls
+		if self.inRequire and isinstance(node.op, Not):
+			lineNum = Constant(node.lineno)
+			copy_location(lineNum, node)
+			
+			operand = node.operand
+			newOperand = operand if self.is_temporal_requirement_factory(operand) else self.create_atomic_proposition_factory(self.visit(operand))
+			
+			newNode = Call(
+				func=Name(
+					id=REQUIREMENT_NOT,
+					ctx=Load()
+				),
+				args=[newOperand, lineNum],
+				keywords=[],
+			)
+			return copy_location(newNode, node)
+		return self.generic_visit(node)
+
 	def visit_Raise(self, node):
 		"""Handle Scenic statements encoded as raise statements.
 
@@ -1465,7 +1565,15 @@ class ASTSurgeon(NodeTransformer):
 			lineNum = Constant(node.lineno)			# save line number for error messages
 			copy_location(closure, req)
 			copy_location(lineNum, req)
-			newArgs = [reqID, closure, lineNum, name]
+			condition = closure
+			if func.id == requireStatement:
+				if self.is_temporal_requirement_factory(req):
+					# TODO(shun): Make sure this works in all cases
+					condition = req
+				else:
+					pass
+					condition = self.create_atomic_proposition_factory(req)
+			newArgs = [reqID, condition, lineNum, name]
 			if prob:
 				newArgs.append(prob)
 			return copy_location(Expr(Call(func, newArgs, [])), node)
@@ -1746,6 +1854,22 @@ class ASTSurgeon(NodeTransformer):
 			newNode = Call(newFunc, newArgs, newKeywords)
 		newNode = copy_location(newNode, node)
 		ast.fix_missing_locations(newNode)
+
+		# wrap temporal requirement in lambda
+		# FIXME(shun): Should I also check if the node is in a requirement here?
+		if isinstance(func, Name) and func.id in requirementOperators:
+			assert self.inRequire # FIXME(shun): Is this right way of defining the scope of the operator? Error message?
+			checkedArgs = node.args
+			self.validateSimpleCall(node, (1, None), args=checkedArgs) # FIXME: Do I need this?
+			rawRequirement = checkedArgs[0]
+			requirement = self.visit(rawRequirement)
+			newRequirement = requirement if self.is_temporal_requirement_factory(requirement) else self.create_atomic_proposition_factory(requirement)
+			name = Constant(None)
+			lineNum = Constant(node.lineno)			# save line number for error messages
+			copy_location(lineNum, newRequirement)
+			newArgs = [newRequirement, lineNum, name]
+			return copy_location(Call(func, newArgs, []), node)
+
 		return newNode
 
 	def visit_AsyncFunctionDef(self, node):
