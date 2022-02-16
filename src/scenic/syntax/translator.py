@@ -228,7 +228,8 @@ def compileStream(stream, namespace, params={}, model=None, filename='<stream>')
 			# Execute it
 			executeCodeIn(code, namespace)
 		# Extract scenario state from veneer and store it
-		storeScenarioStateIn(namespace, requirements)
+		# TODO(shun): requirements should no longer be needed
+		storeScenarioStateIn(namespace, requirements, propositionSyntax)
 	finally:
 		veneer.deactivate()
 	if verbosity >= 2:
@@ -1464,14 +1465,16 @@ class ASTSurgeon(NodeTransformer):
 		closure = Lambda(noArgs, node)
 		copy_location(closure, node)
 
-		reqSyntaxId = self._register_requirement_syntax(node)
+		syntaxId = self._register_requirement_syntax(node)
+		syntaxIdConst = Constant(syntaxId)
+		copy_location(syntaxIdConst, node)
 
 		ap = Call(
 			func=Name(id=ATOMIC_PROPOSITION, ctx=Load()),
 			args=[closure],
 			keywords=[
 				keyword(arg="line", value=lineNum),
-				keyword(arg="reqSyntaxId", value=Constant(reqSyntaxId)),
+				keyword(arg="syntaxId", value=syntaxIdConst),
 			],
 		)
 
@@ -1519,7 +1522,7 @@ class ASTSurgeon(NodeTransformer):
 				args=[List(elts=operands, ctx=Load())],
 				keywords=[
 					keyword(arg="line", value=lineNum),
-					keyword(arg="reqSyntaxId", value=syntaxIdConst),
+					keyword(arg="syntaxId", value=syntaxIdConst),
 				],
 			)
 			return copy_location(newNode, node)
@@ -1551,7 +1554,7 @@ class ASTSurgeon(NodeTransformer):
 				args=[newOperand],
 				keywords=[
 					keyword(arg="line", value=lineNum),
-					keyword(arg="reqSyntaxId", value=syntaxIdConst),
+					keyword(arg="syntaxId", value=syntaxIdConst),
 				],
 			)
 			return copy_location(newNode, node)
@@ -1890,9 +1893,9 @@ class ASTSurgeon(NodeTransformer):
 			rawRequirement = checkedArgs[0]
 
 			print("register call", func.id)
-			reqSyntaxId = self._register_requirement_syntax(node)
-			reqSyntaxIdConst = Constant(reqSyntaxId)
-			copy_location(reqSyntaxIdConst, node)
+			syntaxId = self._register_requirement_syntax(node)
+			syntaxIdConst = Constant(syntaxId)
+			copy_location(syntaxIdConst, node)
 
 			requirement = self.visit(rawRequirement)
 
@@ -1911,7 +1914,7 @@ class ASTSurgeon(NodeTransformer):
 				args=[newRequirement],
 				keywords=[
 					keyword(arg="line", value=lineNum),
-					keyword(arg="reqSyntaxId", value=reqSyntaxIdConst),
+					keyword(arg="syntaxId", value=syntaxIdConst),
 				]
 			)
 			return copy_location(newNode, node)
@@ -2256,7 +2259,7 @@ def executeCodeIn(code, namespace):
 
 ### TRANSLATION PHASE SEVEN: scenario construction
 
-def storeScenarioStateIn(namespace, requirementSyntax):
+def storeScenarioStateIn(namespace, requirementSyntax, propositionSyntax):
 	"""Post-process an executed Scenic module, extracting state from the veneer."""
 
 	# Save requirement syntax and other module-level information
@@ -2265,6 +2268,7 @@ def storeScenarioStateIn(namespace, requirementSyntax):
 	bns = gatherBehaviorNamespacesFrom(moduleScenario._behaviors)
 	def handle(scenario):
 		scenario._requirementSyntax = requirementSyntax
+		scenario._propositionSyntax = propositionSyntax
 		if isinstance(scenario, type):
 			scenario._simulatorFactory = staticmethod(factory)
 		else:

@@ -963,20 +963,20 @@ def Following(field, dist, fromPt=None):
 	return Specifier('position', val, optionals={'heading'})
 
 # TODO(shun): Move the following functions/classes to appropriate locations/files
-def AtomicProposition(closure, *, line, reqSyntaxId):
-	return propositions.Atomic(closure)
-def Always(req, *, line, reqSyntaxId):
-	return propositions.Always(req)
-def Eventually(req, *, line, reqSyntaxId):
-	return propositions.Eventually(req)
-def Next(req, *, line, reqSyntaxId):
-	return propositions.Next(req)
-def RequirementAnd(reqs, *, line, reqSyntaxId):
-	return propositions.And(reqs)
-def RequirementOr(reqs, *, line, reqSyntaxId):
-	return propositions.Or(reqs)
-def RequirementNot(req, *, line, reqSyntaxId):
-	return propositions.Not(req)
+def AtomicProposition(closure, *, line, syntaxId):
+	return propositions.Atomic(closure, syntaxId)
+def Always(req, *, line, syntaxId):
+	return propositions.Always(req, syntaxId)
+def Eventually(req, *, line, syntaxId):
+	return propositions.Eventually(req, syntaxId)
+def Next(req, *, line, syntaxId):
+	return propositions.Next(req, syntaxId)
+def RequirementAnd(reqs, *, line, syntaxId):
+	return propositions.And(reqs, syntaxId)
+def RequirementOr(reqs, *, line, syntaxId):
+	return propositions.Or(reqs, syntaxId)
+def RequirementNot(req, *, line, syntaxId):
+	return propositions.Not(req, syntaxId)
 
 ### Primitive functions overriding Python builtins
 

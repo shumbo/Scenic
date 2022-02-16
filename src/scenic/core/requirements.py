@@ -8,7 +8,7 @@ from functools import reduce
 from scenic.core.distributions import Samplable, needsSampling
 from scenic.core.errors import InvalidScenarioError
 from scenic.core.lazy_eval import needsLazyEvaluation
-from scenic.core.propositions import Atomic
+from scenic.core.propositions import Atomic, PropositionNode
 import scenic.syntax.relations as relations
 
 @enum.unique
@@ -34,7 +34,7 @@ class RequirementType(enum.Enum):
 class PendingRequirement:
     def __init__(self, ty, condition, line, prob, name, ego):
         self.ty = ty
-        self.condition = condition
+        self.condition: PropositionNode = condition
         self.line = line
         self.prob = prob
         self.name = name
@@ -54,7 +54,7 @@ class PendingRequirement:
         self.bindings = bindings
         self.egoObject = ego
 
-    def compile(self, namespace, scenario, syntax=None):
+    def compile(self, namespace, scenario, syntax=None, proposition_syntax = []):
         """Create a closure testing the requirement in the correct runtime state.
 
         While we're at it, determine whether the requirement implies any relations
@@ -64,8 +64,10 @@ class PendingRequirement:
         condition = self.condition
 
         # Check whether requirement implies any relations used for pruning
-        if self.ty.constrainsSampling and syntax:
-            relations.inferRelationsFrom(syntax, bindings, ego, line)
+        syntax_id_for_pruning = self.condition.check_constrains_sampling()
+        if syntax_id_for_pruning is not None and syntax_id_for_pruning < len(proposition_syntax):
+            syntax_for_pruning = proposition_syntax[syntax_id_for_pruning]
+            relations.inferRelationsFrom(syntax_for_pruning, bindings, ego, line)
 
         # Gather dependencies of the requirement
         deps = set()

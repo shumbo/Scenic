@@ -521,7 +521,7 @@ def test_require_eventually():
                 take self.blah
                 self.blah += DiscreteRange(0, 1)
         ego = Object with behavior Foo, with blah 0
-        require eventually ego.blah > 0
+        require (eventually ego.blah > 0)
     """)
     for i in range(30):
         actions = sampleEgoActions(scenario, maxSteps=2, maxIterations=50)

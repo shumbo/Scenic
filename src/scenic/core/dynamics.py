@@ -121,6 +121,7 @@ class DynamicScenario(Invocable):
         veneer.registerDynamicScenarioClass(cls)
 
     _requirementSyntax = None   # overridden by subclasses
+    _propositionSyntax = None
     _simulatorFactory = None
     _globalParameters = None
 
@@ -430,10 +431,11 @@ class DynamicScenario(Invocable):
     def _compileRequirements(self):
         namespace = self._dummyNamespace if self._dummyNamespace else self.__dict__
         requirementSyntax = self._requirementSyntax
+        propositionSyntax = self._propositionSyntax
         assert requirementSyntax is not None
         for reqID, requirement in self._pendingRequirements.items():
             syntax = requirementSyntax[reqID] if requirementSyntax else None
-            compiledReq = requirement.compile(namespace, self, syntax)
+            compiledReq = requirement.compile(namespace, self, syntax, propositionSyntax)
 
             self._registerCompiledRequirement(compiledReq)
             self._requirementDeps.update(compiledReq.dependencies)
