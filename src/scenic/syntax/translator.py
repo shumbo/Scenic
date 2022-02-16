@@ -50,7 +50,7 @@ from ast import RShift, Starred, Lambda, AnnAssign, Set, Str, Subscript, Index, 
 from ast import Num, Yield, YieldFrom, FunctionDef, Attribute, Constant, Assign, Expr
 from ast import Return, Raise, If, UnaryOp, Not, ClassDef, Nonlocal, Global, Compare, Is, Try
 from ast import Break, Continue, AsyncFunctionDef, Pass, While
-from ast import Or, And, Not, List
+from ast import Or, And, Not, List, keyword
 
 from scenic.core.distributions import Samplable, RejectionException, needsSampling, toDistribution
 from scenic.core.lazy_eval import needsLazyEvaluation
@@ -204,7 +204,7 @@ def compileStream(stream, namespace, params={}, model=None, filename='<stream>')
 			# Parse the translated source
 			tree = parseTranslatedSource(newSource, filename)
 			# Modify the parse tree to produce the correct semantics
-			newTree, requirements = translateParseTree(tree, allConstructors, filename)
+			newTree, requirements, propositionSyntax = translateParseTree(tree, allConstructors, filename)
 			if dumpFinalAST:
 				print(f'### Begin final AST from block {blockNum} of {filename}')
 				print(ast.dump(newTree, include_attributes=True))
@@ -218,6 +218,11 @@ def compileStream(stream, namespace, params={}, model=None, filename='<stream>')
 				print(f'### Begin Python equivalent of final AST from block {blockNum} of {filename}')
 				print(astor.to_source(newTree, add_line_information=True))
 				print('### End Python equivalent of final AST')
+
+				i = 0
+				for s in propositionSyntax:
+					print(i, astor.to_source(s))
+					i += 1
 			# Compile the modified tree
 			code = compileTranslatedTree(newTree, filename)
 			# Execute it
@@ -1359,6 +1364,11 @@ class ASTSurgeon(NodeTransformer):
 		self.constructors = set(constructors.keys())
 		self.filename = filename
 		self.requirements = []
+
+		self.requirementPropositionSyntax = []
+		"""Holds AST nodes that represents syntax for each requirement node as a list
+		requirementSyntaxId is the index of this list"""
+
 		self.inRequire = False
 		self.inCompose = False
 		self.inBehavior = False
@@ -1425,7 +1435,24 @@ class ASTSurgeon(NodeTransformer):
 			newNode = BinOp(self.visit(left), op, self.visit(right))
 		return copy_location(newNode, node)
 
-	def create_atomic_proposition_factory(self, node):
+	def _register_requirement_syntax(self, propositionSyntax):
+		"""register requirement syntax for later use
+		returns an ID for retrieving the syntax
+
+		Args:
+			propositionSyntax (ast.Node): AST Node that represents the requirement
+
+		Returns:
+			int: generated requirement syntax ID
+		"""
+
+		print("register requirement syntax", propositionSyntax)
+
+		syntaxId = len(self.requirementPropositionSyntax)
+		self.requirementPropositionSyntax.append(propositionSyntax)
+		return syntaxId
+
+	def _create_atomic_proposition_factory(self, node):
 		"""
 		Given an expression, create an atomic proposition factory.
 
@@ -1437,14 +1464,17 @@ class ASTSurgeon(NodeTransformer):
 		closure = Lambda(noArgs, node)
 		copy_location(closure, node)
 
+		reqSyntaxId = self._register_requirement_syntax(node)
+
 		ap = Call(
-				func=Name(
-					id=ATOMIC_PROPOSITION,
-					ctx=Load()
-				),
-				args=[closure, lineNum],
-				keywords=[],
-			)
+			func=Name(id=ATOMIC_PROPOSITION, ctx=Load()),
+			args=[closure],
+			keywords=[
+				keyword(arg="line", value=lineNum),
+				keyword(arg="reqSyntaxId", value=Constant(reqSyntaxId)),
+			],
+		)
+
 		return ap
 
 	def is_temporal_requirement_factory(self, node):
@@ -1457,15 +1487,20 @@ class ASTSurgeon(NodeTransformer):
 			lineNum = Constant(node.lineno)
 			copy_location(lineNum, node) # TODO(shun): what should be the second argument?
 
+			syntaxId = self._register_requirement_syntax(node)
+			syntaxIdConst = Constant(syntaxId)
+			copy_location(syntaxIdConst, node)
+
 			# 1. wrap each operand with a lambda function
 			operands = []
 			for operand in node.values:
-				if self.is_temporal_requirement_factory(operand):
+				o = self.visit(operand)
+				if self.is_temporal_requirement_factory(o):
 					# if the operand is already an temporal requirement factory, keep it
-					operands.append(self.visit(operand))
+					operands.append(self.visit(o))
 					continue
 				# if the operand is not an temporal requirement factory, make it an AP
-				closure = self.create_atomic_proposition_factory(self.visit(operand))
+				closure = self._create_atomic_proposition_factory(o)
 				operands.append(closure)
 			
 			# 2. create a function call and pass operands
@@ -1481,8 +1516,11 @@ class ASTSurgeon(NodeTransformer):
 					ctx=Load()
 				),
 				# pass a list of operands as the first argument
-				args=[List(elts=operands, ctx=Load()), lineNum],
-				keywords=[],
+				args=[List(elts=operands, ctx=Load())],
+				keywords=[
+					keyword(arg="line", value=lineNum),
+					keyword(arg="reqSyntaxId", value=syntaxIdConst),
+				],
 			)
 			return copy_location(newNode, node)
 		return self.generic_visit(node)
@@ -1494,15 +1532,27 @@ class ASTSurgeon(NodeTransformer):
 			copy_location(lineNum, node)
 			
 			operand = node.operand
-			newOperand = operand if self.is_temporal_requirement_factory(operand) else self.create_atomic_proposition_factory(self.visit(operand))
+
+			newOperand = (
+				operand
+				if self.is_temporal_requirement_factory(operand)
+				else self._create_atomic_proposition_factory(self.visit(operand))
+			)
+
+			syntaxId = self._register_requirement_syntax(node)
+			syntaxIdConst = Constant(syntaxId)
+			copy_location(syntaxIdConst, node)
 			
 			newNode = Call(
 				func=Name(
 					id=REQUIREMENT_NOT,
 					ctx=Load()
 				),
-				args=[newOperand, lineNum],
-				keywords=[],
+				args=[newOperand],
+				keywords=[
+					keyword(arg="line", value=lineNum),
+					keyword(arg="reqSyntaxId", value=syntaxIdConst),
+				],
 			)
 			return copy_location(newNode, node)
 		return self.generic_visit(node)
@@ -1571,8 +1621,7 @@ class ASTSurgeon(NodeTransformer):
 					# TODO(shun): Make sure this works in all cases
 					condition = req
 				else:
-					pass
-					condition = self.create_atomic_proposition_factory(req)
+					condition = self._create_atomic_proposition_factory(req)
 			newArgs = [reqID, condition, lineNum, name]
 			if prob:
 				newArgs.append(prob)
@@ -1831,6 +1880,42 @@ class ASTSurgeon(NodeTransformer):
 		"""
 		func = node.func
 		newArgs = []
+
+		# wrap temporal requirement in lambda
+		# FIXME(shun): Should I also check if the node is in a requirement here?
+		if isinstance(func, Name) and func.id in requirementOperators:
+			assert self.inRequire # FIXME(shun): Is this right way of defining the scope of the operator? Error message?
+			checkedArgs = node.args
+			self.validateSimpleCall(node, (1, None), args=checkedArgs) # FIXME: Do I need this?
+			rawRequirement = checkedArgs[0]
+
+			print("register call", func.id)
+			reqSyntaxId = self._register_requirement_syntax(node)
+			reqSyntaxIdConst = Constant(reqSyntaxId)
+			copy_location(reqSyntaxIdConst, node)
+
+			requirement = self.visit(rawRequirement)
+
+			newRequirement = (
+				requirement
+				if self.is_temporal_requirement_factory(requirement)
+				else self._create_atomic_proposition_factory(requirement)
+			)
+
+			print("newRequirement", newRequirement)
+			lineNum = Constant(node.lineno)  # save line number for error messages
+			copy_location(lineNum, newRequirement)
+
+			newNode = Call(
+				func=func,
+				args=[newRequirement],
+				keywords=[
+					keyword(arg="line", value=lineNum),
+					keyword(arg="reqSyntaxId", value=reqSyntaxIdConst),
+				]
+			)
+			return copy_location(newNode, node)
+
 		# Translate arguments, unpacking any argument packages
 		self.callDepth += 1
 		wrappedStar = False
@@ -1854,21 +1939,6 @@ class ASTSurgeon(NodeTransformer):
 			newNode = Call(newFunc, newArgs, newKeywords)
 		newNode = copy_location(newNode, node)
 		ast.fix_missing_locations(newNode)
-
-		# wrap temporal requirement in lambda
-		# FIXME(shun): Should I also check if the node is in a requirement here?
-		if isinstance(func, Name) and func.id in requirementOperators:
-			assert self.inRequire # FIXME(shun): Is this right way of defining the scope of the operator? Error message?
-			checkedArgs = node.args
-			self.validateSimpleCall(node, (1, None), args=checkedArgs) # FIXME: Do I need this?
-			rawRequirement = checkedArgs[0]
-			requirement = self.visit(rawRequirement)
-			newRequirement = requirement if self.is_temporal_requirement_factory(requirement) else self.create_atomic_proposition_factory(requirement)
-			name = Constant(None)
-			lineNum = Constant(node.lineno)			# save line number for error messages
-			copy_location(lineNum, newRequirement)
-			newArgs = [newRequirement, lineNum, name]
-			return copy_location(Call(func, newArgs, []), node)
 
 		return newNode
 
@@ -2164,7 +2234,7 @@ def translateParseTree(tree, constructors, filename):
 	"""Modify the Python AST to produce the desired Scenic semantics."""
 	surgeon = ASTSurgeon(constructors, filename)
 	tree = fix_missing_locations(surgeon.visit(tree))
-	return tree, surgeon.requirements
+	return tree, surgeon.requirements, surgeon.requirementPropositionSyntax
 
 ### TRANSLATION PHASE FIVE: AST compilation
 

@@ -93,6 +93,7 @@ from scenic.core.errors import RuntimeParseError, InvalidScenarioError
 from scenic.core.vectors import OrientedVector
 from scenic.core.external_params import ExternalParameter
 import scenic.core.requirements as requirements
+import scenic.core.propositions as propositions
 from scenic.core.simulators import RejectSimulationException
 
 ### Internals
@@ -420,6 +421,7 @@ def terminate_simulation_when(reqID, req, line, name):
                     reqID, req, line, name)
 
 def makeRequirement(ty, reqID, req, line, name):
+	print("makeRequirement", currentSimulation)
 	if evaluatingRequirement:
 		raise RuntimeParseError(f'tried to use "{ty.value}" inside a requirement')
 	elif currentBehavior is not None:
@@ -961,70 +963,20 @@ def Following(field, dist, fromPt=None):
 	return Specifier('position', val, optionals={'heading'})
 
 # TODO(shun): Move the following functions/classes to appropriate locations/files
-def AtomicProposition(closure, line):
-	return RequirementAtomicProposition(closure)
-def Always(req, line, _):
-	return RequirementAlways(req)
-def Eventually(req, line, _):
-	return RequirementEventually(req)
-def Next(req, line, _):
-	return RequirementNext(req)
-def RequirementAnd(reqs, line):
-	return RequirementAndOp(reqs)
-def RequirementOr(reqs, line):
-	return RequirementOrOp(reqs)
-def RequirementNot(req, line):
-	return RequirementNotOp(req)
-
-class RequirementNode:
-	pass
-
-class RequirementAtomicProposition(RequirementNode):
-	@property
-	def __globals__(self):
-		return self.closure.__globals__
-	def __call__(self):
-		return self.closure()
-	def __init__(self, closure):
-		self.closure = closure
-	def __str__(self):
-		return f"(AP)"
-
-class RequirementUnaryOp(RequirementNode):
-	"""Base class for temporal unary operators"""
-	@property
-	def __globals__(self):
-		return self.req.__globals__
-	def __init__(self, req):
-		self.req = req
-
-class RequirementAlways(RequirementUnaryOp):
-	def __str__(self):
-		return f"(Always {str(self.req)})"
-
-class RequirementEventually(RequirementUnaryOp):
-	def __str__(self):
-		return f"(Eventually {str(self.req)})"
-
-class RequirementNext(RequirementUnaryOp):
-	def __str__(self):
-		return f"(Next {str(self.req)})"
-
-class RequirementNotOp(RequirementUnaryOp):
-	def __str__(self):
-		return f"(Not {str(self.req)})"
-
-class RequirementAndOp(RequirementNode):
-	def __init__(self, reqs):
-		self.reqs = reqs
-	def __str__(self):
-		return " and ".join([f"{str(req)}" for req in self.reqs])
-
-class RequirementOrOp(RequirementNode):
-	def __init__(self, reqs):
-		self.reqs = reqs
-	def __str__(self):
-		return " or ".join([f"{str(req)}" for req in self.reqs])
+def AtomicProposition(closure, *, line, reqSyntaxId):
+	return propositions.Atomic(closure)
+def Always(req, *, line, reqSyntaxId):
+	return propositions.Always(req)
+def Eventually(req, *, line, reqSyntaxId):
+	return propositions.Eventually(req)
+def Next(req, *, line, reqSyntaxId):
+	return propositions.Next(req)
+def RequirementAnd(reqs, *, line, reqSyntaxId):
+	return propositions.And(reqs)
+def RequirementOr(reqs, *, line, reqSyntaxId):
+	return propositions.Or(reqs)
+def RequirementNot(req, *, line, reqSyntaxId):
+	return propositions.Not(req)
 
 ### Primitive functions overriding Python builtins
 

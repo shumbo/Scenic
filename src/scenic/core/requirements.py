@@ -3,9 +3,12 @@
 import enum
 import inspect
 
+from functools import reduce
+
 from scenic.core.distributions import Samplable, needsSampling
 from scenic.core.errors import InvalidScenarioError
 from scenic.core.lazy_eval import needsLazyEvaluation
+from scenic.core.propositions import Atomic
 import scenic.syntax.relations as relations
 
 @enum.unique
@@ -39,7 +42,16 @@ class PendingRequirement:
         # the translator wrapped the requirement in a lambda to prevent evaluation,
         # so we need to save the current values of all referenced names; we save
         # the ego object too since it can be referred to implicitly
-        self.bindings = getAllGlobals(condition)
+
+        # conditions are propositions
+        nodes = condition.flatten()
+        binding_list = []
+        for node in nodes:
+            if isinstance(node, Atomic):
+                binding_list.append(getAllGlobals(node.closure))
+        bindings = reduce(lambda d1, d2: {**d1, **d2}, binding_list, {})
+
+        self.bindings = bindings
         self.egoObject = ego
 
     def compile(self, namespace, scenario, syntax=None):
