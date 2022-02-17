@@ -48,7 +48,7 @@ class PropositionNode:
 		"""
 		return []
 
-	def flatten(self):
+	def flatten(self) -> list["PropositionNode"]:
 		"""flattens the tree and return the list of nodes
 
 		Returns:
@@ -58,8 +58,19 @@ class PropositionNode:
 			operator.concat, [node.flatten() for node in self.children], []
 		)
 	
-	def update(self):
-		self.ltl_node.update()
+	def atomics(self) -> list["Atomic"]:
+		return list(filter(lambda n: isinstance(n, Atomic), self.flatten()))
+	
+	def update(self) -> rv_ltl.B4:
+		"""evaluate the atomic propositions and return the result of evaluation
+		"""
+		atomics = self.atomics()
+		state = {}
+		for ap in atomics:
+			b = ap.closure()
+			state[str(ap.syntax_id)] = b
+		self.ltl_node.update(state)
+		return self.ltl_node.evaluate()
 
 
 class Atomic(PropositionNode):

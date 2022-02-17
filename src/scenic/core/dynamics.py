@@ -2,9 +2,12 @@
 
 from collections import defaultdict
 import enum
+import functools
 import inspect
 import itertools
 import types
+import operator
+import rv_ltl
 
 from scenic.core.distributions import Samplable, Options, toDistribution, needsSampling
 from scenic.core.errors import RuntimeParseError, InvalidScenarioError
@@ -352,6 +355,15 @@ class DynamicScenario(Invocable):
             subvals = sub._evaluateRecordedExprsAt(place)
             values.update(subvals)
         return values
+
+    def _checkRequirements(self):
+        for req in self._requirements:
+            result = req.closure()
+        results = [req.closure() for req in self._requirements]
+        combined = functools.reduce(operator.and_, results)
+        if combined == rv_ltl.B4.FALSE:
+            raise RejectSimulationException(str())
+
 
     def _checkAlwaysRequirements(self):
         for req in self._alwaysRequirements:

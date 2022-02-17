@@ -164,6 +164,9 @@ class Simulation:
             terminationReason = None
             terminationType = None
             unsatEventuallyReq = None
+
+            temporalReqResult = None
+
             while True:
                 if self.verbosity >= 3:
                     print(f'    Time step {self.currentTime}:')
@@ -180,6 +183,7 @@ class Simulation:
                 # Check if any requirements fail
                 dynamicScenario._checkAlwaysRequirements()
                 unsatEventuallyReq = dynamicScenario._checkEventuallyRequirements()
+                temporalReqResult = dynamicScenario._checkTemporalRequirements()
 
                 # Run monitors
                 newReason = dynamicScenario._runMonitors()

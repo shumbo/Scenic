@@ -93,7 +93,9 @@ class PendingRequirement:
             # evaluate requirement condition, reporting errors on the correct line
             import scenic.syntax.veneer as veneer
             with veneer.executeInRequirement(scenario, boundEgo):
-                result = condition()
+                result = condition.update().is_truthy
+                print("result", result)
+                # result = condition()
                 assert not needsSampling(result)
                 if needsLazyEvaluation(result):
                     raise InvalidScenarioError(f'{self.ty} on line {line} uses value'
