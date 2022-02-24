@@ -507,6 +507,7 @@ def test_require_always():
             while True:
                 take self.blah
                 self.blah += DiscreteRange(0, 1)
+                print("blah value", self.blah)
         ego = Object with behavior Foo, with blah 0
         require (always ego.blah < 1)
     """)

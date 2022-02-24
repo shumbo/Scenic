@@ -2,6 +2,7 @@
 
 import random
 import time
+import rv_ltl
 
 from scenic.core.distributions import (Samplable, ConstantSamplable, RejectionException,
                                        needsSampling)
@@ -251,7 +252,8 @@ class Scenario:
 				continue
 			# Check user-specified requirements
 			for req in activeReqs:
-				if not req.satisfiedBy(sample):
+				# TODO(shun): If the command does not run simulation, should PRESUMABLY_FALSE also be rejected?
+				if req.satisfiedBy(sample) == rv_ltl.B4.FALSE:
 					rejection = str(req)
 					break
 

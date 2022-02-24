@@ -160,6 +160,8 @@ class DynamicScenario(Invocable):
         self._elapsedTime = 0
         self._eventuallySatisfied = None
 
+        self._lastEvaluatedRequirementValue = None
+
     @classmethod
     def _dummy(cls, filename, namespace):
         scenario = cls()
@@ -356,14 +358,14 @@ class DynamicScenario(Invocable):
             values.update(subvals)
         return values
 
-    def _checkRequirements(self):
-        for req in self._requirements:
-            result = req.closure()
-        results = [req.closure() for req in self._requirements]
-        combined = functools.reduce(operator.and_, results)
-        if combined == rv_ltl.B4.FALSE:
-            raise RejectSimulationException(str())
-
+    def _checkTemporalRequirements(self):
+        with veneer.executeInScenario(self, inheritEgo=True):
+            print("evaluate", len(self._requirements), "requirements")
+            results = [req.closure() for req in self._requirements]
+            combined = functools.reduce(operator.and_, results)
+            if combined == rv_ltl.B4.FALSE:
+                raise RejectSimulationException("false!!! found!!!")
+            return combined
 
     def _checkAlwaysRequirements(self):
         for req in self._alwaysRequirements:

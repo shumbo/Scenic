@@ -4,6 +4,7 @@
 import enum
 import time
 import types
+import rv_ltl
 from collections import OrderedDict, defaultdict
 
 from scenic.core.object_types import (enableDynamicProxyFor, setDynamicProxyFor,
@@ -242,6 +243,8 @@ class Simulation:
                 trajectory.append(self.currentState())
                 actionSequence.append(allActions)
 
+            if temporalReqResult == rv_ltl.B4.PRESUMABLY_FALSE:
+                raise RejectSimulationException("some requirement did not finished with TRUE")
             # Reject if some 'require eventually' condition was never satisfied
             if unsatEventuallyReq is not None:
                 raise RejectSimulationException(str(unsatEventuallyReq))

@@ -9,6 +9,7 @@ from scenic.core.distributions import Samplable, needsSampling
 from scenic.core.errors import InvalidScenarioError
 from scenic.core.lazy_eval import needsLazyEvaluation
 from scenic.core.propositions import Atomic, PropositionNode
+from scenic.core.utils import DefaultIdentityDict
 import scenic.syntax.relations as relations
 
 @enum.unique
@@ -82,18 +83,25 @@ class PendingRequirement:
             deps.add(ego)
 
         # Construct closure
-        def closure(values):
+        def closure(values = None):
+            if values is None:
+                values = DefaultIdentityDict()
             global evaluatingRequirement, currentScenario
             # rebind any names referring to sampled objects
             for name, value in bindings.items():
                 if value in values:
                     namespace[name] = values[value]
-            # rebind ego object, which can be referred to implicitly
-            boundEgo = None if ego is None else values[ego]
             # evaluate requirement condition, reporting errors on the correct line
             import scenic.syntax.veneer as veneer
-            with veneer.executeInRequirement(scenario, boundEgo):
-                result = condition.update().is_truthy
+            # rebind ego object, which can be referred to implicitly
+            boundEgo = None if ego is None else values[ego]
+            s = scenario
+            # FIXME: update ego and scenario to ones used for simulation. What about variables...?
+            if veneer.currentScenario:
+                boundEgo = veneer.currentScenario.ego
+                s = veneer.currentScenario
+            with veneer.executeInRequirement(s, boundEgo):
+                result = condition.update()
                 print("result", result)
                 # result = condition()
                 assert not needsSampling(result)
