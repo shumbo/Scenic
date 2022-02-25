@@ -91,16 +91,12 @@ class PendingRequirement:
             for name, value in bindings.items():
                 if value in values:
                     namespace[name] = values[value]
-            # evaluate requirement condition, reporting errors on the correct line
-            import scenic.syntax.veneer as veneer
             # rebind ego object, which can be referred to implicitly
             boundEgo = None if ego is None else values[ego]
-            s = scenario
-            # FIXME: update ego and scenario to ones used for simulation. What about variables...?
-            if veneer.currentScenario:
-                boundEgo = veneer.currentScenario.ego
-                s = veneer.currentScenario
-            with veneer.executeInRequirement(s, boundEgo):
+            # evaluate requirement condition, reporting errors on the correct line
+            import scenic.syntax.veneer as veneer
+            with veneer.executeInRequirement(scenario, boundEgo):
+                print("value to check", boundEgo.blah)
                 result = condition.update()
                 print("result", result)
                 # result = condition()

@@ -32,7 +32,7 @@ class Scene:
 		workspace (:obj:`~scenic.core.workspaces.Workspace`): Workspace for the scenario.
 	"""
 	def __init__(self, workspace, objects, egoObject, params,
-				 alwaysReqs=(), eventuallyReqs=(),
+				 alwaysReqs=(), eventuallyReqs=(), temporalReqs=(),
 				 terminationConds=(), termSimulationConds=(),
 				 recordedExprs=(), recordedInitialExprs=(), recordedFinalExprs=(),
 				 monitors=(), behaviorNamespaces={}, dynamicScenario=None):
@@ -40,8 +40,10 @@ class Scene:
 		self.objects = tuple(objects)
 		self.egoObject = egoObject
 		self.params = params
+		# TODO(shun): Delete always and eventually reqs in favor of temporal reqs if possible
 		self.alwaysRequirements = tuple(alwaysReqs)
 		self.eventuallyRequirements = tuple(eventuallyReqs)
+		self.temporalRequirements = tuple(temporalReqs)
 		self.terminationConditions = tuple(terminationConds)
 		self.terminateSimulationConditions = tuple(termSimulationConds)
 		self.recordedExprs = tuple(recordedExprs)
@@ -270,6 +272,7 @@ class Scenario:
 			sampledNamespaces[modName] = (namespace, sampledNamespace, namespace.copy())
 		alwaysReqs = (BoundRequirement(req, sample) for req in self.alwaysRequirements)
 		eventuallyReqs = (BoundRequirement(req, sample) for req in self.eventuallyRequirements)
+		temporalReqs = (BoundRequirement(req, sample) for req in self.requirements)
 		terminationConds = (BoundRequirement(req, sample)
 							for req in self.terminationConditions)
 		termSimulationConds = (BoundRequirement(req, sample)
@@ -280,7 +283,7 @@ class Scenario:
 		recordedFinalExprs = (BoundRequirement(req, sample)
 		                      for req in self.recordedFinalExprs)
 		scene = Scene(self.workspace, sampledObjects, ego, sampledParams,
-					  alwaysReqs, eventuallyReqs, terminationConds, termSimulationConds,
+					  alwaysReqs, eventuallyReqs, temporalReqs, terminationConds, termSimulationConds,
 					  recordedExprs, recordedInitialExprs,recordedFinalExprs,
 					  self.monitors, sampledNamespaces, self.dynamicScenario)
 		return scene, iterations

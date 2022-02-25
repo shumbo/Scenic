@@ -134,12 +134,14 @@ class DynamicScenario(Invocable):
         self._objects = []      # ordered for reproducibility
         self._externalParameters = []
         self._pendingRequirements = defaultdict(list)
+        # TODO(shun): Check if this can be deleted in favor of temporal requirements
         self._requirements = []
         self._requirementDeps = set()   # things needing to be sampled to evaluate the requirements
 
         self._agents = []
         self._monitors = []
         self._behaviors = []
+        self._temporalRequirements = []
         self._alwaysRequirements = []
         self._eventuallyRequirements = []
         self._terminationConditions = []
@@ -203,6 +205,7 @@ class DynamicScenario(Invocable):
         self._agents = [obj for obj in scene.objects if obj.behavior is not None]
         self._alwaysRequirements = scene.alwaysRequirements
         self._eventuallyRequirements = scene.eventuallyRequirements
+        self._temporalRequirements = scene.temporalRequirements
         self._terminationConditions = scene.terminationConditions
         self._terminateSimulationConditions = scene.terminateSimulationConditions
         self._recordedExprs = scene.recordedExprs
@@ -360,9 +363,8 @@ class DynamicScenario(Invocable):
 
     def _checkTemporalRequirements(self):
         with veneer.executeInScenario(self, inheritEgo=True):
-            print("evaluate", len(self._requirements), "requirements")
-            results = [req.closure() for req in self._requirements]
-            combined = functools.reduce(operator.and_, results)
+            results = [req.value() for req in self._temporalRequirements]
+            combined = functools.reduce(operator.and_, results, rv_ltl.B4.TRUE)
             if combined == rv_ltl.B4.FALSE:
                 raise RejectSimulationException("false!!! found!!!")
             return combined

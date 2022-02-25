@@ -509,7 +509,7 @@ def test_require_always():
                 self.blah += DiscreteRange(0, 1)
                 print("blah value", self.blah)
         ego = Object with behavior Foo, with blah 0
-        require (always ego.blah < 1)
+        require always ego.blah < 1
     """)
     for i in range(30):
         actions = sampleEgoActions(scenario, maxSteps=2, maxIterations=50)
