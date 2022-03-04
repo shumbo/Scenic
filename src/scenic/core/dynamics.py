@@ -369,6 +369,14 @@ class DynamicScenario(Invocable):
                 raise RejectSimulationException("false!!! found!!!")
             return combined
 
+    def _checkTemporalMonitors(self, monitors):
+        with veneer.executeInScenario(self, inheritEgo=True):
+            results = [req.value() for req in monitors]
+            combined = functools.reduce(operator.and_, results, rv_ltl.B4.TRUE)
+            if combined == rv_ltl.B4.FALSE:
+                raise RejectSimulationException("false!!! found!!!")
+            return combined
+
     def _checkAlwaysRequirements(self):
         for req in self._alwaysRequirements:
             if not req.isTrue():

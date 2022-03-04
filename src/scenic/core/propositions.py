@@ -4,12 +4,26 @@ from functools import reduce
 import operator
 import rv_ltl
 
+class PropositionMonitor:
+	def __init__(self, proposition: "PropositionNode") -> None:
+		self._proposition = proposition
+		self._monitor = proposition.ltl_node.create_monitor()
+		
+	def update(self):
+		atomic_propositions = self._proposition.atomics()
+		state = {}
+		for ap in atomic_propositions:
+			b = ap.closure()
+			state[str(ap.syntax_id)] = b
+		self._monitor.update(state)
+		return self._monitor.evaluate()
+
 
 class PropositionNode:
 	"""Base class for temporal and non-temporal propositions"""
 	def __init__(self, syntax_id, ltl_node) -> None:
 		self.syntax_id = syntax_id
-		self.ltl_node: rv_ltl.Node = ltl_node
+		self.ltl_node = ltl_node
 
 		self.is_temporal = False
 		"""tells if the proposition is temporal"""
@@ -60,17 +74,9 @@ class PropositionNode:
 	
 	def atomics(self) -> list["Atomic"]:
 		return list(filter(lambda n: isinstance(n, Atomic), self.flatten()))
-	
-	def update(self) -> rv_ltl.B4:
-		"""evaluate the atomic propositions and return the result of evaluation
-		"""
-		atomics = self.atomics()
-		state = {}
-		for ap in atomics:
-			b = ap.closure()
-			state[str(ap.syntax_id)] = b
-		self.ltl_node.update(state)
-		return self.ltl_node.evaluate()
+
+	def create_monitor(self) -> rv_ltl.Monitor:
+		return PropositionMonitor(self)
 
 
 class Atomic(PropositionNode):

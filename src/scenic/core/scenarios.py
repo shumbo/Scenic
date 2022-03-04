@@ -272,7 +272,7 @@ class Scenario:
 			sampledNamespaces[modName] = (namespace, sampledNamespace, namespace.copy())
 		alwaysReqs = (BoundRequirement(req, sample) for req in self.alwaysRequirements)
 		eventuallyReqs = (BoundRequirement(req, sample) for req in self.eventuallyRequirements)
-		temporalReqs = (BoundRequirement(req, sample) for req in self.requirements)
+		temporalReqs = (BoundRequirement(req, sample, req.proposition) for req in self.requirements)
 		terminationConds = (BoundRequirement(req, sample)
 							for req in self.terminationConditions)
 		termSimulationConds = (BoundRequirement(req, sample)

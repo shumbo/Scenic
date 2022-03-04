@@ -167,6 +167,7 @@ class Simulation:
             unsatEventuallyReq = None
 
             temporalReqResult = None
+            requirementMonitors = [r.toMonitor() for r in dynamicScenario._temporalRequirements]
 
             while True:
                 if self.verbosity >= 3:
@@ -184,7 +185,7 @@ class Simulation:
                 # Check if any requirements fail
                 dynamicScenario._checkAlwaysRequirements()
                 unsatEventuallyReq = dynamicScenario._checkEventuallyRequirements()
-                temporalReqResult = dynamicScenario._checkTemporalRequirements()
+                temporalReqResult = dynamicScenario._checkTemporalMonitors(requirementMonitors)
 
                 # Run monitors
                 newReason = dynamicScenario._runMonitors()

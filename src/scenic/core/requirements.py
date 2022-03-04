@@ -62,7 +62,6 @@ class PendingRequirement:
         we can use for pruning, and gather all of its dependencies.
         """
         bindings, ego, line = self.bindings, self.egoObject, self.line
-        condition = self.condition
 
         # Check whether requirement implies any relations used for pruning
         syntax_id_for_pruning = self.condition.check_constrains_sampling()
@@ -83,9 +82,7 @@ class PendingRequirement:
             deps.add(ego)
 
         # Construct closure
-        def closure(values = None):
-            if values is None:
-                values = DefaultIdentityDict()
+        def closure(values, monitor):
             global evaluatingRequirement, currentScenario
             # rebind any names referring to sampled objects
             for name, value in bindings.items():
@@ -96,17 +93,15 @@ class PendingRequirement:
             # evaluate requirement condition, reporting errors on the correct line
             import scenic.syntax.veneer as veneer
             with veneer.executeInRequirement(scenario, boundEgo):
-                print("value to check", boundEgo.blah)
-                result = condition.update()
+                result = monitor.update()
                 print("result", result)
-                # result = condition()
                 assert not needsSampling(result)
                 if needsLazyEvaluation(result):
                     raise InvalidScenarioError(f'{self.ty} on line {line} uses value'
                                                ' undefined outside of object definition')
             return result
 
-        return CompiledRequirement(self, closure, deps)
+        return CompiledRequirement(self, closure, deps, self.condition)
 
 def getAllGlobals(req, restrictTo=None):
     """Find all names the given lambda depends on, along with their current bindings."""
@@ -128,47 +123,66 @@ def getAllGlobals(req, restrictTo=None):
     return globs
 
 class CompiledRequirement:
-    def __init__(self, pendingReq, closure, dependencies):
+    def __init__(self, pendingReq, closure, dependencies, proposition):
         self.ty = pendingReq.ty
         self.closure = closure
         self.line = pendingReq.line
         self.name = pendingReq.name
         self.prob = pendingReq.prob
         self.dependencies = dependencies
+        self.proposition = proposition
 
     @property
     def constrainsSampling(self):
         return self.ty.constrainsSampling
 
     def satisfiedBy(self, sample):
-        return self.closure(sample)
+        one_time_monitor = self.proposition.create_monitor()
+        return self.closure(sample, one_time_monitor)
 
     def __str__(self):
         if self.name:
             return self.name
         else:
             return f'"{self.ty.value}" on line {self.line}'
+          
 
 class BoundRequirement:
-    def __init__(self, compiledReq, sample):
+    def __init__(self, compiledReq, sample, proposition):
         self.ty = compiledReq.ty
         self.closure = compiledReq.closure
         self.line = compiledReq.line
         self.name = compiledReq.name
         assert compiledReq.prob == 1
         self.sample = sample
+        self.compiledReq = compiledReq
+        self.proposition = proposition
 
     def isTrue(self):
         return self.value()
 
     def value(self):
-        return self.closure(self.sample)
+        one_time_monitor = self.proposition.create_monitor()
+        return self.closure(self.sample, one_time_monitor)
 
     def __str__(self):
         if self.name:
             return self.name
         else:
             return f'"{self.ty.value}" on line {self.line}'
+
+    def toMonitor(self):
+        return MonitorRequirement(self.compiledReq, self.sample, self.proposition)
+
+# TODO(shun): Probably doesn't have to be a subclass of BoundRequirement
+class MonitorRequirement(BoundRequirement):
+    def __init__(self, compiledReq, sample, proposition):
+        super().__init__(compiledReq, sample, proposition)
+        self.monitor = self.proposition.create_monitor()
+    
+    def value(self):
+        return self.closure(self.sample, self.monitor)
+    
 
 class DynamicRequirement:
     def __init__(self, ty, condition, line, name=None):
