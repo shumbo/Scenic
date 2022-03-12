@@ -330,7 +330,6 @@ oneWordStatements = {	# TODO clean up
 	recordStatement,
 }
 twoWordStatements = {
-	requireAlwaysStatement, requireEventuallyStatement,
 	terminateWhenStatement, terminateAfterStatement,
 	recordInitialStatement, recordFinalStatement,
 	*invokeVariants
@@ -348,7 +347,6 @@ functionStatements = {
 	modelStatement, simulatorStatement, recordStatement,
 }
 twoWordFunctionStatements = {
-	requireAlwaysStatement, requireEventuallyStatement,
 	terminateWhenStatement, terminateAfterStatement,
 	recordInitialStatement, recordFinalStatement,
 }
@@ -398,8 +396,6 @@ recordStatements = (
 # to wrap their argument in a closure
 requirementStatements = recordStatements + (
 	requireStatement, softRequirement,
-	functionForStatement(requireAlwaysStatement),
-	functionForStatement(requireEventuallyStatement),
 	functionForStatement(terminateWhenStatement),
 	functionForStatement(terminateSimulationWhenStatement),
 )
@@ -584,8 +580,11 @@ for op in infixOperators:
 			infixImplementations[node] = (op.arity, imp)
 generalInfixOps = { tokens: op.token for tokens, op in infixTokens.items() if not op.contexts }
 
-## temporal operators also need special handling to wrap their argument in a closure
-requirementOperators = ("Always", "Eventually", "Next")
+# temporal operators also need special handling to wrap their argument in a closure
+temporalOperators = ("Always", "Eventually", "Next")
+# statements that can take temporal operators
+statementWithTemporalOpSupport = (requireStatement)
+
 
 ## Direct syntax replacements
 
@@ -1371,6 +1370,10 @@ class ASTSurgeon(NodeTransformer):
 		requirementSyntaxId is the index of this list"""
 
 		self.inRequire = False
+
+		self.canUseTemporalOps = False
+		"""True if inside statements that can take temporal operators"""
+
 		self.inCompose = False
 		self.inBehavior = False
 		self.inGuard = False
@@ -1510,7 +1513,7 @@ class ASTSurgeon(NodeTransformer):
 			# TODO(shun): Move this dictionary to an appropriate location
 			boolOpToFunctionName = {
 				Or: "RequirementOr",
-				And: "RequirementAnd"
+				And: "RequirementAnd",
 			}
 			funcId = boolOpToFunctionName.get(type(node.op))
 			newNode = Call(
@@ -1610,7 +1613,13 @@ class ASTSurgeon(NodeTransformer):
 
 			assert not self.inRequire
 			self.inRequire = True
+
+			# can use temporal operators inside one of statementWithTemporalSupport
+			self.canUseTemporalOps = func.id in statementWithTemporalOpSupport
+
 			req = self.visit(value)
+
+			self.canUseTemporalOps = False
 			self.inRequire = False
 			reqID = Constant(len(self.requirements))	# save ID number
 			self.requirements.append(req)		# save condition for later inspection when pruning
@@ -1619,9 +1628,11 @@ class ASTSurgeon(NodeTransformer):
 			copy_location(closure, req)
 			copy_location(lineNum, req)
 			condition = closure
-			if func.id == requireStatement:
+
+			# temporal operators are not allowed inside behavior
+			if not self.inBehavior:
+				# if not in a behavior, perform transformation
 				if self.is_temporal_requirement_factory(req):
-					# TODO(shun): Make sure this works in all cases
 					condition = req
 				else:
 					condition = self._create_atomic_proposition_factory(req)
@@ -1886,13 +1897,16 @@ class ASTSurgeon(NodeTransformer):
 
 		# wrap temporal requirement in lambda
 		# FIXME(shun): Should I also check if the node is in a requirement here?
-		if isinstance(func, Name) and func.id in requirementOperators:
+		if isinstance(func, Name) and func.id in temporalOperators:
 			assert self.inRequire # FIXME(shun): Is this right way of defining the scope of the operator? Error message?
+			if not self.canUseTemporalOps:
+				# TODO(shun): Better error message
+				# TODO(shun): Add a test to check this
+				self.parseError(node, 'temporal operator is not allowed in this context')
 			checkedArgs = node.args
 			self.validateSimpleCall(node, (1, None), args=checkedArgs) # FIXME: Do I need this?
 			rawRequirement = checkedArgs[0]
 
-			print("register call", func.id)
 			syntaxId = self._register_requirement_syntax(node)
 			syntaxIdConst = Constant(syntaxId)
 			copy_location(syntaxIdConst, node)
@@ -1905,7 +1919,6 @@ class ASTSurgeon(NodeTransformer):
 				else self._create_atomic_proposition_factory(requirement)
 			)
 
-			print("newRequirement", newRequirement)
 			lineNum = Constant(node.lineno)  # save line number for error messages
 			copy_location(lineNum, newRequirement)
 

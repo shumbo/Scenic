@@ -309,7 +309,7 @@ class DynamicScenario(Invocable):
 
         # Check if any termination conditions apply
         for req in self._terminationConditions:
-            if req.isTrue():
+            if req.evaluate():
                 return self._stop(req)
 
         # Scenario will not terminate yet
@@ -355,7 +355,7 @@ class DynamicScenario(Invocable):
     def _evaluateRecordedExprsAt(self, place):
         values = {}
         for rec in getattr(self, place):
-            values[rec.name] = rec.value()
+            values[rec.name] = rec.evaluate()
         for sub in self._subScenarios:
             subvals = sub._evaluateRecordedExprsAt(place)
             values.update(subvals)
@@ -416,7 +416,7 @@ class DynamicScenario(Invocable):
 
     def _checkSimulationTerminationConditions(self):
         for req in self._terminateSimulationConditions:
-            if req.isTrue():
+            if req.isTrue().is_truthy:
                 return req
         return None
 
@@ -448,7 +448,7 @@ class DynamicScenario(Invocable):
 
     def _addDynamicRequirement(self, ty, req, line, name):
         """Add a requirement defined during a dynamic simulation."""
-        assert ty is not RequirementType.require
+        # assert ty is not RequirementType.require
         dreq = DynamicRequirement(ty, req, line, name)
         self._registerCompiledRequirement(dreq)
 

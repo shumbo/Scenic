@@ -82,7 +82,8 @@ class PendingRequirement:
             deps.add(ego)
 
         # Construct closure
-        def closure(values, monitor):
+        def closure(values, monitor = None):
+            # TODO(shun): Improve this unexplicit usage
             global evaluatingRequirement, currentScenario
             # rebind any names referring to sampled objects
             for name, value in bindings.items():
@@ -93,7 +94,12 @@ class PendingRequirement:
             # evaluate requirement condition, reporting errors on the correct line
             import scenic.syntax.veneer as veneer
             with veneer.executeInRequirement(scenario, boundEgo):
-                result = monitor.update()
+                if monitor is None:
+                    # if not temporal evaluation
+                    result = self.condition.evaluate()
+                else:
+                    # if temporal evaluation
+                    result = monitor.update()
                 print("result", result)
                 assert not needsSampling(result)
                 if needsLazyEvaluation(result):
@@ -164,6 +170,9 @@ class BoundRequirement:
     def value(self):
         one_time_monitor = self.proposition.create_monitor()
         return self.closure(self.sample, one_time_monitor)
+
+    def evaluate(self):
+        return self.closure(self.sample)
 
     def __str__(self):
         if self.name:

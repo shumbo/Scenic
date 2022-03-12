@@ -3,6 +3,9 @@
 from functools import reduce
 import operator
 import rv_ltl
+from scenic.core.errors import InvalidScenarioError
+
+from scenic.core.lazy_eval import needsLazyEvaluation
 
 class PropositionMonitor:
 	def __init__(self, proposition: "PropositionNode") -> None:
@@ -14,6 +17,8 @@ class PropositionMonitor:
 		state = {}
 		for ap in atomic_propositions:
 			b = ap.closure()
+			if needsLazyEvaluation(b):
+				raise InvalidScenarioError(f'value undefined outside of object definition')
 			state[str(ap.syntax_id)] = b
 		self._monitor.update(state)
 		return self._monitor.evaluate()
@@ -78,6 +83,17 @@ class PropositionNode:
 	def create_monitor(self) -> rv_ltl.Monitor:
 		return PropositionMonitor(self)
 
+	def evaluate(self):
+		raise RuntimeError("This proposition contains temporal operators and can only be evaluated using monitor")
+
+	@property
+	def has_temporal_operator(self):
+		node = self
+		has_temporal_op = False
+		for n in node.flatten():
+			# turns false if any one of the node is temporal
+			has_temporal_op = has_temporal_op or n.is_temporal
+		return has_temporal_op
 
 class Atomic(PropositionNode):
 	def __init__(self, closure, syntax_id = None):
@@ -86,6 +102,8 @@ class Atomic(PropositionNode):
 		self.closure = closure
 	def __str__(self):
 		return f"(AP)"
+	def evaluate(self):
+		return self.closure()
 
 class UnaryProposition(PropositionNode):
 	"""Base class for temporal unary operators"""
@@ -127,6 +145,8 @@ class Not(UnaryProposition):
 		self.req = req
 	def __str__(self):
 		return f"(Not {str(self.req)})"
+	def evaluate(self):
+		return not self.req.evaluate()
 
 class And(PropositionNode):
 	def __init__(self, reqs, syntax_id):
@@ -138,6 +158,8 @@ class And(PropositionNode):
 	@property
 	def children(self):
 		return self.reqs
+	def evaluate(self):
+		return reduce(operator.and_, [node.evaluate() for node in self.reqs], True)
 
 class Or(PropositionNode):
 	def __init__(self, reqs, syntax_id):
@@ -149,3 +171,5 @@ class Or(PropositionNode):
 	@property
 	def children(self):
 		return self.reqs
+	def evaluate(self):
+		return reduce(operator.or_, [node.evaluate() for node in self.reqs], False)

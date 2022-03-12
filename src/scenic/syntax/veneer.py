@@ -366,16 +366,22 @@ def require(reqID, req, line, name, prob=1):
 		name = f'requirement on line {line}'
 	if evaluatingRequirement:
 		raise RuntimeParseError('tried to create a requirement inside a requirement')
+
 	if currentSimulation is not None:	# requirement being evaluated at runtime
-		if prob >= 1 or random.random() <= prob:
-			result = req()
-			assert not needsSampling(result)
-			if needsLazyEvaluation(result):
-				raise RuntimeParseError(f'requirement on line {line} uses value'
-										' undefined outside of object definition')
-			if not result:
-				raise RejectSimulationException(name)
+		# support monitors on dynamic requirements and create dynamic requirements here
+		if req.has_temporal_operator:
+			currentScenario._addDynamicRequirement(requirements.RequirementType.require, req, line, name)
+		else:
+			if prob >= 1 or random.random() <= prob:
+				result = req()
+				assert not needsSampling(result)
+				if needsLazyEvaluation(result):
+					raise RuntimeParseError(f'requirement on line {line} uses value'
+											' undefined outside of object definition')
+				if not result:
+					raise RejectSimulationException(name)
 	else:	# requirement being defined at compile time
+		# if req has temporal operators and prob != 1 then raise an error
 		currentScenario._addRequirement(requirements.RequirementType.require,
                                         reqID, req, line, name, prob)
 
