@@ -540,6 +540,7 @@ infixOperators = (
 
 	# operators not in Python (in decreasing precedence order)
 	InfixOp('at', 'FieldAt', 2, (LEFTSHIFT, '<<'), LShift),
+	InfixOp('until', 'Until', 2, (RIGHTSHIFT, '>>'), RShift),
 	InfixOp('relative to', 'RelativeTo', 2, (AMPER, '&'), BitAnd),
 	InfixOp('offset by', 'RelativeTo', 2, (AMPER, '&'), BitAnd),
 	InfixOp('offset along', 'OffsetAlong', 3, (CIRCUMFLEX, '^'), BitXor),
@@ -1351,12 +1352,13 @@ class LocalFinder(NodeVisitor):
 ALWAYS = "Always"
 EVENTUALLY = "Eventually"
 NEXT = "Next"
+UNTIL = "Until"
 REQUIREMENT_AND = "RequirementAnd"
 REQUIREMENT_OR = "RequirementOr"
 REQUIREMENT_NOT = "RequirementNot"
 ATOMIC_PROPOSITION = "AtomicProposition"
 
-TEMPORAL_REQUIREMENT_FACTORIES = [ALWAYS, EVENTUALLY, NEXT, REQUIREMENT_AND, REQUIREMENT_OR, REQUIREMENT_NOT, ATOMIC_PROPOSITION]
+TEMPORAL_REQUIREMENT_FACTORIES = [ALWAYS, EVENTUALLY, NEXT, REQUIREMENT_AND, REQUIREMENT_OR, REQUIREMENT_NOT, ATOMIC_PROPOSITION, UNTIL]
 
 class ASTSurgeon(NodeTransformer):
 	def __init__(self, constructors, filename):
@@ -1426,15 +1428,32 @@ class ASTSurgeon(NodeTransformer):
 		left = node.left
 		right = node.right
 		op = node.op
-		if isinstance(op, packageNode):		# unexpected argument package
+		if isinstance(op, packageNode) and not self.inRequire:		# unexpected argument package
 			self.parseError(node, 'unexpected keyword "by"')
 		elif type(op) in infixImplementations:	# an operator with non-Python semantics
 			arity, impName = infixImplementations[type(op)]
 			implementation = Name(impName, Load())
 			copy_location(implementation, node)
-			assert arity >= 2
-			args = [self.visit(left)] + self.unpack(right, arity-1, node)
-			newNode = Call(implementation, args, [])
+			if isinstance(op, RShift):
+				# Until Operator
+				assert arity == 2
+				l = self.visit(left)
+				if not self.is_temporal_requirement_factory(l):
+					l = self._create_atomic_proposition_factory(l)
+				r = self.visit(right)
+				if not self.is_temporal_requirement_factory(r):
+					r = self._create_atomic_proposition_factory(r)
+
+				lineNum = Constant(node.lineno)
+				copy_location(lineNum, node)
+				syntaxId = self._register_requirement_syntax(node)
+				syntaxIdConst = Constant(syntaxId)
+				copy_location(syntaxIdConst, node)
+				newNode = Call(implementation, [l, r], [keyword(arg="line", value=lineNum),keyword(arg="syntaxId", value=syntaxIdConst)])
+			else:
+				assert arity >= 2
+				args = [self.visit(left)] + self.unpack(right, arity-1, node)
+				newNode = Call(implementation, args, [])
 		else:	# all other operators have the Python semantics
 			newNode = BinOp(self.visit(left), op, self.visit(right))
 		return copy_location(newNode, node)

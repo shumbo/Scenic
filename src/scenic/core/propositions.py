@@ -173,3 +173,15 @@ class Or(PropositionNode):
 		return self.reqs
 	def evaluate(self):
 		return reduce(operator.or_, [node.evaluate() for node in self.reqs], False)
+
+class Until(PropositionNode):
+	def __init__(self, lhs, rhs, syntax_id) -> None:
+		self.lhs = lhs
+		self.rhs = rhs
+		ltl_node = rv_ltl.Until(lhs.ltl_node, rhs.ltl_node)
+		super().__init__(syntax_id, ltl_node)
+	def __str__(self):
+		return f"({self.lhs} until {self.rhs})"
+	@property
+	def children(self):
+		return [self.lhs, self.rhs]

@@ -25,6 +25,7 @@ __all__ = (
 	'FieldAt', 'RelativeTo', 'OffsetAlong', 'RelativePosition',
 	'RelativeHeading', 'ApparentHeading',
 	'DistanceFrom', 'AngleTo', 'AngleFrom', 'Follow', 'CanSee',
+	'Until',
 	# Primitive types
 	'Vector', 'VectorField', 'PolygonalVectorField',
 	'Region', 'PointSetRegion', 'RectangularRegion', 'CircularRegion', 'SectorRegion',
@@ -983,6 +984,8 @@ def RequirementOr(reqs, *, line, syntaxId):
 	return propositions.Or(reqs, syntaxId)
 def RequirementNot(req, *, line, syntaxId):
 	return propositions.Not(req, syntaxId)
+def Until(lhs, rhs, *, line, syntaxId):
+	return propositions.Until(lhs, rhs, syntaxId)
 
 ### Primitive functions overriding Python builtins
 
