@@ -1,7 +1,10 @@
 """Workspaces."""
 
+import trimesh
+import numpy as np
+
 from scenic.core.distributions import needsSampling
-from scenic.core.regions import Region, everywhere
+from scenic.core.regions import Region, everywhere, toMesh
 from scenic.core.geometry import findMinMax
 from scenic.core.errors import RuntimeParseError
 
@@ -13,7 +16,21 @@ class Workspace(Region):
 		super().__init__('workspace', orientation=region.orientation)
 		self.region = region
 
-	def show(self, plt):
+	def show_3d(self, viewer):
+		workspace_mesh = toMesh(self.region)
+
+		if workspace_mesh is None:
+			# No mesh support for workspace
+			return
+
+		edges = workspace_mesh.face_adjacency_edges[workspace_mesh.face_adjacency_angles > np.radians(5)].copy()
+		vertices = workspace_mesh.vertices.copy()
+
+		edge_path = trimesh.path.Path3D(**trimesh.path.exchange.misc.edges_to_path(edges, vertices))
+
+		viewer.add_geometry(edge_path)
+
+	def show_2d(self, plt):
 		"""Render a schematic of the workspace for debugging"""
 		try:
 			aabb = self.region.getAABB()

@@ -26,6 +26,8 @@ __all__ = (
 	'DistanceFrom', 'AngleTo', 'AngleFrom', 'Follow', 'CanSee',
 	# Primitive types
 	'Vector', 'VectorField', 'PolygonalVectorField',
+	'MeshShape', 'BoxShape',
+	'MeshVolumeRegion', 'MeshSurfaceRegion',
 	'Region', 'PointSetRegion', 'RectangularRegion', 'CircularRegion', 'SectorRegion',
 	'PolygonalRegion', 'PolylineRegion',
 	'Workspace', 'Mutator',
@@ -53,9 +55,11 @@ __all__ = (
 # various Python types and functions used in the language but defined elsewhere
 from scenic.core.geometry import sin, cos, hypot, max, min
 from scenic.core.vectors import Vector, VectorField, PolygonalVectorField
+from scenic.core.shapes import MeshShape, BoxShape
 from scenic.core.regions import (Region, PointSetRegion, RectangularRegion,
 	CircularRegion, SectorRegion, PolygonalRegion, PolylineRegion,
-	everywhere, nowhere)
+	everywhere, nowhere,
+	MeshVolumeRegion, MeshSurfaceRegion)
 from scenic.core.workspaces import Workspace
 from scenic.core.distributions import (Range, DiscreteRange, Options, Uniform, Normal,
 	TruncatedNormal)

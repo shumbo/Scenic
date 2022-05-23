@@ -42,14 +42,33 @@ class Scene:
 		self.dynamicScenario = dynamicScenario
 
 	def show(self, zoom=None, block=True):
-		"""Render a schematic of the scene for debugging."""
+		self.show_3d()
+
+	def show_3d(self):
+		"""Render a 3D schematic of the scene for debugging."""
+		import trimesh
+		from scenic.core.regions import toMesh
+
+		# Create a new trimesh scene to contain meshes
+		render_scene = trimesh.scene.Scene()
+
+		# display map
+		self.workspace.show_3d(render_scene)
+		# draw objects
+		for obj in self.objects:
+			obj.show_3d(render_scene, highlight=(obj is self.egoObject))
+
+		render_scene.show()
+
+	def show_2d(self, zoom=None, block=True):
+		"""Render a 2D schematic of the scene for debugging."""
 		import matplotlib.pyplot as plt
 		plt.gca().set_aspect('equal')
 		# display map
-		self.workspace.show(plt)
+		self.workspace.show_2d(plt)
 		# draw objects
 		for obj in self.objects:
-			obj.show(self.workspace, plt, highlight=(obj is self.egoObject))
+			obj.show_2d(self.workspace, plt, highlight=(obj is self.egoObject))
 		# zoom in if requested
 		if zoom != None:
 			self.workspace.zoomAround(plt, self.objects, expansion=zoom)

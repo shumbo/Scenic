@@ -10,12 +10,12 @@ from scenic.core.specifiers import Specifier, PropertyDefault, ModifyingSpecifie
 from scenic.core.vectors import Vector, Orientation, alwaysGlobalOrientation
 from scenic.core.geometry import (_RotatedRectangle, averageVectors, hypot, min,
                                   pointIsInCone)
-from scenic.core.regions import CircularRegion, SectorRegion, MeshRegion
+from scenic.core.regions import CircularRegion, SectorRegion, MeshVolumeRegion
 from scenic.core.type_support import toVector, toHeading, toType, toScalar
 from scenic.core.lazy_eval import needsLazyEvaluation
 from scenic.core.utils import DefaultIdentityDict, areEquivalent, cached_property
 from scenic.core.errors import RuntimeParseError
-from scenic.core.shape import Shape, DefaultShape, MeshShape
+from scenic.core.shapes import Shape, DefaultShape, MeshShape
 from scenic.core.regions import IntersectionRegion
 
 ## Abstract base class
@@ -468,7 +468,9 @@ class Object(OrientedPoint, _RotatedRectangle):
 	requireVisible: True
 	regionContainedIn: None
 	cameraOffset: Vector(0, 0)
+
 	shape: PropertyDefault((), {}, lambda self: DefaultShape(self))
+	centerOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
 
 	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
 	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))
@@ -532,8 +534,6 @@ class Object(OrientedPoint, _RotatedRectangle):
 		return self.getRegion().containsPoint(point)
 
 	def intersects(self, other):
-		assert isinstance(other, Object)
-
 		if needsSampling(self.shape) or needsSampling(other.shape):
 			return IntersectionRegion(self, other)
 		else:
@@ -541,7 +541,12 @@ class Object(OrientedPoint, _RotatedRectangle):
 			return self.getRegion().intersects(other_region)
 
 	def getRegion(self):
-		return MeshRegion(mesh=self.shape.mesh, position=self.position, orientation=self.orientation)
+		assert not needsSampling(self)
+		return MeshVolumeRegion(mesh=self.shape.mesh, position=self.position, rotation=self.orientation)
+
+	@property
+	def mesh(self):
+		return self.getRegion().mesh	
 
 	@cached_property
 	def left(self):
@@ -630,7 +635,18 @@ class Object(OrientedPoint, _RotatedRectangle):
 			self.relativePosition(Vector(hw, -hl))
 		)
 
-	def show(self, workspace, plt, highlight=False):
+	def show_3d(self, viewer, highlight=False):
+		if needsSampling(self):
+			raise RuntimeError('tried to show() symbolic Object')
+
+		viewer_mesh = self.mesh.copy()
+
+		if highlight:
+			viewer_mesh.visual.face_colors = [30, 179, 0, 255]
+
+		viewer.add_geometry(viewer_mesh)
+
+	def show_2d(self, workspace, plt, highlight=False):
 		if needsSampling(self):
 			raise RuntimeError('tried to show() symbolic Object')
 		pos = self.position
@@ -662,6 +678,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 		x, y = zip(*triangle)
 		plt.fill(x, y, "w")
 		plt.plot(x + (x[0],), y + (y[0],), color="k", linewidth=1)
+
 
 def enableDynamicProxyFor(obj):
 	object.__setattr__(obj, '_dynamicProxy', obj.copyWith())

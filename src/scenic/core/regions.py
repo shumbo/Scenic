@@ -3,6 +3,7 @@
 import math
 import random
 import itertools
+from abc import ABC
 
 import numpy
 import shapely.geometry
@@ -13,42 +14,136 @@ import trimesh
 from trimesh.transformations import translation_matrix, quaternion_matrix, concatenate_matrices
 
 from scenic.core.distributions import (Samplable, RejectionException, needsSampling,
-                                       distributionMethod)
+									   distributionMethod)
 from scenic.core.lazy_eval import valueInContext
-from scenic.core.vectors import Vector, OrientedVector, VectorDistribution, VectorField
+from scenic.core.vectors import Vector, OrientedVector, VectorDistribution, VectorField, Orientation
 from scenic.core.geometry import _RotatedRectangle
 from scenic.core.geometry import sin, cos, hypot, findMinMax, pointIsInCone, averageVectors
 from scenic.core.geometry import headingOfSegment, triangulatePolygon, plotPolygon, polygonUnion
 from scenic.core.type_support import toVector
 from scenic.core.utils import cached, cached_property, areEquivalent
 
-def toPolygon(thing):
-	if needsSampling(thing):
-		return None
-	if hasattr(thing, 'polygon'):
-		poly = thing.polygon
-	elif hasattr(thing, 'polygons'):
-		poly = thing.polygons
-	elif hasattr(thing, 'lineString'):
-		poly = thing.lineString
-	else:
-		return None
-	if poly.has_z:	# TODO revisit once we have 3D regions
-		return shapely.ops.transform(lambda x, y, z: (x, y), poly)
-	else:
-		return poly
+###################################################################################################
+# Abstract Classes and Utilities
+###################################################################################################
 
-def regionFromShapelyObject(obj, orientation=None):
-	"""Build a 'Region' from Shapely geometry."""
-	assert obj.is_valid, obj
-	if obj.is_empty:
-		return nowhere
-	elif isinstance(obj, (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)):
-		return PolygonalRegion(polygon=obj, orientation=orientation)
-	elif isinstance(obj, (shapely.geometry.LineString, shapely.geometry.MultiLineString)):
-		return PolylineRegion(polyline=obj, orientation=orientation)
-	else:
-		raise RuntimeError(f'unhandled type of Shapely geometry: {obj}')
+class Region(Samplable, ABC):
+	""" An abstract base class for Scenic Regions.
+	
+	Extends Scenic shapes with translation and rotation.
+	"""
+	def __init__(self, name, *dependencies, orientation=None):
+		super().__init__(dependencies)
+		self.name = name
+		self.orientation = orientation
+
+	## Abstract Methods ##
+	# The following methods must be implemented
+
+	def intersects(self, other):
+		"""Check if this `Region` intersects another."""
+		raise NotImplementedError
+
+	def uniformPointInner(self):
+		"""Do the actual random sampling. Implemented by subclasses."""
+		raise NotImplementedError
+
+	def containsPoint(self, point):
+		"""Check if the `Region` contains a point. Implemented by subclasses."""
+		raise NotImplementedError
+
+	# TODO: Move this to subclass for 2D regions.
+	def containsObject(self, obj):
+		"""Check if the `Region` contains an :obj:`~scenic.core.object_types.Object`.
+		The default implementation assumes the `Region` is convex; subclasses must
+		override the method if this is not the case.
+		"""
+		for corner in obj.corners:
+			if not self.containsPoint(corner):
+				return False
+		return True
+
+	def distanceTo(self, point):
+		raise NotImplementedError
+
+	## Overridable Methods ##
+	# The following methods can be overriden to get better performance or if the region
+	# has dependencies (in the case of sampleGiven).
+
+	def intersect(self, other, triedReversed=False):
+		"""Get a `Region` representing the intersection of this one with another."""
+		if triedReversed:
+			orientation = self.orientation
+			if orientation is None:
+				orientation = other.orientation
+			elif other.orientation is not None:
+				orientation = None 		# would be ambiguous, so pick no orientation
+			return IntersectionRegion(self, other, orientation=orientation)
+		else:
+			return other.intersect(self, triedReversed=True)
+
+	def union(self, other, triedReversed=False):
+		"""Get a `Region` representing the union of this one with another.
+		Not supported by all region types.
+		"""
+		if triedReversed:
+			raise NotImplementedError
+		else:
+			return other.union(self, triedReversed=True)
+
+	def difference(self, other):
+		"""Get a `Region` representing the difference of this one and another."""
+		if isinstance(other, EmptyRegion):
+			return self
+		return DifferenceRegion(self, other)
+
+	def getAABB(self):
+		"""Axis-aligned bounding box for this `Region`. Implemented by some subclasses."""
+		raise NotImplementedError
+
+	def sampleGiven(self, value):
+		return self
+
+	## API Methods ##
+
+	@staticmethod
+	def uniformPointIn(region):
+		"""Get a uniform `Distribution` over points in a `Region`."""
+		return PointInRegionDistribution(region)
+
+	def uniformPoint(self):
+		"""Sample a uniformly-random point in this `Region`.
+		Can only be called on fixed Regions with no random parameters.
+		"""
+		assert not needsSampling(self)
+		return self.uniformPointInner()
+
+	def __contains__(self, thing):
+		"""Check if this `Region` contains an object or vector."""
+		from scenic.core.object_types import Object
+		if isinstance(thing, Object):
+			return self.containsObject(thing)
+		vec = toVector(thing, '"X in Y" with X not an Object or a vector')
+		return self.containsPoint(vec)
+
+	def orient(self, vec):
+		"""Orient the given vector along the region's orientation, if any."""
+		if self.orientation is None:
+			return vec
+		else:
+			return OrientedVector(vec.x, vec.y, self.orientation[vec])
+
+	def __str__(self):
+		s = f'<{type(self).__name__}'
+		if self.name:
+			s += f' {self.name}'
+		return s + '>'
+
+	def __repr__(self):
+		s = f'<{type(self).__name__}'
+		if self.name:
+			s += f' {self.name}'
+		return s + f' at {hex(id(self))}>'
 
 class PointInRegionDistribution(VectorDistribution):
 	"""Uniform distribution over points in a Region"""
@@ -69,113 +164,9 @@ class PointInRegionDistribution(VectorDistribution):
 	def __repr__(self):
 		return f'PointIn({self.region})'
 
-class Region(Samplable):
-	"""Abstract class for regions."""
-	def __init__(self, name, *dependencies, orientation=None):
-		super().__init__(dependencies)
-		self.name = name
-		self.orientation = orientation
-
-	def sampleGiven(self, value):
-		return self
-
-	def intersect(self, other, triedReversed=False):
-		"""Get a `Region` representing the intersection of this one with another."""
-		if triedReversed:
-			orientation = self.orientation
-			if orientation is None:
-				orientation = other.orientation
-			elif other.orientation is not None:
-				orientation = None 		# would be ambiguous, so pick no orientation
-			return IntersectionRegion(self, other, orientation=orientation)
-		else:
-			return other.intersect(self, triedReversed=True)
-
-	def intersects(self, other):
-		"""Check if this `Region` intersects another."""
-		raise NotImplementedError
-
-	def difference(self, other):
-		"""Get a `Region` representing the difference of this one and another."""
-		if isinstance(other, EmptyRegion):
-			return self
-		return DifferenceRegion(self, other)
-
-	def union(self, other, triedReversed=False):
-		"""Get a `Region` representing the union of this one with another.
-
-		Not supported by all region types.
-		"""
-		if triedReversed:
-			raise NotImplementedError
-		else:
-			return other.union(self, triedReversed=True)
-
-	@staticmethod
-	def uniformPointIn(region):
-		"""Get a uniform `Distribution` over points in a `Region`."""
-		return PointInRegionDistribution(region)
-
-	def uniformPoint(self):
-		"""Sample a uniformly-random point in this `Region`.
-
-		Can only be called on fixed Regions with no random parameters.
-		"""
-		assert not needsSampling(self)
-		return self.uniformPointInner()
-
-	def uniformPointInner(self):
-		"""Do the actual random sampling. Implemented by subclasses."""
-		raise NotImplementedError
-
-	def containsPoint(self, point):
-		"""Check if the `Region` contains a point. Implemented by subclasses."""
-		raise NotImplementedError
-
-	def containsObject(self, obj):
-		"""Check if the `Region` contains an :obj:`~scenic.core.object_types.Object`.
-
-		The default implementation assumes the `Region` is convex; subclasses must
-		override the method if this is not the case.
-		"""
-		for corner in obj.corners:
-			if not self.containsPoint(corner):
-				return False
-		return True
-
-	def __contains__(self, thing):
-		"""Check if this `Region` contains an object or vector."""
-		from scenic.core.object_types import Object
-		if isinstance(thing, Object):
-			return self.containsObject(thing)
-		vec = toVector(thing, '"X in Y" with X not an Object or a vector')
-		return self.containsPoint(vec)
-
-	def distanceTo(self, point):
-		raise NotImplementedError
-
-	def getAABB(self):
-		"""Axis-aligned bounding box for this `Region`. Implemented by some subclasses."""
-		raise NotImplementedError
-
-	def orient(self, vec):
-		"""Orient the given vector along the region's orientation, if any."""
-		if self.orientation is None:
-			return vec
-		else:
-			return OrientedVector(vec.x, vec.y, vec.z, self.orientation[vec])
-
-	def __str__(self):
-		s = f'<{type(self).__name__}'
-		if self.name:
-			s += f' {self.name}'
-		return s + '>'
-
-	def __repr__(self):
-		s = f'<{type(self).__name__}'
-		if self.name:
-			s += f' {self.name}'
-		return s + f' at {hex(id(self))}>'
+###################################################################################################
+# Utility Regions and Functions
+###################################################################################################
 
 class AllRegion(Region):
 	"""Region consisting of all space."""
@@ -229,6 +220,404 @@ class EmptyRegion(Region):
 everywhere = AllRegion('everywhere')
 nowhere = EmptyRegion('nowhere')
 
+class IntersectionRegion(Region):
+	def __init__(self, *regions, orientation=None, sampler=None, name=None):
+		self.regions = tuple(regions)
+		if len(self.regions) < 2:
+			raise RuntimeError('tried to take intersection of fewer than 2 regions')
+		super().__init__(name, *self.regions, orientation=orientation)
+		if sampler is None:
+			sampler = self.genericSampler
+		self.sampler = sampler
+
+	def sampleGiven(self, value):
+		regs = [value[reg] for reg in self.regions]
+		# Now that regions have been sampled, attempt intersection again in the hopes
+		# there is a specialized sampler to handle it (unless we already have one)
+		if self.sampler is self.genericSampler:
+			failed = False
+			intersection = regs[0]
+			for region in regs[1:]:
+				intersection = intersection.intersect(region)
+				if isinstance(intersection, IntersectionRegion):
+					failed = True
+					break
+			if not failed:
+				intersection.orientation = value[self.orientation]
+				return intersection
+		return IntersectionRegion(*regs, orientation=value[self.orientation],
+								  sampler=self.sampler, name=self.name)
+
+	def evaluateInner(self, context, modifying):
+		regs = (valueInContext(reg, context, modifying) for reg in self.regions)
+		orientation = valueInContext(self.orientation, context, modifying)
+		return IntersectionRegion(*regs, orientation=orientation, sampler=self.sampler,
+								  name=self.name)
+
+	def containsPoint(self, point):
+		return all(region.containsPoint(point) for region in self.regions)
+
+	def uniformPointInner(self):
+		return self.orient(self.sampler(self))
+
+	@staticmethod
+	def genericSampler(intersection):
+		regs = intersection.regions
+		point = regs[0].uniformPointInner()
+		for region in regs[1:]:
+			if not region.containsPoint(point):
+				raise RejectionException(
+					f'sampling intersection of Regions {regs[0]} and {region}')
+		return point
+
+	def isEquivalentTo(self, other):
+		if type(other) is not IntersectionRegion:
+			return False
+		return (areEquivalent(set(other.regions), set(self.regions))
+				and other.orientation == self.orientation)
+
+	def __repr__(self):
+		return f'IntersectionRegion({self.regions})'
+
+class DifferenceRegion(Region):
+	def __init__(self, regionA, regionB, sampler=None, name=None):
+		self.regionA, self.regionB = regionA, regionB
+		super().__init__(name, regionA, regionB, orientation=regionA.orientation)
+		if sampler is None:
+			sampler = self.genericSampler
+		self.sampler = sampler
+
+	def sampleGiven(self, value):
+		regionA, regionB = value[self.regionA], value[self.regionB]
+		# Now that regions have been sampled, attempt difference again in the hopes
+		# there is a specialized sampler to handle it (unless we already have one)
+		if self.sampler is self.genericSampler:
+			diff = regionA.difference(regionB)
+			if not isinstance(diff, DifferenceRegion):
+				diff.orientation = value[self.orientation]
+				return diff
+		return DifferenceRegion(regionA, regionB, orientation=value[self.orientation],
+								sampler=self.sampler, name=self.name)
+
+	def evaluateInner(self, context, modifying):
+		regionA = valueInContext(self.regionA, context, modifying)
+		regionB = valueInContext(self.regionB, context, modifying)
+		orientation = valueInContext(self.orientation, context, modifying)
+		return DifferenceRegion(regionA, regionB, orientation=orientation,
+								sampler=self.sampler, name=self.name)
+
+	def containsPoint(self, point):
+		return regionA.containsPoint(point) and not regionB.containsPoint(point)
+
+	def uniformPointInner(self):
+		return self.orient(self.sampler(self))
+
+	@staticmethod
+	def genericSampler(difference):
+		regionA, regionB = difference.regionA, difference.regionB
+		point = regionA.uniformPointInner()
+		if regionB.containsPoint(point):
+			raise RejectionException(
+				f'sampling difference of Regions {regionA} and {regionB}')
+		return point
+
+	def isEquivalentTo(self, other):
+		if type(other) is not DifferenceRegion:
+			return False
+		return (areEquivalent(self.regionA, other.regionA)
+				and areEquivalent(self.regionB, other.regionB)
+				and other.orientation == self.orientation)
+
+	def __repr__(self):
+		return f'DifferenceRegion({self.regionA}, {self.regionB})'
+
+def toMesh(thing):
+	if needsSampling(thing):
+		return None
+	if hasattr(thing, 'mesh'):
+		mesh = thing.mesh
+	else:
+		return None
+
+	return mesh
+
+def toPolygon(thing):
+	if needsSampling(thing):
+		return None
+	if hasattr(thing, 'polygon'):
+		poly = thing.polygon
+	elif hasattr(thing, 'polygons'):
+		poly = thing.polygons
+	elif hasattr(thing, 'lineString'):
+		poly = thing.lineString
+	else:
+		return None
+
+	if poly.has_z:	# TODO revisit once we have 3D regions
+		return shapely.ops.transform(lambda x, y, z: (x, y), poly)
+	else:
+		return poly
+
+def regionFromShapelyObject(obj, orientation=None):
+	"""Build a 'Region' from Shapely geometry."""
+	assert obj.is_valid, obj
+	if obj.is_empty:
+		return nowhere
+	elif isinstance(obj, (shapely.geometry.Polygon, shapely.geometry.MultiPolygon)):
+		return PolygonalRegion(polygon=obj, orientation=orientation)
+	elif isinstance(obj, (shapely.geometry.LineString, shapely.geometry.MultiLineString)):
+		return PolylineRegion(polyline=obj, orientation=orientation)
+	else:
+		raise RuntimeError(f'unhandled type of Shapely geometry: {obj}')
+
+###################################################################################################
+# 3D Regions
+###################################################################################################
+
+class _MeshRegion(Region):
+	"""Region given by an oriented and positioned mesh. This region can be subclassed to define
+	whether operations are performed over the volume or surface of the mesh.
+
+	The mesh is first placed so the origin is at the center of the bounding box. The mesh is then
+	translated so the center of the bounding box of the mesh is at positon, and rotated to orientation.
+
+	:param mesh: The mesh representing the shape of this MeshRegion
+	:param name: An optional name to help with debugging.
+	:param position: An optional position, which determines where the center of the region will be.
+	:param position: An optional Orientation object which determines the rotation of the object in space.
+	:param orientation: An optional vector field describing the preferred orientation at every point i
+		the region.
+	:param tolerance: Tolerance for collision computations.
+	"""
+	def __init__(self, mesh, name=None, position=(0,0,0), rotation=None, orientation=None, tolerance=1e-8):
+		super().__init__(name=name, orientation=orientation)
+		# Ensure the mesh is watertight so volume is well defined
+		if not mesh.is_watertight:
+			raise ValueError("A MeshRegion cannot be defined with a mesh that is not watertight.")
+
+		self.mesh = mesh.copy()
+		self.position = position
+		if rotation is None:
+			self.rotation = Orientation.fromEuler(0,0,0)
+		else:
+			self.rotation = rotation
+		self.mesh.vertices -= self.mesh.bounding_box.center_mass
+
+		position_matrix = translation_matrix(position)
+		rotation_matrix = quaternion_matrix((self.rotation.w, self.rotation.x, self.rotation.y, self.rotation.z))
+
+		transform_matrix = concatenate_matrices(position_matrix, rotation_matrix)
+
+		self.mesh.apply_transform(transform_matrix)
+
+		self.orientation = orientation
+		self.tolerance = tolerance
+
+class MeshVolumeRegion(_MeshRegion):
+	""" An instance of _MeshRegion that performs operations over the volume
+	of the mesh.
+	"""
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+
+		# Ensure the mesh is watertight so volume is well defined
+		if not self.mesh.is_watertight:
+			raise ValueError("A MeshShape cannot be defined with a mesh that is not watertight.")
+
+	## API Methods ##
+	# Composition methods #
+	def intersect(self, other, triedReversed=False):
+		""" Get a `Region` representing the intersection of this region'sS
+		volume with another region.
+		"""
+		# Attempt to coerce the other region to a mesh
+		other_mesh = toMesh(other)
+
+		if other_mesh is None:
+			return super().intersect(other, triedReversed)
+
+		# Compute intersection using Trimesh
+		return self.mesh.intersection(other_mesh)
+
+	def union(self, other, triedReversed=False):
+		""" Get a `Region` representing the union of this region's
+		volume with another region.
+		"""
+		# Attempt to coerce the other region to a mesh
+		other_mesh = toMesh(other)
+
+		if other_mesh is None:
+			return super().union(other, triedReversed)
+
+		# Compute union using Trimesh
+		return self.mesh.union(other_mesh)
+
+	def difference(self, other):
+		""" Get a `Region` representing the difference of this region's
+		volume with another region.
+		"""
+		# Attempt to coerce the other region to a mesh
+		other_mesh = toMesh(other)
+
+		if other_mesh is None:
+			raise NotImplementedError("Cannot compute difference of MeshRegion with " +
+				type(other) + " as the latter does not support coercion to a mesh.")
+
+		# Compute difference using Trimesh
+		return self.difference(other_mesh)
+
+	# Property testing methods #
+	def intersects(self, other):
+		"""Check if this region's volume intersects another."""
+		# Attempt to coerce the other region to a mesh
+		region_mesh = toMesh(other)
+
+		if region_mesh is None:
+			raise NotImplementedError("Cannot check intersection of MeshRegion with " +
+				type(other) + " as the latter does not support coercion to a mesh.")
+
+		# TODO: Add heuristic to avoid using boolean intersection operation sometimes?
+
+		return not self.intersect(other).is_empty
+
+	def containsPoint(self, point):
+		"""Check if this region's volume contains a point."""
+		return self.mesh.contains([point])[0]
+
+	def containsObject(self, obj):
+		"""Check if this region's volume contains an :obj:`~scenic.core.object_types.Object`.
+		The object must support coercion to a mesh.
+		"""
+		obj_mesh = toMesh(obj)
+
+		if obj_mesh is None:
+			raise NotImplementedError("Cannot check if an object of type " + type(obj) +
+				" is contained in a MeshRegion as it does not support coercion to a mesh.")
+
+		return obj_mesh.difference(self.mesh).is_empty
+
+	def uniformPointInner(self):
+		""" Samples a point uniformly from the volume of the region"""
+		# TODO: Look into tetrahedralization, perhaps to be turned on when a heuristic
+		# is met. Currently using Trimesh's rejection sampling.
+		return Vector(*trimesh.sample.volume_mesh(self.mesh, 1)[0])
+
+	def distanceTo(self, point):
+		""" Get the minimum distance from this region (including volume) to the specified point."""
+		# First check if the mesh contains the point, as then the minimum distance is 0.
+		if self.containsPoint(point):
+			return 0
+
+		# Otherwise, we know the point is outside the mesh and the mesh is watertight, so we can
+		# compute distance like we would for a surface mesh.
+
+		# For each triangle on the mesh, get the point that is contained in the triangle
+		# and closest to the input point.
+		point_list = trimesh.triangles.closest_point(self.mesh.triangles, [point for triangle in self.mesh.triangles])
+
+		# Calculate the euclidean distance between each point and the input point
+		def euclidean_distance(p_1, p_2):
+		    diff_list = [p_1[i] - p_2[i] for i in range(3)]
+		    square_list = [math.pow(p, 2) for p in diff_list]
+		    return math.sqrt(sum(square_list))
+
+		distances = [euclidean_distance(p, point) for p in point_list]
+
+		# Return the minimum of these distances.
+		return min(distances)
+
+	## Utility Methods ##
+	def getSurfaceRegion(self):
+		""" Return a region equivalent to this one except as a MeshSurfaceRegion"""
+		return MeshSurfaceRegion(self.mesh, self.name, self.position, self.orientation)
+
+class MeshSurfaceRegion(_MeshRegion):
+	""" An instance of _MeshRegion that performs operations over the surface
+	of the mesh.
+	"""
+	## API Methods ##
+	# Composition methods #
+	def intersect(self, other, triedReversed=False):
+		""" Get a `Region` representing the intersection of this region's
+		surface with another region.
+		"""
+		raise NotImplementedError()
+
+	def union(self, other, triedReversed=False):
+		""" Get a `Region` representing the union of this region's
+		surface with another region.
+		"""
+		raise NotImplementedError()
+
+	def difference(self, other):
+		""" Get a `Region` representing the difference of this region's
+		surface with another region.
+		"""
+		raise NotImplementedError()
+
+	# Property testing methods #
+	def intersects(self, other):
+		"""	Check if this region's surface intersects another region.
+		This is equivalent to checking if the two meshes collide
+		"""
+		# Attempt to coerce the other region to a mesh
+		region_mesh = toMesh(other)
+
+		if region_mesh is None:
+			raise NotImplementedError("Cannot check intersection of MeshRegion with " +
+				type(other) + " as the latter does not support coercion to a mesh.")
+
+		# Use Trimesh's collision manager to check for intersection.
+		collision_manager = trimesh.collision.CollisionManager()
+
+		collision_manager.add_object("SelfRegion", self.mesh)
+		collision_manager.add_object("OtherRegion", region_mesh)
+
+		is_collision = collision_manager.in_collision_internal()
+
+		return is_collision
+
+	def containsPoint(self, point):
+		"""Check if this region's surface contains a point."""
+		# First compute the minimum distance to the point.
+		min_distance = self.distanceTo(point)
+
+		# If the minimum distance is within tolerance of 0, the mesh contains the point.
+		return min_distance < self.tolerance
+
+	def containsObject(self, obj):
+		raise NotImplementedError()
+
+	def uniformPointInner(self):
+		""" Sampl a point uniformly at random from the surface of them mesh"""
+		trimesh.sample.sample_surface(self.mesh, 1)
+
+	def distanceTo(self, point):
+		""" Get the minimum distance from this object to the specified point."""
+		# For each triangle on the mesh, get the point that is contained in the triangle
+		# and closest to the input point.
+		point_list = trimesh.triangles.closest_point(self.mesh.triangles, [point for triangle in self.mesh.triangles])
+
+		# Calculate the euclidean distance between each point and the input point
+		def euclidean_distance(p_1, p_2):
+		    diff_list = [p_1[i] - p_2[i] for i in range(3)]
+		    square_list = [math.pow(p, 2) for p in diff_list]
+		    return math.sqrt(sum(square_list))
+
+		distances = [euclidean_distance(p, point) for p in point_list]
+
+		# Return the minimum of these distances.
+		return min(distances)
+
+	## Utility Methods ##
+	def getVolumeRegion(self):
+		""" Return a region equivalent to this one except as a MeshVolumeRegion"""
+		return MeshVolumeRegion(self.mesh, self.name, self.position, self.orientation)
+
+###################################################################################################
+# 2D Regions
+###################################################################################################
+
 class CircularRegion(Region):
 	def __init__(self, center, radius, resolution=32, name=None):
 		super().__init__(name, center, radius)
@@ -245,13 +634,13 @@ class CircularRegion(Region):
 
 	def sampleGiven(self, value):
 		return CircularRegion(value[self.center], value[self.radius],
-		                      name=self.name, resolution=self.resolution)
+							  name=self.name, resolution=self.resolution)
 
 	def evaluateInner(self, context, modifying):
 		center = valueInContext(self.center, context, modifying)
 		radius = valueInContext(self.radius, context, modifying)
 		return CircularRegion(center, radius,
-		                      name=self.name, resolution=self.resolution)
+							  name=self.name, resolution=self.resolution)
 
 	def containsPoint(self, point):
 		point = point.toVector()
@@ -276,7 +665,7 @@ class CircularRegion(Region):
 		if type(other) is not CircularRegion:
 			return False
 		return (areEquivalent(other.center, self.center)
-		        and areEquivalent(other.radius, self.radius))
+				and areEquivalent(other.radius, self.radius))
 
 	def __repr__(self):
 		return f'CircularRegion({self.center}, {self.radius})'
@@ -303,10 +692,10 @@ class SectorRegion(Region):
 			heading = self.heading
 			half_angle = self.angle / 2
 			mask = shapely.geometry.Polygon([
-			    center,
-			    center.offsetRadially(radius, heading + half_angle),
-			    center.offsetRadially(2*radius, heading),
-			    center.offsetRadially(radius, heading - half_angle)
+				center,
+				center.offsetRadially(radius, heading + half_angle),
+				center.offsetRadially(2*radius, heading),
+				center.offsetRadially(radius, heading - half_angle)
 			])
 			return circle & mask
 
@@ -321,7 +710,7 @@ class SectorRegion(Region):
 		heading = valueInContext(self.heading, context, modifying)
 		angle = valueInContext(self.angle, context, modifying)
 		return SectorRegion(center, radius, heading, angle,
-		                    name=self.name, resolution=self.resolution)
+							name=self.name, resolution=self.resolution)
 
 	def containsPoint(self, point):
 		point = point.toVector()
@@ -342,9 +731,9 @@ class SectorRegion(Region):
 		if type(other) is not SectorRegion:
 			return False
 		return (areEquivalent(other.center, self.center)
-		        and areEquivalent(other.radius, self.radius)
-		        and areEquivalent(other.heading, self.heading)
-		        and areEquivalent(other.angle, self.angle))
+				and areEquivalent(other.radius, self.radius)
+				and areEquivalent(other.heading, self.heading)
+				and areEquivalent(other.angle, self.angle))
 
 	def __repr__(self):
 		return f'SectorRegion({self.center},{self.radius},{self.heading},{self.angle})'
@@ -374,7 +763,7 @@ class RectangularRegion(_RotatedRectangle, Region):
 		width = valueInContext(self.width, context, modifying)
 		length = valueInContext(self.length, context, modifying)
 		return RectangularRegion(position, heading, width, length,
-		                         name=self.name)
+								 name=self.name)
 
 	def uniformPointInner(self):
 		hw, hl = self.hw, self.hl
@@ -393,9 +782,9 @@ class RectangularRegion(_RotatedRectangle, Region):
 		if type(other) is not RectangularRegion:
 			return False
 		return (areEquivalent(other.position, self.position)
-		        and areEquivalent(other.heading, self.heading)
-		        and areEquivalent(other.width, self.width)
-		        and areEquivalent(other.length, self.length))
+				and areEquivalent(other.heading, self.heading)
+				and areEquivalent(other.width, self.width)
+				and areEquivalent(other.length, self.length))
 
 	def __repr__(self):
 		return f'RectangularRegion({self.position},{self.heading},{self.width},{self.length})'
@@ -432,7 +821,7 @@ class PolylineRegion(Region):
 			raise RuntimeError('must specify points or polyline for PolylineRegion')
 		if not self.lineString.is_valid:
 			raise RuntimeError('tried to create PolylineRegion with '
-			                   f'invalid LineString {self.lineString}')
+							   f'invalid LineString {self.lineString}')
 		self.segments = self.segmentsOf(self.lineString)
 		cumulativeLengths = []
 		total = 0
@@ -474,7 +863,7 @@ class PolylineRegion(Region):
 
 	def uniformPointInner(self):
 		pointA, pointB = random.choices(self.segments,
-		                                cum_weights=self.cumulativeLengths)[0]
+										cum_weights=self.cumulativeLengths)[0]
 		interpolation = random.random()
 		x, y = averageVectors(pointA, pointB, weight=interpolation)
 		if self.usingDefaultOrientation:
@@ -487,8 +876,8 @@ class PolylineRegion(Region):
 		if poly is not None:
 			intersection = self.lineString & poly
 			if (intersection.is_empty or
-			    not isinstance(intersection, (shapely.geometry.LineString,
-			                                  shapely.geometry.MultiLineString))):
+				not isinstance(intersection, (shapely.geometry.LineString,
+											  shapely.geometry.MultiLineString))):
 				# TODO handle points!
 				return nowhere
 			return PolylineRegion(polyline=intersection)
@@ -506,8 +895,8 @@ class PolylineRegion(Region):
 		if poly is not None:
 			diff = self.lineString - poly
 			if (diff.is_empty or
-			    not isinstance(diff, (shapely.geometry.LineString,
-			                          shapely.geometry.MultiLineString))):
+				not isinstance(diff, (shapely.geometry.LineString,
+									  shapely.geometry.MultiLineString))):
 				# TODO handle points!
 				return nowhere
 			return PolylineRegion(polyline=diff)
@@ -649,7 +1038,7 @@ class PolygonalRegion(Region):
 			raise RuntimeError(f'tried to create PolygonalRegion from non-polygon {polygon}')
 		if not self.polygons.is_valid:
 			raise RuntimeError('tried to create PolygonalRegion with '
-			                   f'invalid polygon {self.polygons}')
+							   f'invalid polygon {self.polygons}')
 
 		if points is None and len(self.polygons) == 1 and len(self.polygons[0].interiors) == 0:
 			self.points = tuple(self.polygons[0].exterior.coords[:-1])
@@ -683,7 +1072,7 @@ class PolygonalRegion(Region):
 			if diff.is_empty:
 				return nowhere
 			elif isinstance(diff, (shapely.geometry.Polygon,
-			                       shapely.geometry.MultiPolygon)):
+								   shapely.geometry.MultiPolygon)):
 				return PolygonalRegion(polygon=diff, orientation=self.orientation)
 			elif isinstance(diff, shapely.geometry.GeometryCollection):
 				polys = []
@@ -708,7 +1097,7 @@ class PolygonalRegion(Region):
 			if intersection.is_empty:
 				return nowhere
 			elif isinstance(intersection, (shapely.geometry.Polygon,
-			                             shapely.geometry.MultiPolygon)):
+										 shapely.geometry.MultiPolygon)):
 				return PolygonalRegion(polygon=intersection, orientation=orientation)
 			elif isinstance(intersection, shapely.geometry.GeometryCollection):
 				polys = []
@@ -797,7 +1186,7 @@ class PolygonalRegion(Region):
 		if type(other) is not PolygonalRegion:
 			return NotImplemented
 		return (other.polygons == self.polygons
-		        and other.orientation == self.orientation)
+				and other.orientation == self.orientation)
 
 	@cached
 	def __hash__(self):
@@ -848,7 +1237,7 @@ class PointSetRegion(Region):
 			# TODO: @Matthew ValueError: Searching for 3d point in 2d KDTree
 			# Better way to fix this? 
 			possibles = (Vector(*self.kdTree.data[i])
-			             for i in self.kdTree.query_ball_point(center[:2], radius))
+						 for i in self.kdTree.query_ball_point(center[:2], radius))
 			intersection = [p for p in possibles if o.containsPoint(p)]
 			if len(intersection) == 0:
 				raise RejectionException(f'empty intersection of Regions {self} and {o}')
@@ -871,8 +1260,8 @@ class PointSetRegion(Region):
 		if type(other) is not PointSetRegion:
 			return NotImplemented
 		return (other.name == self.name
-		        and other.points == self.points
-		        and other.orientation == self.orientation)
+				and other.points == self.points
+				and other.orientation == self.orientation)
 
 	@cached
 	def __hash__(self):
@@ -943,161 +1332,3 @@ class GridRegion(PointSetRegion):
 				if self.grid[y, x] == 1 and obj.containsPoint(p):
 					return False
 		return True
-
-class IntersectionRegion(Region):
-	def __init__(self, *regions, orientation=None, sampler=None, name=None):
-		self.regions = tuple(regions)
-		if len(self.regions) < 2:
-			raise RuntimeError('tried to take intersection of fewer than 2 regions')
-		super().__init__(name, *self.regions, orientation=orientation)
-		if sampler is None:
-			sampler = self.genericSampler
-		self.sampler = sampler
-
-	def sampleGiven(self, value):
-		regs = [value[reg] for reg in self.regions]
-		# Now that regions have been sampled, attempt intersection again in the hopes
-		# there is a specialized sampler to handle it (unless we already have one)
-		if self.sampler is self.genericSampler:
-			failed = False
-			intersection = regs[0]
-			for region in regs[1:]:
-				intersection = intersection.intersect(region)
-				if isinstance(intersection, IntersectionRegion):
-					failed = True
-					break
-			if not failed:
-				intersection.orientation = value[self.orientation]
-				return intersection
-		return IntersectionRegion(*regs, orientation=value[self.orientation],
-		                          sampler=self.sampler, name=self.name)
-
-	def evaluateInner(self, context, modifying):
-		regs = (valueInContext(reg, context, modifying) for reg in self.regions)
-		orientation = valueInContext(self.orientation, context, modifying)
-		return IntersectionRegion(*regs, orientation=orientation, sampler=self.sampler,
-		                          name=self.name)
-
-	def containsPoint(self, point):
-		return all(region.containsPoint(point) for region in self.regions)
-
-	def uniformPointInner(self):
-		return self.orient(self.sampler(self))
-
-	@staticmethod
-	def genericSampler(intersection):
-		regs = intersection.regions
-		point = regs[0].uniformPointInner()
-		for region in regs[1:]:
-			if not region.containsPoint(point):
-				raise RejectionException(
-				    f'sampling intersection of Regions {regs[0]} and {region}')
-		return point
-
-	def isEquivalentTo(self, other):
-		if type(other) is not IntersectionRegion:
-			return False
-		return (areEquivalent(set(other.regions), set(self.regions))
-		        and other.orientation == self.orientation)
-
-	def __repr__(self):
-		return f'IntersectionRegion({self.regions})'
-
-class DifferenceRegion(Region):
-	def __init__(self, regionA, regionB, sampler=None, name=None):
-		self.regionA, self.regionB = regionA, regionB
-		super().__init__(name, regionA, regionB, orientation=regionA.orientation)
-		if sampler is None:
-			sampler = self.genericSampler
-		self.sampler = sampler
-
-	def sampleGiven(self, value):
-		regionA, regionB = value[self.regionA], value[self.regionB]
-		# Now that regions have been sampled, attempt difference again in the hopes
-		# there is a specialized sampler to handle it (unless we already have one)
-		if self.sampler is self.genericSampler:
-			diff = regionA.difference(regionB)
-			if not isinstance(diff, DifferenceRegion):
-				diff.orientation = value[self.orientation]
-				return diff
-		return DifferenceRegion(regionA, regionB, orientation=value[self.orientation],
-		                        sampler=self.sampler, name=self.name)
-
-	def evaluateInner(self, context, modifying):
-		regionA = valueInContext(self.regionA, context, modifying)
-		regionB = valueInContext(self.regionB, context, modifying)
-		orientation = valueInContext(self.orientation, context, modifying)
-		return DifferenceRegion(regionA, regionB, orientation=orientation,
-		                        sampler=self.sampler, name=self.name)
-
-	def containsPoint(self, point):
-		return regionA.containsPoint(point) and not regionB.containsPoint(point)
-
-	def uniformPointInner(self):
-		return self.orient(self.sampler(self))
-
-	@staticmethod
-	def genericSampler(difference):
-		regionA, regionB = difference.regionA, difference.regionB
-		point = regionA.uniformPointInner()
-		if regionB.containsPoint(point):
-			raise RejectionException(
-			    f'sampling difference of Regions {regionA} and {regionB}')
-		return point
-
-	def isEquivalentTo(self, other):
-		if type(other) is not DifferenceRegion:
-			return False
-		return (areEquivalent(self.regionA, other.regionA)
-		        and areEquivalent(self.regionB, other.regionB)
-		        and other.orientation == self.orientation)
-
-	def __repr__(self):
-		return f'DifferenceRegion({self.regionA}, {self.regionB})'
-
-class MeshRegion(Region):
-	"""Region given by an oriented and positioned mesh. The mesh is first placed so the
-	origin is at the center of the bounding box. The mesh is then translated so the center
-	of the bounding box of the mesh is at positon, and rotated to orientation.
-	"""
-	def __init__(self, mesh, name=None, position=(0,0,0), orientation=(1,0,0,0)):
-		super().__init__(name=name, orientation=orientation)
-		self.mesh = mesh.copy()
-		self.mesh.vertices -= self.mesh.bounding_box.center_mass
-
-		position_matrix = translation_matrix(position)
-		rotation_matrix = quaternion_matrix((orientation.w, orientation.x, orientation.y, orientation.z))
-
-		transform_matrix = concatenate_matrices(position_matrix, rotation_matrix)
-
-		self.mesh.apply_transform(transform_matrix)
-
-	def containsPoint(self, point):
-		return self.mesh.contains([point])
-
-	def intersects(self, region):
-		assert isinstance(region, MeshRegion)  # TODO: Generalize to non mesh objects
-
-		collision_manager = trimesh.collision.CollisionManager()
-
-		collision_manager.add_object("SelfRegion", self.mesh)
-		collision_manager.add_object("OtherRegion", region.mesh)
-
-		is_collision = collision_manager.in_collision_internal()
-
-		return is_collision
-
-	def intersection(self, other):
-		raise NotImplementedError()
-	
-	def union(self, other):
-		raise NotImplementedError()
-
-	def samplePointSurface(self):
-		raise NotImplementedError()
-
-	def samplePointVolume(self):
-		raise NotImplementedError()
-
-	def containsObject(self, obj):
-		raise NotImplementedError()

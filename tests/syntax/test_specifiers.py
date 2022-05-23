@@ -71,7 +71,9 @@ def test_at():
     ego = sampleEgoFrom('ego = Object at 149 @ 42')
     assert tuple(ego.position) == pytest.approx((149, 42, 0))
 
-# TODO: make a test that tests all three coordinates like above
+def test_at_3d():
+    ego = sampleEgoFrom('ego = Object at (3, 4, 12)')
+    assert tuple(ego.position) == pytest.approx((3, 4, 12))
 
 def test_offset_by():
     ego = sampleEgoFrom(
@@ -340,7 +342,7 @@ def test_in():
 def test_in_heading():
     scenario = compileScenic(
         'r = PolylineRegion([50 @ -50, -20 @ 20])\n'
-        'ego = Object on r'
+        'ego = Object in r'
     )
     for i in range(30):
         scene = sampleScene(scenario, maxIterations=1)
