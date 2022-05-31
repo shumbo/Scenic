@@ -7,6 +7,12 @@ loadCtx = ast.Load()
 def toPythonAST(scenicAST):
     return ast.fix_missing_locations(ScenicToPythonTransformer().visit(scenicAST))
 
+noArgs = ast.arguments(
+	posonlyargs=[],
+	args=[], vararg=None,
+	kwonlyargs=[], kw_defaults=[],
+	kwarg=None, defaults=[])
+
 selfArg = ast.arguments(
 	posonlyargs=[],
 	args=[ast.arg(arg='self', annotation=None)], vararg=None,
@@ -14,6 +20,16 @@ selfArg = ast.arguments(
 	kwarg=None, defaults=[])
 
 class ScenicToPythonTransformer(ast.NodeTransformer):
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.requirementId = 0
+    
+    def getRequirementId(self) -> int:
+        requirementId = self.requirementId
+        self.requirementId += 1
+        return ast.Constant(value=requirementId)
+
     def generic_visit(self, node):
         if isinstance(node, s.AST):
             raise Exception(
@@ -35,6 +51,22 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
         return ast.Expr(value=ast.Call(
             func=ast.Name(id="ego", ctx=loadCtx),
             args=[self.visit(node.value)],
+            keywords=[],
+        ))
+    
+    def visit_Require(self, node: s.Require):
+        return ast.Expr(value=ast.Call(
+            func=ast.Name(id="require", ctx=loadCtx),
+            args=[
+                self.getRequirementId(),
+                ast.Lambda(
+                    args=noArgs,
+                    body=self.visit(node.value),
+                ),
+                ast.Constant(value=node.lineno),
+                ast.Constant(value=node.name),
+                ast.Constant(value=node.prob),
+            ],
             keywords=[],
         ))
 
@@ -202,6 +234,13 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
         return ast.Call(
             func=ast.Name(id="Vector", ctx=loadCtx),
             args=[self.visit(node.x), self.visit(node.y)],
+            keywords=[],
+        )
+
+    def visit_RelativeHeading(self, node:s.RelativeHeading):
+        return ast.Call(
+            func=ast.Name(id="RelativeHeading", ctx=loadCtx),
+            args=[self.visit(node.heading)] + ([] if node.base is None else [self.visit(node.base)]),
             keywords=[],
         )
 

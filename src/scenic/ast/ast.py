@@ -12,6 +12,7 @@ class Require(AST):
         super().__init__(*args, **kwargs)
         self.value = kwargs["value"]
         self.prob = kwargs["prob"]
+        self.name = kwargs.get("name", "")
         self._fields = ["value", "prob"]
 
 
@@ -188,3 +189,9 @@ class Vector(AST):
         super().__init__(*args, **kwargs)
         self.x = kwargs["x"]
         self.y = kwargs["y"]
+
+class RelativeHeading(AST):
+    def __init__(self, *args: any, **kwargs: any) -> None:
+        super().__init__(*args, **kwargs)
+        self.heading = kwargs["heading"]
+        self.base = kwargs["base"]

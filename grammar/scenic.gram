@@ -528,8 +528,8 @@ scenic_param_stmt["s.Param"]:
     | 'param' elts=(','.(name=NAME '=' expression=expression { (name.string, expression) })+) { s.Param(elts=elts) }
 
 scenic_require_stmt["s.Require"]:
-    | 'require' '[' p=NUMBER ']' e=expression n=['as' a=NAME { a.string }] { s.Require(value=e, prob=ast.Constant(value=float(p.string), LOCATIONS), name=n, LOCATIONS) }
-    | 'require' e=expression n=['as' a=NAME { a.string }] { s.Require(value=e, prob=ast.Constant(value=1.0, LOCATIONS), name=n, LOCATIONS) }
+    | 'require' '[' p=NUMBER ']' e=expression n=['as' a=NAME { a.string }] { s.Require(value=e, prob=float(p.string), name=n, LOCATIONS) }
+    | 'require' e=expression n=['as' a=NAME { a.string }] { s.Require(value=e, prob=1.0, name=n, LOCATIONS) }
 
 compound_stmt:
     | &('def' | '@' | 'async') function_def
@@ -1236,6 +1236,7 @@ instance_specifier:
     | 'facing' a=expression { s.Facing(heading=a) }
 
 scenic_operator:
+    | "relative" "heading" "of" a=expression b=['from' x=expression { x }] { s.RelativeHeading(heading=a, base=b) }
     | 'follow' a=expression 'from' b=expression 'for' c=expression {
         s.Follow(field=a, vector=b, number=c)
      }
@@ -1332,6 +1333,7 @@ term:
     | factor
 
 scenic_term:
+    # override the Python '@' operator
     | a=term '@' b=factor { s.Vector(x=a, y=b) }
     | a=term 'deg' { s.Deg(value=a) }
 
