@@ -141,14 +141,14 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
     def visit_Visible(self, node: s.Visible):
         return ast.Call(
             func=ast.Name(id="VisibleSpec", ctx=loadCtx),
-            args=[],
+            args=[self.visit(node.region)],
             keywords=[],
         )
 
     # operators
     def visit_Deg(self, node: s.Deg):
         return ast.BinOp(
-            left=node.value,
+            left=self.visit(node.value),
             op=ast.Mult(),
             right=ast.Constant(value=0.01745329252)
         )

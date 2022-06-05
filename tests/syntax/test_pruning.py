@@ -10,7 +10,7 @@ def test_containment():
     """Test pruning based on object containment."""
     scenario = compileScenic("""
         workspace = Workspace(PolygonalRegion([0@0, 2@0, 2@2, 0@2]))
-        ego = Object in workspace
+        ego = new Object in workspace
     """)
     # Sampling should only require 1 iteration after pruning
     xs = [sampleEgo(scenario).position.x for i in range(60)]
@@ -24,8 +24,8 @@ def test_relative_heading():
         r2 = PolygonalRegion([20@0, 30@0, 30@10, 20@10])    # Second cell: heading 90 deg
         vf = PolygonalVectorField("Foo", [[r1.polygons, 0], [r2.polygons, 90 deg]])
         union = r1.union(r2)
-        ego = Object in union, facing vf                # Objects can be in either cell
-        other = Object in union, facing vf
+        ego = new Object in union, facing vf                # Objects can be in either cell
+        other = new Object in union, facing vf
         require (relative heading of other) >= 60 deg   # Forces ego in cell 1, other in cell 2
     """)
     # Sampling should only require 1 iteration after pruning

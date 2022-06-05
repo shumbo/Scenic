@@ -522,10 +522,10 @@ scenic_stmt (memo):
     | &'require' scenic_require_stmt
 
 scenic_ego_assignment:
-    | 'ego' '=' a=instance_expression { s.EgoAssign(value=a) }
+    | 'ego' '=' a=instance_expression { s.EgoAssign(value=a, LOCATIONS) }
 
 scenic_param_stmt["s.Param"]:
-    | 'param' elts=(','.(name=NAME '=' expression=expression { (name.string, expression) })+) { s.Param(elts=elts) }
+    | 'param' elts=(','.(name=NAME '=' expression=expression { (name.string, expression) })+) { s.Param(elts=elts, LOCATIONS) }
 
 scenic_require_stmt["s.Require"]:
     | 'require' '[' p=NUMBER ']' e=expression n=['as' a=NAME { a.string }] { s.Require(value=e, prob=float(p.string), name=n, LOCATIONS) }
@@ -1221,38 +1221,38 @@ inversion (memo):
     | 'not' a=inversion { ast.UnaryOp(op=ast.Not(), operand=a, LOCATIONS) }
     | comparison
 
-instance_expression: 'new' n=NAME m=(l1=instance_specifiers ',' NEWLINE INDENT 'xxx' { l1 } | l3=instance_specifiers { l3 })? { s.New(className=n.string, specifiers=m if m is not None else []) }
+instance_expression: 'new' n=NAME m=(l1=instance_specifiers ',' NEWLINE INDENT 'xxx' { l1 } | l3=instance_specifiers { l3 })? { s.New(className=n.string, specifiers=m if m is not None else [], LOCATIONS) }
 instance_specifiers: a=instance_specifier l=(',' t=instance_specifier { t })* { [a] + l }
 instance_specifier:
-    | 'with' name=NAME expr=expression { s.With(name=name.string, expr=expr) }
-    | 'at' position=expression { s.At(position=position) }
-    | 'offset' along=('along' e=expression { e })? 'by' amount=expression { s.Offset(amount=amount, along=along) }
-    | direction=('left' 'of' { s.Left() } | 'right' 'of' { s.Right() } | 'ahead' 'of' { s.Ahead() } | 'behind' { s.Behind() }) position=expression distance=['by' e=expression { e }] { s.Position(direction=direction, position=position, distance=distance) }
-    | 'beyond' position=expression 'by' offset=expression fromPosition=['from' p=expression { p }] { s.Beyond(position=position, offset=offset, fromPosition=fromPosition) }
-    | 'visible' region=['from' r=expression { r }] { s.Visible(region=region) }
-    | 'not' 'visible' region=['from' r=expression { r }] { s.NotVisible(region=region) }
-    | ('in' | 'on') region=expression { s.In(region=region) }
-    | 'following' field=expression fromPoint=['from' p=expression { p }] 'for' distance=expression { s.Following(field=field, fromPoint=fromPoint, distance=distance) }
-    | 'facing' a=expression { s.Facing(heading=a) }
+    | 'with' name=NAME expr=expression { s.With(name=name.string, expr=expr, LOCATIONS) }
+    | 'at' position=expression { s.At(position=position, LOCATIONS) }
+    | 'offset' along=('along' e=expression { e })? 'by' amount=expression { s.Offset(amount=amount, along=along, LOCATIONS) }
+    | direction=('left' 'of' { s.Left(LOCATIONS) } | 'right' 'of' { s.Right(LOCATIONS) } | 'ahead' 'of' { s.Ahead(LOCATIONS) } | 'behind' { s.Behind(LOCATIONS) }) position=expression distance=['by' e=expression { e }] { s.Position(direction=direction, position=position, distance=distance, LOCATIONS) }
+    | 'beyond' position=expression 'by' offset=expression fromPosition=['from' p=expression { p }] { s.Beyond(position=position, offset=offset, fromPosition=fromPosition, LOCATIONS) }
+    | 'visible' region=['from' r=expression { r }] { s.Visible(region=region, LOCATIONS) }
+    | 'not' 'visible' region=['from' r=expression { r }] { s.NotVisible(region=region, LOCATIONS) }
+    | ('in' | 'on') region=expression { s.In(region=region, LOCATIONS) }
+    | 'following' field=expression fromPoint=['from' p=expression { p }] 'for' distance=expression { s.Following(field=field, fromPoint=fromPoint, distance=distance, LOCATIONS) }
+    | 'facing' a=expression { s.Facing(heading=a, LOCATIONS) }
 
 scenic_operator:
-    | "relative" "heading" "of" a=expression b=['from' x=expression { x }] { s.RelativeHeading(heading=a, base=b) }
-    | 'follow' a=expression 'from' b=expression 'for' c=expression {
-        s.Follow(field=a, vector=b, number=c)
+    | "relative" "heading" "of" a=expression b=['from' x=expression { x }] { s.RelativeHeading(heading=a, base=b, LOCATIONS) }
+    | "follow" a=expression 'from' b=expression 'for' c=expression {
+        s.Follow(field=a, vector=b, number=c, LOCATIONS)
      }
-    | a=( 'front' { s.Front() }
-        | 'back' { s.Back() }
-        | 'left' { s.Left() }
-        | 'right' { s.Right() }
-        | 'front' 'left' { s.FrontLeft() }
-        | 'front' 'right' { s.FrontRight() }
-        | 'back' 'left' { s.BackLeft() }
-        | 'back' 'right' { s.BackRight() }
+    | a=( 'front' { s.Front(LOCATIONS) }
+        | 'back' { s.Back(LOCATIONS) }
+        | 'left' { s.Left(LOCATIONS) }
+        | 'right' { s.Right(LOCATIONS) }
+        | 'front' 'left' { s.FrontLeft(LOCATIONS) }
+        | 'front' 'right' { s.FrontRight(LOCATIONS) }
+        | 'back' 'left' { s.BackLeft(LOCATIONS) }
+        | 'back' 'right' { s.BackRight(LOCATIONS) }
     ) 'of' b=expression {
-        s.Of(align=a, object=b)
+        s.Of(align=a, object=b, LOCATIONS)
     }
-    | 'facing' a=expression { s.Facing(heading=a) }
-    | a=expression ('relative' 'to' | 'offset' 'by') b=expression { s.RelativeTo(left=a, right=b) }
+    | "facing" a=expression { s.Facing(heading=a, LOCATIONS) }
+    | a=expression ('relative' 'to' | 'offset' 'by') b=expression { s.RelativeTo(left=a, right=b, LOCATIONS) }
 
 # Comparisons operators
 # ---------------------
@@ -1311,7 +1311,7 @@ shift_expr:
     | sum
 
 scenic_shift_expr:
-    | a=shift_expr 'at' b=sum { s.FieldAt(vectorField=a, vector=b) }
+    | a=shift_expr 'at' b=sum { s.FieldAt(vectorField=a, vector=b, LOCATIONS) }
 
 # Arithmetic operators
 # --------------------
@@ -1334,8 +1334,8 @@ term:
 
 scenic_term:
     # override the Python '@' operator
-    | a=term '@' b=factor { s.Vector(x=a, y=b) }
-    | a=term 'deg' { s.Deg(value=a) }
+    | a=term '@' b=factor { s.Vector(x=a, y=b, LOCATIONS) }
+    | a=term 'deg' { s.Deg(value=a, LOCATIONS) }
 
 factor (memo):
     | '+' a=factor { ast.UnaryOp(op=ast.UAdd(), operand=a, LOCATIONS) }
