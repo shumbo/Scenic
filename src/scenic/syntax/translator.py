@@ -75,7 +75,7 @@ import scenic.core.dynamics as dynamics
 import scenic.core.pruning as pruning
 import scenic.syntax.veneer as veneer
 from scenic.parser import parse_string
-from scenic.compiler import toPythonAST
+from scenic.compiler import compileScenicAST
 
 ### THE TOP LEVEL: compiling a Scenic program
 
@@ -247,7 +247,7 @@ def compileStream(stream, namespace, params={}, model=None, filename='<stream>')
 		# Parse the translated source
 		source = stream.read().decode('utf-8')
 		scenic_tree = parse_string(source, "exec", None)
-		tree = toPythonAST(scenic_tree)
+		tree, syntax = compileScenicAST(scenic_tree)
 		if dumpFinalAST:
 			print(f'### Begin final AST of {filename}')
 			print(ast.dump(tree, include_attributes=True, indent=4))
@@ -261,12 +261,16 @@ def compileStream(stream, namespace, params={}, model=None, filename='<stream>')
 			print(f'### Begin Python equivalent of final AST of {filename}')
 			print(astor.to_source(tree))
 			print('### End Python equivalent of final AST')
+			for i in range(len(syntax)):
+				print(f'### Begin Python equivalent of syntax {i + 1}')
+				print(ast.dump(syntax[i]))
+				print(f'### End Python equivalent of syntax {i + 1}')
 		# Compile the modified tree
 		code = compileTranslatedTree(tree, filename)
 		# Execute it
 		executeCodeIn(code, namespace)
 		# Extract scenario state from veneer and store it
-		storeScenarioStateIn(namespace, [])
+		storeScenarioStateIn(namespace, syntax)
 	finally:
 		veneer.deactivate()
 	if verbosity >= 2:

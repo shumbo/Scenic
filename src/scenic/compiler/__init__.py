@@ -1,1 +1,1 @@
-from .compiler import toPythonAST
+from .compiler import compileScenicAST

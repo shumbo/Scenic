@@ -4,6 +4,7 @@
 import math
 from collections import defaultdict
 from ast import Compare, BinOp, Eq, NotEq, Lt, LtE, Gt, GtE, Call, Add, Sub, Expression, Name
+from scenic.ast.ast import RelativeHeading
 
 from scenic.core.distributions import needsSampling
 from scenic.core.object_types import Point, Object
@@ -18,9 +19,10 @@ def inferRelationsFrom(reqNode, namespace, ego, line):
 
 def inferRelativeHeadingRelations(matcher, reqNode, ego, line):
     """Infer bounds on relative headings from a requirement."""
-    rhMatcher = lambda node: matcher.matchUnaryFunction('RelativeHeading', node)
+    rhMatcher = lambda node: matcher.matchRelativeHeading(node)
     allBounds = matcher.matchBounds(reqNode, rhMatcher)
     for target, bounds in allBounds:
+        target = matcher.matchValue(target) # FIXME(shun): Needed for some reason with new syntax object
         if not isinstance(target, Object):
             continue
         assert target is not ego
@@ -78,6 +80,14 @@ class RequirementMatcher:
 
     def inconsistencyError(self, node, message):
         raise InconsistentScenarioError(node.lineno, message)
+    
+    def matchRelativeHeading(self, node):
+        if not isinstance(node, RelativeHeading):
+            return None
+        if node.base is not None:
+            # does not support `relative to A from B` syntax
+            return None
+        return node.heading
 
     def matchUnaryFunction(self, name, node):
         """Match a call to a specified unary function, returning the value of its argument."""

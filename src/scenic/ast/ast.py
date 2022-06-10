@@ -1,6 +1,5 @@
 import ast
 
-
 class AST(ast.AST):
     def __init__(self, *args: any, **kwargs: any) -> None:
         super().__init__(*args, **kwargs)
@@ -112,6 +111,8 @@ class Deg(AST):
     def __init__(self, *args: any, **kwargs: any) -> None:
         super().__init__(*args, **kwargs)
         self.value = kwargs["value"]
+    def __copy__(self, memo):
+        return Deg(value=self.value)
 
 class FieldAt(AST):
     def __init__(self, *args: any, **kwargs: any) -> None:
@@ -179,10 +180,10 @@ class Facing(AST):
         self.heading = kwargs["heading"]
 
 class RelativeTo(AST):
-    def __init__(self, *args: any, **kwargs: any) -> None:
+    def __init__(self, left, right, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.left = kwargs["left"]
-        self.right = kwargs["right"]
+        self.left = left
+        self.right = right
 
 class Vector(AST):
     def __init__(self, *args: any, **kwargs: any) -> None:
@@ -195,3 +196,5 @@ class RelativeHeading(AST):
         super().__init__(*args, **kwargs)
         self.heading = kwargs["heading"]
         self.base = kwargs["base"]
+    def __copy__(self, memo):
+        return RelativeHeading(heading=self.heading, base=self.base)

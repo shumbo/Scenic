@@ -1,11 +1,15 @@
 import ast
+from copy import deepcopy, copy
+from typing import Tuple
 import scenic.ast as s
 
 loadCtx = ast.Load()
 
 
-def toPythonAST(scenicAST):
-    return ast.fix_missing_locations(ScenicToPythonTransformer().visit(scenicAST))
+def compileScenicAST(scenicAST) -> Tuple[ast.AST, list[ast.AST]]:
+    compiler = ScenicToPythonTransformer()
+    pythonAST = ast.fix_missing_locations(compiler.visit(scenicAST))
+    return pythonAST, compiler.syntax
 
 noArgs = ast.arguments(
 	posonlyargs=[],
@@ -20,15 +24,13 @@ selfArg = ast.arguments(
 	kwarg=None, defaults=[])
 
 class ScenicToPythonTransformer(ast.NodeTransformer):
-
     def __init__(self) -> None:
         super().__init__()
-        self.requirementId = 0
+        self.syntax = []
     
-    def getRequirementId(self) -> int:
-        requirementId = self.requirementId
-        self.requirementId += 1
-        return ast.Constant(value=requirementId)
+    def register_syntax(self, syntax: ast.AST) -> ast.Constant:
+        self.syntax.append(syntax)
+        return ast.Constant(value=len(self.syntax) - 1)
 
     def generic_visit(self, node):
         if isinstance(node, s.AST):
@@ -55,13 +57,15 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
         ))
     
     def visit_Require(self, node: s.Require):
+        syntax_id = self.register_syntax(copy(node.value))
+        condition = self.visit(node.value)
         return ast.Expr(value=ast.Call(
             func=ast.Name(id="require", ctx=loadCtx),
             args=[
-                self.getRequirementId(),
+                syntax_id,
                 ast.Lambda(
                     args=noArgs,
-                    body=self.visit(node.value),
+                    body=condition,
                 ),
                 ast.Constant(value=node.lineno),
                 ast.Constant(value=node.name),
