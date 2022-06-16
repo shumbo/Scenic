@@ -51,6 +51,7 @@ sphinx_rtd_theme = {version = "^0.4.3", optional = true}
 astor = {version = "^0.8.1", optional = true}
 pyglet = "^1.5.26"
 Rtree = "^1.0.0"
+triangle = "^20220202"
 
 
 [tool.poetry.extras]

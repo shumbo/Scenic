@@ -15,7 +15,7 @@ from scenic.core.type_support import toVector, toHeading, toType, toScalar
 from scenic.core.lazy_eval import needsLazyEvaluation
 from scenic.core.utils import DefaultIdentityDict, areEquivalent, cached_property
 from scenic.core.errors import RuntimeParseError
-from scenic.core.shapes import Shape, DefaultShape, MeshShape
+from scenic.core.shapes import Shape, BoxShape, MeshShape
 from scenic.core.regions import IntersectionRegion
 
 ## Abstract base class
@@ -404,7 +404,7 @@ class OrientedPoint(Point):
 	heading: PropertyDefault({'orientation'}, {'final'},
 	    lambda self: self.yaw if alwaysGlobalOrientation(self.parentOrientation) else self.orientation.yaw)
 
-	viewAngle: math.tau # TODO: @Matthew Implement 2-tuple view angle for 3D views 
+	viewAngle: math.tau # TODO: @Matthew Implement 2-tuple view angle for 3D views
 
 	mutator: PropertyDefault({'headingStdDev'}, {'additive'},
 		lambda self: HeadingMutator(self.headingStdDev))
@@ -460,16 +460,16 @@ class Object(OrientedPoint, _RotatedRectangle):
 		behavior: Behavior for dynamic agents, if any (see :ref:`dynamics`). Default
 			value ``None``.
 	"""
-	width: PropertyDefault(('shape',), {}, lambda self: self.shape.getBoundingBoxExtents()[0])
-	length: PropertyDefault(('shape',), {}, lambda self: self.shape.getBoundingBoxExtents()[1])
-	height: PropertyDefault(('shape',), {}, lambda self: self.shape.getBoundingBoxExtents()[2])
+	width: PropertyDefault(('shape',), {}, lambda self: self.shape.dimensions[0])
+	length: PropertyDefault(('shape',), {}, lambda self: self.shape.dimensions[1])
+	height: PropertyDefault(('shape',), {}, lambda self: self.shape.dimensions[2])
 
 	allowCollisions: False
 	requireVisible: True
 	regionContainedIn: None
 	cameraOffset: Vector(0, 0)
 
-	shape: PropertyDefault((), {}, lambda self: DefaultShape(self))
+	shape: BoxShape()
 	centerOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
 
 	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
@@ -497,14 +497,6 @@ class Object(OrientedPoint, _RotatedRectangle):
 		self.inradius = 0 #min(hw, hl, hh)	# incircle; for collision detection
 
 		self._relations = []
-
-		# Resolve DefaultShape if necessary
-		if isinstance(self.shape, DefaultShape):
-			self.shape.resolve()
-			if needsSampling(self.shape):
-				self._dependencies = self._dependencies + (self.shape,)
-
-		#TODO: Add scaling of mesh if w/l/h have been overidden.
 
 	def _specify(self, prop, value):
 		# Normalize types of some built-in properties
@@ -534,15 +526,12 @@ class Object(OrientedPoint, _RotatedRectangle):
 		return self.getRegion().containsPoint(point)
 
 	def intersects(self, other):
-		if needsSampling(self.shape) or needsSampling(other.shape):
-			return IntersectionRegion(self, other)
-		else:
-			other_region = other.getRegion()
-			return self.getRegion().intersects(other_region)
+		other_region = other.getRegion()
+		return self.getRegion().intersects(other_region)
 
 	def getRegion(self):
 		assert not needsSampling(self)
-		return MeshVolumeRegion(mesh=self.shape.mesh, position=self.position, rotation=self.orientation)
+		return MeshVolumeRegion(mesh=self.shape.mesh, dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation)
 
 	@property
 	def mesh(self):

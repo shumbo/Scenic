@@ -13,7 +13,6 @@ from scenic.core.utils import areEquivalent
 from scenic.core.errors import InvalidScenarioError
 from scenic.core.dynamics import Behavior
 from scenic.core.requirements import BoundRequirement
-from scenic.core.object_types import DefaultShape
 
 class Scene:
 	"""Scene()
@@ -58,7 +57,7 @@ class Scene:
 		for obj in self.objects:
 			obj.show_3d(render_scene, highlight=(obj is self.egoObject))
 
-		render_scene.show()
+		render_scene.show(flags={'axis': True})
 
 	def show_2d(self, zoom=None, block=True):
 		"""Render a 2D schematic of the scene for debugging."""

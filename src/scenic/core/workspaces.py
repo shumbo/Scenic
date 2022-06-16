@@ -4,7 +4,7 @@ import trimesh
 import numpy as np
 
 from scenic.core.distributions import needsSampling
-from scenic.core.regions import Region, everywhere, toMesh
+from scenic.core.regions import Region, everywhere, toMesh, toPolygon
 from scenic.core.geometry import findMinMax
 from scenic.core.errors import RuntimeParseError
 
@@ -18,17 +18,28 @@ class Workspace(Region):
 
 	def show_3d(self, viewer):
 		workspace_mesh = toMesh(self.region)
+		workspace_polygon = toPolygon(self.region)
 
-		if workspace_mesh is None:
-			# No mesh support for workspace
-			return
+		if workspace_mesh is not None:
+			# We can render this workspace as the wireframe of a mesh
+			edges = workspace_mesh.face_adjacency_edges[workspace_mesh.face_adjacency_angles > np.radians(0)].copy()
+			vertices = workspace_mesh.vertices.copy()
 
-		edges = workspace_mesh.face_adjacency_edges[workspace_mesh.face_adjacency_angles > np.radians(5)].copy()
-		vertices = workspace_mesh.vertices.copy()
+			edge_path = trimesh.path.Path3D(**trimesh.path.exchange.misc.edges_to_path(edges, vertices))
 
-		edge_path = trimesh.path.Path3D(**trimesh.path.exchange.misc.edges_to_path(edges, vertices))
+			viewer.add_geometry(edge_path)
 
-		viewer.add_geometry(edge_path)
+		elif workspace_polygon is not None:
+			# We can render the workspace as a shapely polygon.
+			workspace_mesh = trimesh.creation.extrude_polygon(workspace_polygon, height=0.0001)
+
+			edges = workspace_mesh.face_adjacency_edges[workspace_mesh.face_adjacency_angles > np.radians(0)].copy()
+			vertices = workspace_mesh.vertices.copy()
+
+			edge_path = trimesh.path.Path3D(**trimesh.path.exchange.misc.edges_to_path(edges, vertices))
+
+			viewer.add_geometry(edge_path)
+
 
 	def show_2d(self, plt):
 		"""Render a schematic of the workspace for debugging"""

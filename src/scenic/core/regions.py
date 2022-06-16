@@ -14,7 +14,7 @@ import trimesh
 from trimesh.transformations import translation_matrix, quaternion_matrix, concatenate_matrices
 
 from scenic.core.distributions import (Samplable, RejectionException, needsSampling,
-									   distributionMethod)
+									   distributionMethod, toDistribution)
 from scenic.core.lazy_eval import valueInContext
 from scenic.core.vectors import Vector, OrientedVector, VectorDistribution, VectorField, Orientation
 from scenic.core.geometry import _RotatedRectangle
@@ -40,7 +40,7 @@ class Region(Samplable, ABC):
 	## Abstract Methods ##
 	# The following methods must be implemented
 
-	def intersects(self, other):
+	def intersects(self, other, triedReversed=False):
 		"""Check if this `Region` intersects another."""
 		raise NotImplementedError
 
@@ -385,33 +385,127 @@ class _MeshRegion(Region):
 	:param name: An optional name to help with debugging.
 	:param position: An optional position, which determines where the center of the region will be.
 	:param position: An optional Orientation object which determines the rotation of the object in space.
-	:param orientation: An optional vector field describing the preferred orientation at every point i
+	:param dimensions: An optional 3-tuple, with the values representing width, length, height respectively.
+		The mesh will be scaled such that the bounding box for the mesh has these dimensions.
+	:param orientation: An optional vector field describing the preferred orientation at every point in
 		the region.
 	:param tolerance: Tolerance for collision computations.
+	:param center_mesh: Whether or not to center the mesh after copying and before transformations. Only turn this off
+		if you know what you're doing and don't plan to scale or translate the mesh.
 	"""
-	def __init__(self, mesh, name=None, position=(0,0,0), rotation=None, orientation=None, tolerance=1e-8):
-		super().__init__(name=name, orientation=orientation)
-		# Ensure the mesh is watertight so volume is well defined
-		if not mesh.is_watertight:
-			raise ValueError("A MeshRegion cannot be defined with a mesh that is not watertight.")
-
+	def __init__(self, mesh, name=None, dimensions=None, position=None, rotation=None, orientation=None, tolerance=1e-8, center_mesh=True):
+		# Copy the mesh and parameters
 		self.mesh = mesh.copy()
-		self.position = position
-		if rotation is None:
-			self.rotation = Orientation.fromEuler(0,0,0)
-		else:
-			self.rotation = rotation
-		self.mesh.vertices -= self.mesh.bounding_box.center_mass
-
-		position_matrix = translation_matrix(position)
-		rotation_matrix = quaternion_matrix((self.rotation.w, self.rotation.x, self.rotation.y, self.rotation.z))
-
-		transform_matrix = concatenate_matrices(position_matrix, rotation_matrix)
-
-		self.mesh.apply_transform(transform_matrix)
-
+		self.dimensions = toDistribution(dimensions)
+		self.position = toDistribution(position)
+		self.rotation = toDistribution(rotation)
 		self.orientation = orientation
 		self.tolerance = tolerance
+		self.center_mesh = center_mesh
+
+		# Initialize superclass with samplables
+		super().__init__(name, self.dimensions, self.position, self.rotation, orientation=orientation)
+
+		# If sampling is needed, delay transformations
+		if needsSampling(self):
+			return
+
+		# Center mesh unless disabled
+		if center_mesh:
+			self.mesh.vertices -= self.mesh.bounding_box.center_mass
+
+		# If dimensions are provided, scale mesh to those dimension
+		if dimensions is not None:
+			scale = self.mesh.extents / numpy.array(dimensions)
+
+			scale_matrix = numpy.eye(4)
+			scale_matrix[:3, :3] /= scale
+
+			self.mesh.apply_transform(scale_matrix)
+
+		if rotation is not None:
+			rotation_matrix = quaternion_matrix((rotation.w, rotation.x, rotation.y, rotation.z))
+			self.mesh.apply_transform(rotation_matrix)
+
+		# If rotation is provided, apply rotation
+		if position is not None:
+			position_matrix = translation_matrix(position)
+			self.mesh.apply_transform(position_matrix)
+
+	## API Methods ##
+	# Composition methods #
+	def intersect(self, other, triedReversed=False):
+		""" Get a `Region` representing the intersection of this region's
+		volume with another region. If the resulting mesh is watertight,
+		the resulting region will be a MeshVolumeRegion. Otherwise returns
+		a MeshSurfaceRegion.
+		"""
+		# Attempt to coerce the other region to a mesh
+		other_mesh = toMesh(other)
+
+		# If one of the regions isn't fixed or the other region cannot be coerced to
+		# a mesh, fall back on default behavior
+		if needsSampling(self) or needsSampling(other) or (other_mesh is None):
+			return super().intersect(other, triedReversed)
+
+		# Compute intersection using Trimesh
+		new_mesh = self.mesh.intersection(other_mesh)
+
+		if new_mesh.is_watertight:
+			return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+		else:
+			return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+
+	def union(self, other, triedReversed=False):
+		""" Get a `Region` representing the union of this region's
+		volume with another region. If the resulting mesh is watertight,
+		the resulting region will be a MeshVolumeRegion. Otherwise returns
+		a MeshSurfaceRegion.
+		"""
+		# Attempt to coerce the other region to a mesh
+		other_mesh = toMesh(other)
+
+		# If one of the regions isn't fixed or the other region cannot be coerced to
+		# a mesh, fall back on default behavior
+		if needsSampling(self) or needsSampling(other) or (other_mesh is None):
+			return super().union(other, triedReversed)
+
+		# Compute union using Trimesh
+		new_mesh = self.mesh.union(other_mesh)
+
+		if new_mesh.is_watertight:
+			return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+		else:
+			return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+
+
+	def difference(self, other):
+		""" Get a `Region` representing the difference of this region's
+		volume with another region. If the resulting mesh is watertight,
+		the resulting region will be a MeshVolumeRegion. Otherwise returns
+		a MeshSurfaceRegion.
+		"""
+		# Attempt to coerce the other region to a mesh
+		other_mesh = toMesh(other)
+
+		# If one of the regions isn't fixed or the other region cannot be coerced to
+		# a mesh, fall back on default behavior
+		if needsSampling(self) or needsSampling(other) or (other_mesh is None):
+			return super().difference(other)
+
+		# Compute difference using Trimesh
+		new_mesh = self.mesh.difference(other_mesh)
+
+		if new_mesh.is_watertight:
+			return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+		else:
+			return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+
+	## Sampling Methods ##
+	def sampleGiven(self, value):
+		return self.__class__(self.mesh, self.name, \
+			value[self.dimensions], value[self.position], value[self.rotation], \
+			self.orientation, self.tolerance, self.center_mesh)
 
 class MeshVolumeRegion(_MeshRegion):
 	""" An instance of _MeshRegion that performs operations over the volume
@@ -424,61 +518,47 @@ class MeshVolumeRegion(_MeshRegion):
 		if not self.mesh.is_watertight:
 			raise ValueError("A MeshShape cannot be defined with a mesh that is not watertight.")
 
-	## API Methods ##
-	# Composition methods #
-	def intersect(self, other, triedReversed=False):
-		""" Get a `Region` representing the intersection of this region'sS
-		volume with another region.
-		"""
-		# Attempt to coerce the other region to a mesh
-		other_mesh = toMesh(other)
-
-		if other_mesh is None:
-			return super().intersect(other, triedReversed)
-
-		# Compute intersection using Trimesh
-		return self.mesh.intersection(other_mesh)
-
-	def union(self, other, triedReversed=False):
-		""" Get a `Region` representing the union of this region's
-		volume with another region.
-		"""
-		# Attempt to coerce the other region to a mesh
-		other_mesh = toMesh(other)
-
-		if other_mesh is None:
-			return super().union(other, triedReversed)
-
-		# Compute union using Trimesh
-		return self.mesh.union(other_mesh)
-
-	def difference(self, other):
-		""" Get a `Region` representing the difference of this region's
-		volume with another region.
-		"""
-		# Attempt to coerce the other region to a mesh
-		other_mesh = toMesh(other)
-
-		if other_mesh is None:
-			raise NotImplementedError("Cannot compute difference of MeshRegion with " +
-				type(other) + " as the latter does not support coercion to a mesh.")
-
-		# Compute difference using Trimesh
-		return self.difference(other_mesh)
-
 	# Property testing methods #
-	def intersects(self, other):
-		"""Check if this region's volume intersects another."""
-		# Attempt to coerce the other region to a mesh
-		region_mesh = toMesh(other)
+	def intersects(self, other, triedReversed=False):
+		"""Check if this region's volume intersects another.
 
-		if region_mesh is None:
-			raise NotImplementedError("Cannot check intersection of MeshRegion with " +
-				type(other) + " as the latter does not support coercion to a mesh.")
+		This function handles intersect calculations for MeshVolumeRegion with:
+			- MeshVolumeRegon
+			- MeshSurfaceRegion
+		"""
+		# Check if region is fixed, and if not returns a default implementation
+		if needsSampling(self):
+			return super().intersects(other)
 
-		# TODO: Add heuristic to avoid using boolean intersection operation sometimes?
+		elif isinstance(other, (MeshVolumeRegion, MeshSurfaceRegion)):
+			# PASS 1
+			# Use Trimesh's collision manager to check for intersection.
+			# If the surfaces collide, that implies a collision of the volumes.
+			# Cheaper than computing volumes immediately.
+			collision_manager = trimesh.collision.CollisionManager()
 
-		return not self.intersect(other).is_empty
+			collision_manager.add_object("SelfRegion", self.mesh)
+			collision_manager.add_object("OtherRegion", other.mesh)
+
+			surface_collision = collision_manager.in_collision_internal()
+
+			if surface_collision:
+				return True
+
+			# PASS 2
+			# TODO: Check if bounding boxes intersect in some cheap way. If not,
+			# volumes cannot intersect
+
+			# PASS 3
+			# Compute intersection and check if it's empty. Expensive but guaranteed
+			# to give the right answer.
+			return not self.intersect(other).is_empty
+
+		elif not triedReversed:
+			return other.intersects(self)
+
+		raise NotImplementedError("Cannot check intersection of MeshRegion with " +
+			type(other) + ".")
 
 	def containsPoint(self, point):
 		"""Check if this region's volume contains a point."""
@@ -500,7 +580,12 @@ class MeshVolumeRegion(_MeshRegion):
 		""" Samples a point uniformly from the volume of the region"""
 		# TODO: Look into tetrahedralization, perhaps to be turned on when a heuristic
 		# is met. Currently using Trimesh's rejection sampling.
-		return Vector(*trimesh.sample.volume_mesh(self.mesh, 1)[0])
+		sample = trimesh.sample.volume_mesh(self.mesh, 1)
+
+		if len(sample) == 0:
+			raise RejectionException("Rejection sampling MeshVolumeRegion failed.")
+		else:
+			return Vector(*sample[0])
 
 	def distanceTo(self, point):
 		""" Get the minimum distance from this region (including volume) to the specified point."""
@@ -529,53 +614,43 @@ class MeshVolumeRegion(_MeshRegion):
 	## Utility Methods ##
 	def getSurfaceRegion(self):
 		""" Return a region equivalent to this one except as a MeshSurfaceRegion"""
-		return MeshSurfaceRegion(self.mesh, self.name, self.position, self.orientation)
+		return MeshSurfaceRegion(self.mesh, self.name, center_mesh=False)
+
+	def getVolumeRegion(self):
+		""" Returns this object, as it is already a MeshVolumeRegion"""
+		return self
 
 class MeshSurfaceRegion(_MeshRegion):
 	""" An instance of _MeshRegion that performs operations over the surface
 	of the mesh.
 	"""
-	## API Methods ##
-	# Composition methods #
-	def intersect(self, other, triedReversed=False):
-		""" Get a `Region` representing the intersection of this region's
-		surface with another region.
-		"""
-		raise NotImplementedError()
-
-	def union(self, other, triedReversed=False):
-		""" Get a `Region` representing the union of this region's
-		surface with another region.
-		"""
-		raise NotImplementedError()
-
-	def difference(self, other):
-		""" Get a `Region` representing the difference of this region's
-		surface with another region.
-		"""
-		raise NotImplementedError()
 
 	# Property testing methods #
-	def intersects(self, other):
+	def intersects(self, other, triedReversed=False):
 		"""	Check if this region's surface intersects another region.
 		This is equivalent to checking if the two meshes collide
 		"""
-		# Attempt to coerce the other region to a mesh
-		region_mesh = toMesh(other)
+		# Check if region is fixed, and if not returns a default implementation
+		if needsSampling(self):
+			return super().intersects(other)
 
-		if region_mesh is None:
-			raise NotImplementedError("Cannot check intersection of MeshRegion with " +
-				type(other) + " as the latter does not support coercion to a mesh.")
+		elif isinstance(other, MeshSurfaceRegion):
+			# Uses Trimesh's collision manager to check for intersection of the
+			# polygons.
+			collision_manager = trimesh.collision.CollisionManager()
 
-		# Use Trimesh's collision manager to check for intersection.
-		collision_manager = trimesh.collision.CollisionManager()
+			collision_manager.add_object("SelfRegion", self.mesh)
+			collision_manager.add_object("OtherRegion", other.mesh)
 
-		collision_manager.add_object("SelfRegion", self.mesh)
-		collision_manager.add_object("OtherRegion", region_mesh)
+			surface_collision = collision_manager.in_collision_internal()
 
-		is_collision = collision_manager.in_collision_internal()
+			return surface_collision
 
-		return is_collision
+		elif not triedReversed:
+			return other.intersects(self)
+
+		raise NotImplementedError("Cannot check intersection of MeshRegion with " +
+			type(other) + ".")
 
 	def containsPoint(self, point):
 		"""Check if this region's surface contains a point."""
@@ -589,8 +664,8 @@ class MeshSurfaceRegion(_MeshRegion):
 		raise NotImplementedError()
 
 	def uniformPointInner(self):
-		""" Sampl a point uniformly at random from the surface of them mesh"""
-		trimesh.sample.sample_surface(self.mesh, 1)
+		""" Sample a point uniformly at random from the surface of them mesh"""
+		return Vector(*trimesh.sample.sample_surface(self.mesh, 1)[0][0])
 
 	def distanceTo(self, point):
 		""" Get the minimum distance from this object to the specified point."""
@@ -612,7 +687,23 @@ class MeshSurfaceRegion(_MeshRegion):
 	## Utility Methods ##
 	def getVolumeRegion(self):
 		""" Return a region equivalent to this one except as a MeshVolumeRegion"""
-		return MeshVolumeRegion(self.mesh, self.name, self.position, self.orientation)
+		return MeshVolumeRegion(self.mesh, self.name, center_mesh=False)
+
+class BoxRegion(MeshVolumeRegion):
+	"""Region in the shape of a rectangular cuboid, i.e. a box. By default the unit box centered at the origin
+	and aligned with the axes is used.
+
+	:param name: An optional name to help with debugging.
+	:param position: An optional position, which determines where the center of the region will be.
+	:param position: An optional Orientation object which determines the rotation of the object in space.
+	:param dimensions: An optional 3-tuple, describing the length, width, and height of the box.
+	:param orientation: An optional vector field describing the preferred orientation at every point in
+		the region.
+	:param tolerance: Tolerance for collision computations.
+	"""
+	def __init__(self, name=None, position=None, rotation=None, dimensions=None, orientation=None, tolerance=1e-8):
+		box_mesh = trimesh.creation.box((1, 1, 1))
+		super().__init__(box_mesh, name, position, rotation, dimensions, orientation, tolerance)
 
 ###################################################################################################
 # 2D Regions
