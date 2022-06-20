@@ -523,19 +523,16 @@ class Object(OrientedPoint, _RotatedRectangle):
 		object.__delattr__(proxy, name)
 
 	def containsPoint(self, point):
-		return self.getRegion().containsPoint(point)
+		return self.region.containsPoint(point)
 
 	def intersects(self, other):
-		other_region = other.getRegion()
-		return self.getRegion().intersects(other_region)
-
-	def getRegion(self):
-		assert not needsSampling(self)
-		return MeshVolumeRegion(mesh=self.shape.mesh, dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation)
+		other_region = other.region
+		return self.region.intersects(other_region)
 
 	@property
-	def mesh(self):
-		return self.getRegion().mesh	
+	def region(self):
+		assert not needsSampling(self)
+		return MeshVolumeRegion(mesh=self.shape.mesh, dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation)
 
 	@cached_property
 	def left(self):
@@ -628,7 +625,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 		if needsSampling(self):
 			raise RuntimeError('tried to show() symbolic Object')
 
-		viewer_mesh = self.mesh.copy()
+		viewer_mesh = self.region.mesh.copy()
 
 		if highlight:
 			viewer_mesh.visual.face_colors = [30, 179, 0, 255]

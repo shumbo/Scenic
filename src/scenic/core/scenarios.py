@@ -46,7 +46,6 @@ class Scene:
 	def show_3d(self):
 		"""Render a 3D schematic of the scene for debugging."""
 		import trimesh
-		from scenic.core.regions import toMesh
 
 		# Create a new trimesh scene to contain meshes
 		render_scene = trimesh.scene.Scene()

@@ -331,16 +331,6 @@ class DifferenceRegion(Region):
 	def __repr__(self):
 		return f'DifferenceRegion({self.regionA}, {self.regionB})'
 
-def toMesh(thing):
-	if needsSampling(thing):
-		return None
-	if hasattr(thing, 'mesh'):
-		mesh = thing.mesh
-	else:
-		return None
-
-	return mesh
-
 def toPolygon(thing):
 	if needsSampling(thing):
 		return None
@@ -440,21 +430,24 @@ class _MeshRegion(Region):
 		the resulting region will be a MeshVolumeRegion. Otherwise returns
 		a MeshSurfaceRegion.
 		"""
-		# Attempt to coerce the other region to a mesh
-		other_mesh = toMesh(other)
-
-		# If one of the regions isn't fixed or the other region cannot be coerced to
-		# a mesh, fall back on default behavior
-		if needsSampling(self) or needsSampling(other) or (other_mesh is None):
+		# If one of the regions isn't fixed fall back on default behavior
+		if needsSampling(self) or needsSampling(other):
 			return super().intersect(other, triedReversed)
 
-		# Compute intersection using Trimesh
-		new_mesh = self.mesh.intersection(other_mesh)
+		# If other region is represented by a mesh, we can extract the mesh to
+		# perform boolean operations on it
+		if isinstance(other, (_MeshRegion)):
+			other_mesh = other.mesh
 
-		if new_mesh.is_watertight:
-			return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
-		else:
-			return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+			# Compute intersection using Trimesh
+			new_mesh = self.mesh.intersection(other_mesh)
+
+			if new_mesh.is_empty:
+				return EmptyRegion("EmptyMesh")
+			elif new_mesh.is_watertight:
+				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+			else:
+				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
 
 	def union(self, other, triedReversed=False):
 		""" Get a `Region` representing the union of this region's
@@ -462,21 +455,25 @@ class _MeshRegion(Region):
 		the resulting region will be a MeshVolumeRegion. Otherwise returns
 		a MeshSurfaceRegion.
 		"""
-		# Attempt to coerce the other region to a mesh
-		other_mesh = toMesh(other)
+		# If one of the regions isn't fixed fall back on default behavior
+		if needsSampling(self) or needsSampling(other):
+			return super().intersect(other, triedReversed)
 
-		# If one of the regions isn't fixed or the other region cannot be coerced to
-		# a mesh, fall back on default behavior
-		if needsSampling(self) or needsSampling(other) or (other_mesh is None):
-			return super().union(other, triedReversed)
+		# If other region is represented by a mesh, we can extract the mesh to
+		# perform boolean operations on it
+		if isinstance(other, (_MeshRegion)):
+			other_mesh = other.mesh
 
-		# Compute union using Trimesh
-		new_mesh = self.mesh.union(other_mesh)
 
-		if new_mesh.is_watertight:
-			return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
-		else:
-			return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+			# Compute union using Trimesh
+			new_mesh = self.mesh.union(other_mesh)
+
+			if new_mesh.is_empty:
+				return EmptyRegion("EmptyMesh")
+			elif new_mesh.is_watertight:
+				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+			else:
+				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
 
 
 	def difference(self, other):
@@ -485,21 +482,24 @@ class _MeshRegion(Region):
 		the resulting region will be a MeshVolumeRegion. Otherwise returns
 		a MeshSurfaceRegion.
 		"""
-		# Attempt to coerce the other region to a mesh
-		other_mesh = toMesh(other)
+		# If one of the regions isn't fixed fall back on default behavior
+		if needsSampling(self) or needsSampling(other):
+			return super().intersect(other, triedReversed)
 
-		# If one of the regions isn't fixed or the other region cannot be coerced to
-		# a mesh, fall back on default behavior
-		if needsSampling(self) or needsSampling(other) or (other_mesh is None):
-			return super().difference(other)
+		# If other region is represented by a mesh, we can extract the mesh to
+		# perform boolean operations on it
+		if isinstance(other, (_MeshRegion)):
+			other_mesh = other.mesh
 
-		# Compute difference using Trimesh
-		new_mesh = self.mesh.difference(other_mesh)
+			# Compute difference using Trimesh
+			new_mesh = self.mesh.difference(other_mesh)
 
-		if new_mesh.is_watertight:
-			return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
-		else:
-			return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+			if new_mesh.is_empty:
+				return EmptyRegion("EmptyMesh")
+			elif new_mesh.is_watertight:
+				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+			else:
+				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
 
 	## Sampling Methods ##
 	def sampleGiven(self, value):
@@ -552,7 +552,7 @@ class MeshVolumeRegion(_MeshRegion):
 			# PASS 3
 			# Compute intersection and check if it's empty. Expensive but guaranteed
 			# to give the right answer.
-			return not self.intersect(other).is_empty
+			return not isinstance(self.intersect(other), EmptyRegion)
 
 		elif not triedReversed:
 			return other.intersects(self)
@@ -568,13 +568,10 @@ class MeshVolumeRegion(_MeshRegion):
 		"""Check if this region's volume contains an :obj:`~scenic.core.object_types.Object`.
 		The object must support coercion to a mesh.
 		"""
-		obj_mesh = toMesh(obj)
-
-		if obj_mesh is None:
-			raise NotImplementedError("Cannot check if an object of type " + type(obj) +
-				" is contained in a MeshRegion as it does not support coercion to a mesh.")
-
-		return obj_mesh.difference(self.mesh).is_empty
+		# If the difference between the object's region and this region is empty,
+		# i.e. obj_region - self_region = EmptyRegion, that means the object is
+		# entirely contained in this region.
+		return isinstance(obj.region.difference(self), EmptyRegion)
 
 	def uniformPointInner(self):
 		""" Samples a point uniformly from the volume of the region"""

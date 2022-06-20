@@ -4,7 +4,7 @@ import trimesh
 import numpy as np
 
 from scenic.core.distributions import needsSampling
-from scenic.core.regions import Region, everywhere, toMesh, toPolygon
+from scenic.core.regions import Region, everywhere, toPolygon, MeshVolumeRegion, MeshSurfaceRegion
 from scenic.core.geometry import findMinMax
 from scenic.core.errors import RuntimeParseError
 
@@ -17,10 +17,10 @@ class Workspace(Region):
 		self.region = region
 
 	def show_3d(self, viewer):
-		workspace_mesh = toMesh(self.region)
 		workspace_polygon = toPolygon(self.region)
 
-		if workspace_mesh is not None:
+		if isinstance(self.region, (MeshVolumeRegion, MeshSurfaceRegion)):
+			workspace_mesh = self.region.mesh
 			# We can render this workspace as the wireframe of a mesh
 			edges = workspace_mesh.face_adjacency_edges[workspace_mesh.face_adjacency_angles > np.radians(0)].copy()
 			vertices = workspace_mesh.vertices.copy()
