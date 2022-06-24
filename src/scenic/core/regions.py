@@ -455,7 +455,7 @@ class _MeshRegion(Region):
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
-			elif new_mesh.is_watertight:
+			elif new_mesh.is_volume:
 				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
@@ -482,7 +482,7 @@ class _MeshRegion(Region):
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
-			elif new_mesh.is_watertight:
+			elif new_mesh.is_volume:
 				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
@@ -511,7 +511,7 @@ class _MeshRegion(Region):
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
-			elif new_mesh.is_watertight:
+			elif new_mesh.is_volume:
 				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
@@ -541,7 +541,7 @@ class _MeshRegion(Region):
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
-			elif new_mesh.is_watertight:
+			elif new_mesh.is_volume:
 				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
@@ -567,7 +567,7 @@ class _MeshRegion(Region):
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
-			elif new_mesh.is_watertight:
+			elif new_mesh.is_volume:
 				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
@@ -583,7 +583,7 @@ class MeshVolumeRegion(_MeshRegion):
 		super().__init__(*args, **kwargs)
 
 		# Ensure the mesh is watertight so volume is well defined
-		if not self.mesh.is_watertight:
+		if not self._mesh.is_volume:
 			raise ValueError("A MeshVolumeRegion cannot be defined with a mesh that does not have a well defined volume.")
 
 	# Property testing methods #
@@ -600,6 +600,16 @@ class MeshVolumeRegion(_MeshRegion):
 
 		elif isinstance(other, (MeshVolumeRegion, MeshSurfaceRegion)):
 			# PASS 1
+			# Check if bounding boxes intersect. If not, volumes cannot intersect.
+			# For bounding boxes to intersect there must be overlap of the bounds
+			# in all 3 dimensions.
+			range_overlaps = [(self.mesh.bounds[0,dim] <= other.mesh.bounds[1,dim]) and (other.mesh.bounds[0,dim] <= self.mesh.bounds[1,dim]) for dim in range(3)]
+			bounding_box_overlap = all(range_overlaps)
+
+			if not bounding_box_overlap:
+				return False
+
+			# PASS 2
 			# Use Trimesh's collision manager to check for intersection.
 			# If the surfaces collide, that implies a collision of the volumes.
 			# Cheaper than computing volumes immediately.
@@ -612,10 +622,6 @@ class MeshVolumeRegion(_MeshRegion):
 
 			if surface_collision:
 				return True
-
-			# PASS 2
-			# TODO: Check if bounding boxes intersect in some cheap way. If not,
-			# volumes cannot intersect
 
 			# PASS 3
 			# Compute intersection and check if it's empty. Expensive but guaranteed
@@ -784,27 +790,7 @@ class BoxRegion(MeshVolumeRegion):
 	"""
 	def __init__(self, name=None, position=None, rotation=None, dimensions=None, orientation=None, tolerance=1e-8):
 		box_mesh = trimesh.creation.box((1, 1, 1))
-		super().__init__(box_mesh, name, position, rotation, dimensions, orientation, tolerance)
-
-class DefaultTopSurface(MeshSurfaceRegion):
-	def __init__(self, mesh, min_top_z, name=None, dimensions=None, position=None, rotation=None):
-		# Initialize base MeshSurfaceRegion class
-		super().__init__(mesh, name=name, dimensions=dimensions, position=position, rotation=rotation)
-
-		# Store minimum face normal z value to be considered an upright face.
-		self.min_top_z = min_top_z
-
-	## Sampling Methods ##
-	def sampleGiven(self, value):
-		surface_region = super().sampleGiven(value)
-		surface_mesh = surface_region.mesh
-
-		face_mask = surface_mesh.face_normals[:, 2] >= self.min_top_z
-		surface_mesh.faces = surface_mesh.faces[face_mask]
-		surface_mesh.remove_unreferenced_vertices()
-
-		return surface_region
-
+		super().__init__(mesh=box_mesh, name=name, position=position, rotation=rotation, dimensions=dimensions, orientation=orientation, tolerance=tolerance)
 
 ###################################################################################################
 # 2D Regions

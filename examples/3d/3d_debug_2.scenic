@@ -1,7 +1,7 @@
 import trimesh
 
 # Pick a workspace
-workspace_region = MeshVolumeRegion(trimesh.creation.box((1,1,1)), dimensions=(20,20,20))
+workspace_region = BoxRegion(dimensions=(25,25,25))
 
 workspace = Workspace(workspace_region)
 
@@ -14,9 +14,9 @@ ego = Object at Vector(0,0,0),
 # Place many small boxes centered on the surface of a sphere
 sample_space = MeshSurfaceRegion(trimesh.creation.icosphere(radius=10))
 
-for i in range(20):
+for i in range(40):
     Object in sample_space,
-        with width 0.1,
-        with length 0.1,
-        with height 0.1,
+        with width 0.5,
+        with length 0.5,
+        with height 0.5,
         with requireVisible False

@@ -27,7 +27,7 @@ __all__ = (
 	# Primitive types
 	'Vector', 'VectorField', 'PolygonalVectorField',
 	'MeshShape', 'BoxShape',
-	'MeshVolumeRegion', 'MeshSurfaceRegion',
+	'MeshVolumeRegion', 'MeshSurfaceRegion', 'BoxRegion',
 	'Region', 'PointSetRegion', 'RectangularRegion', 'CircularRegion', 'SectorRegion',
 	'PolygonalRegion', 'PolylineRegion',
 	'Workspace', 'Mutator',
@@ -59,7 +59,7 @@ from scenic.core.shapes import MeshShape, BoxShape
 from scenic.core.regions import (Region, PointSetRegion, RectangularRegion,
 	CircularRegion, SectorRegion, PolygonalRegion, PolylineRegion,
 	everywhere, nowhere,
-	MeshVolumeRegion, MeshSurfaceRegion)
+	MeshVolumeRegion, MeshSurfaceRegion, BoxRegion)
 from scenic.core.workspaces import Workspace
 from scenic.core.distributions import (Range, DiscreteRange, Options, Uniform, Normal,
 	TruncatedNormal)
@@ -779,14 +779,14 @@ def On(thing):
 		pos = Region.uniformPointIn(region)
 
 		# TODO Add tolerance to collision checker
-		values = {'position': (pos - context.centerOffset)}
+		values = {'position': (pos - context.centerOffset + (0,0,context.onSurfaceTolerance))}
 
 		if 'parentOrientation' in props:
 			values['parentOrientation'] = region.orientation[pos]
 
 		return values
 
-	return ModifyingSpecifier(props, DelayedArgument({'centerOffset'}, helper))
+	return ModifyingSpecifier(props, DelayedArgument({'centerOffset', 'onSurfaceTolerance'}, helper))
 
 def alwaysProvidesOrientation(region):
 	"""Whether a Region or distribution over Regions always provides an orientation."""

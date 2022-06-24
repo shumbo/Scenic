@@ -3,14 +3,16 @@
 import collections
 import math
 import random
+import numpy as np
 from abc import ABC, abstractmethod
 
-from scenic.core.distributions import Samplable, needsSampling, distributionMethod
+from scenic.core.distributions import Samplable, needsSampling, distributionMethod, distributionFunction
 from scenic.core.specifiers import Specifier, PropertyDefault, ModifyingSpecifier
 from scenic.core.vectors import Vector, Orientation, alwaysGlobalOrientation
 from scenic.core.geometry import (_RotatedRectangle, averageVectors, hypot, min,
                                   pointIsInCone)
-from scenic.core.regions import CircularRegion, SectorRegion, MeshVolumeRegion, MeshSurfaceRegion, DefaultTopSurface
+from scenic.core.regions import (CircularRegion, SectorRegion, MeshVolumeRegion, MeshSurfaceRegion, 
+								  BoxRegion, EmptyRegion)
 from scenic.core.type_support import toVector, toHeading, toType, toScalar
 from scenic.core.lazy_eval import needsLazyEvaluation
 from scenic.core.utils import DefaultIdentityDict, areEquivalent, cached_property
@@ -484,7 +486,12 @@ class Object(OrientedPoint, _RotatedRectangle):
 	cameraOffset: Vector(0, 0)
 
 	shape: BoxShape()
-	centerOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2-0.00001))
+	region: PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation'), \
+		{'dynamic'}, lambda self: \
+		MeshVolumeRegion(mesh=self.shape.mesh, dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation))
+
+	centerOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
+	onSurfaceTolerance: 0.00001
 
 	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
 	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))
@@ -492,9 +499,11 @@ class Object(OrientedPoint, _RotatedRectangle):
 	angularSpeed: PropertyDefault((), {'dynamic'}, lambda self: 0)
 
 	min_top_z: 0.4
-	topSurface: PropertyDefault(('shape', 'min_top_z', 'width', 'length', 'height', 'position','orientation'), \
-		{'dynamic'}, lambda self: DefaultTopSurface(self.shape.mesh, self.min_top_z, \
-			dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation))
+	topSurface: PropertyDefault(('region', 'min_top_z'), \
+		{'dynamic'}, lambda self: defaultTopSurface(self.region, self.min_top_z))
+
+	emptySpace: PropertyDefault(('region',), \
+		{'dynamic'}, lambda self: defaultEmptySpace(self.region))
 
 	behavior: None
 	lastActions: None
@@ -547,21 +556,6 @@ class Object(OrientedPoint, _RotatedRectangle):
 	def intersects(self, other):
 		other_region = other.region
 		return self.region.intersects(other_region)
-
-	@property
-	def region(self):
-		return MeshVolumeRegion(mesh=self.shape.mesh, dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation)
-
-	# def _topSurface(self):
-	# 	# Copy surface mesh, and remove all faces who's normal vectors
-	# 	# have a z component less than self.min_top_z
-	# 	surface_mesh = self.region.mesh.copy()
-	# 	face_mask = surface_mesh.face_normals[:, 2] > self.min_top_z
-	# 	surface_mesh.faces = surface_mesh.faces[face_mask]
-	# 	surface_mesh.remove_unreferenced_vertices()
-
-	# 	# Return MeshSurfaceRegion representing top surface of this object.
-	# 	return MeshSurfaceRegion(mesh=self.shape.mesh, dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation)
 
 	@cached_property
 	def left(self):
@@ -694,6 +688,40 @@ class Object(OrientedPoint, _RotatedRectangle):
 		plt.fill(x, y, "w")
 		plt.plot(x + (x[0],), y + (y[0],), color="k", linewidth=1)
 
+@distributionFunction
+def defaultTopSurface(region, min_top_z):
+	# Extract mesh from object
+	obj_mesh = region.mesh.copy()
+
+	# Drop all faces whose normal vector do not have a sufficiently
+	# large z component.
+	face_mask = obj_mesh.face_normals[:, 2] >= min_top_z
+	obj_mesh.faces = obj_mesh.faces[face_mask]
+	obj_mesh.remove_unreferenced_vertices()
+
+	# Check if the resulting surface is empty and return an appropriate region.
+	if not obj_mesh.is_empty:
+		return MeshSurfaceRegion(mesh=obj_mesh, center_mesh=False)
+	else:
+		return EmptyRegion(name="EmptyTopSurface")
+
+@distributionFunction
+def defaultEmptySpace(obj):
+	# Extract the bounding box mesh, center it around the origin, scale it down slightly, and
+	# then move it back to it's original position.
+	bb_mesh = obj.mesh.bounding_box.copy()
+	bb_pos = bb_mesh.center_mass
+	bb_extents = bb_mesh.extents*.99
+
+	# Take the difference of the objects bounding box and its mesh.
+	bb_region = BoxRegion(position=Vector(*bb_pos), dimensions=bb_extents)
+	empty_space_region = bb_region.difference(obj)
+
+	# If empty_space_region forms a volume, it is meaningful. Else set it to EmptyRegion.
+	if isinstance(empty_space_region, MeshVolumeRegion):
+		return empty_space_region
+	else:
+		return EmptyRegion(name="EmptyEmptySpace")
 
 def enableDynamicProxyFor(obj):
 	object.__setattr__(obj, '_dynamicProxy', obj.copyWith())
