@@ -751,7 +751,7 @@ def In(region):
 		values['parentOrientation'] = region.orientation[pos]
 	return Specifier(props, values)
 
-def On(region):
+def On(thing):
 	"""The 'on <X>' specifier.
 
 	Specifies 'position' and 'parentOrientation' with no dependencies.
@@ -764,14 +764,29 @@ def On(region):
 		on <object> 
 	"""
 	# TODO: @Matthew Helper function for delayed argument checks if modifying or not
-	region = toType(region, Region, 'specifier "on R" with R not a Region')
-	pos = Region.uniformPointIn(region)
+
+	if isinstance(thing, Object):
+		region = toType(thing.topSurface, Region, 'Cannot coax topSurface of Object to Region')
+	else:
+		region = toType(thing, Region, 'specifier "on R" with R not a Region')
+
 	props = {'position': 1}
-	values = {'position': pos}
+
 	if alwaysProvidesOrientation(region):
 		props['parentOrientation'] = 2
-		values['parentOrientation'] = region.orientation[pos]
-	return ModifyingSpecifier(props, values)
+
+	def helper(context, spec):
+		pos = Region.uniformPointIn(region)
+
+		# TODO Add tolerance to collision checker
+		values = {'position': (pos - context.centerOffset)}
+
+		if 'parentOrientation' in props:
+			values['parentOrientation'] = region.orientation[pos]
+
+		return values
+
+	return ModifyingSpecifier(props, DelayedArgument({'centerOffset'}, helper))
 
 def alwaysProvidesOrientation(region):
 	"""Whether a Region or distribution over Regions always provides an orientation."""

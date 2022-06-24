@@ -10,7 +10,7 @@ from scenic.core.specifiers import Specifier, PropertyDefault, ModifyingSpecifie
 from scenic.core.vectors import Vector, Orientation, alwaysGlobalOrientation
 from scenic.core.geometry import (_RotatedRectangle, averageVectors, hypot, min,
                                   pointIsInCone)
-from scenic.core.regions import CircularRegion, SectorRegion, MeshVolumeRegion
+from scenic.core.regions import CircularRegion, SectorRegion, MeshVolumeRegion, MeshSurfaceRegion, DefaultTopSurface
 from scenic.core.type_support import toVector, toHeading, toType, toScalar
 from scenic.core.lazy_eval import needsLazyEvaluation
 from scenic.core.utils import DefaultIdentityDict, areEquivalent, cached_property
@@ -90,24 +90,36 @@ class _Constructible(Samplable):
 		For each specifier:
 			* If a modifying specifier, modifying[p] = specifier
 			* If a specifier, and not in properties specified, properties[p] = specifier
-				- Otherwise, if property specified, check if specifier's priority is higher. 
+				- Otherwise, if property specified, check if specifier's priority is higher.
 				- If so, replace it with specifier
 
 		Priorties are inversed: A lower priority number means semantically that it has a higher priority level
 		'''
 		for spec in specifiers:
 			assert isinstance(spec, Specifier), (name, spec)
+			# Extract dictionary mapping from properties to priorities
 			props = spec.priorities
+
+			# Iterate over each property.
 			for p in props:
+				# Check if this is a final property has been specified. If so, throw an assertion or error,
+				# depending on whether or not this object is internal.
 				if p in finals:
 					assert not _internal
 					raise RuntimeParseError(f'property "{p}" of {name} cannot be directly specified')
+				# Check if this is a modifying specifier, and if so if this property has already been modified.
+				# If so throw an error, as no property can be modified twice. Otherwise, note that it is a
+				# modifying specifier and deal with it later.
 				if isinstance(spec, ModifyingSpecifier):
 					if p in modified:
 						raise RuntimeParseError(f'property "{p}" of {name} modified twice')
 					modified[p] = spec
 				else:
+					# Otherwise we need to apply the changes this specifier makes to the property.
 					if p in properties:
+						# This property already exists. Check that it has not already been specified
+						# at equal priority level. Then if it was previously specified at a lower priority
+						# level, override it with the value that this specifier sets.
 						if spec.priorities[p] == priorities[p]:
 							raise RuntimeParseError(f'property "{p}" of {name} specified twice with the same priority')
 						if spec.priorities[p] < priorities[p]:
@@ -115,6 +127,7 @@ class _Constructible(Samplable):
 							priorities[p] = spec.properties[p]
 							spec.modifying[p] = False
 					else:
+						# This property does not already exist, so we should initialize it.
 						properties[p] = spec
 						priorities[p] = spec.priorities[p]
 						spec.modifying[p] = False
@@ -143,11 +156,11 @@ class _Constructible(Samplable):
 				spec.modifying[prop] = False
 				deprecate.append(prop)
 
-		# Delete all deprecated modifiers. Any remaining will modify a specified property 
+		# Delete all deprecated modifiers. Any remaining will modify a specified property later.
 		for d in deprecate:
 			assert d in modified
 			del modified[d]
-		
+
 		# Add any default specifiers needed
 		for prop in defs:
 			if prop not in properties:
@@ -180,6 +193,7 @@ class _Constructible(Samplable):
 			dfs(spec)
 		assert len(order) == len(specifiers)
 
+		# 
 		for spec in specifiers:
 			if isinstance(spec, ModifyingSpecifier):
 				for mod in modified:
@@ -470,12 +484,17 @@ class Object(OrientedPoint, _RotatedRectangle):
 	cameraOffset: Vector(0, 0)
 
 	shape: BoxShape()
-	centerOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
+	centerOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2-0.00001))
 
 	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
 	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))
 	speed: PropertyDefault((), {'dynamic'}, lambda self: 0)
 	angularSpeed: PropertyDefault((), {'dynamic'}, lambda self: 0)
+
+	min_top_z: 0.4
+	topSurface: PropertyDefault(('shape', 'min_top_z', 'width', 'length', 'height', 'position','orientation'), \
+		{'dynamic'}, lambda self: DefaultTopSurface(self.shape.mesh, self.min_top_z, \
+			dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation))
 
 	behavior: None
 	lastActions: None
@@ -531,8 +550,18 @@ class Object(OrientedPoint, _RotatedRectangle):
 
 	@property
 	def region(self):
-		assert not needsSampling(self)
 		return MeshVolumeRegion(mesh=self.shape.mesh, dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation)
+
+	# def _topSurface(self):
+	# 	# Copy surface mesh, and remove all faces who's normal vectors
+	# 	# have a z component less than self.min_top_z
+	# 	surface_mesh = self.region.mesh.copy()
+	# 	face_mask = surface_mesh.face_normals[:, 2] > self.min_top_z
+	# 	surface_mesh.faces = surface_mesh.faces[face_mask]
+	# 	surface_mesh.remove_unreferenced_vertices()
+
+	# 	# Return MeshSurfaceRegion representing top surface of this object.
+	# 	return MeshSurfaceRegion(mesh=self.shape.mesh, dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation)
 
 	@cached_property
 	def left(self):

@@ -423,3 +423,4 @@ def test_following_random():
         ego = Object following vf from 1@2 for x, facing x
     """)
     assert tuple(ego.position) == pytest.approx((1+ego.heading, 2, 0))
+

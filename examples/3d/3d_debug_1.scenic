@@ -4,8 +4,11 @@ import trimesh
 workspace_region_1 = RectangularRegion(0 @ 0, 0, 20, 20) # Tests 2D Region compatibility
 workspace_region_2 = MeshVolumeRegion(trimesh.creation.box((1,1,1)), dimensions=(20,20,20)) # Tests 3D Region compatibility
 workspace_region_3 = MeshVolumeRegion(trimesh.creation.icosphere(radius=20)) # Tests 3D Region rejection sampling
+workspace_region_4 = MeshVolumeRegion(trimesh.creation.icosphere(radius=20), position=(5,5,5)).intersect(RectangularRegion(0 @ 0, 0, 30, 30)) # Tests intersection of 3D Regions and 2D Regions
+workspace_region_6 = MeshVolumeRegion(trimesh.creation.icosphere(radius=20), position=(5,5,5)).difference(RectangularRegion(0 @ 0, 0, 5, 5)) # Tests difference of 3D Regions and 2D Regions
 
-workspace = Workspace(workspace_region_2)
+
+workspace = Workspace(workspace_region_1)
 
 # Place items only in the top or bottom half of workspace, at random
 half_sign = Uniform(-1, 1)

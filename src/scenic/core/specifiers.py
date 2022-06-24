@@ -24,7 +24,7 @@ class Specifier:
 			deps = set()
 		deps |= requiredProperties(self.value)
 		for p in priorities:
-			if p in deps: 
+			if p in deps:
 				raise RuntimeParseError(f'specifier for property {p} depends on itself')
 		self.requiredProperties = deps
 

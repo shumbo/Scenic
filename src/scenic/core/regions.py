@@ -382,10 +382,12 @@ class _MeshRegion(Region):
 	:param tolerance: Tolerance for collision computations.
 	:param center_mesh: Whether or not to center the mesh after copying and before transformations. Only turn this off
 		if you know what you're doing and don't plan to scale or translate the mesh.
+	:param additional_deps: Any additional sampling dependencies this region relies on.
 	"""
-	def __init__(self, mesh, name=None, dimensions=None, position=None, rotation=None, orientation=None, tolerance=1e-8, center_mesh=True):
+	def __init__(self, mesh, name=None, dimensions=None, position=None, rotation=None, orientation=None, \
+	  	tolerance=1e-8, center_mesh=True, additional_deps=[]):
 		# Copy the mesh and parameters
-		self.mesh = mesh.copy()
+		self._mesh = mesh.copy()
 		self.dimensions = toDistribution(dimensions)
 		self.position = toDistribution(position)
 		self.rotation = toDistribution(rotation)
@@ -394,7 +396,7 @@ class _MeshRegion(Region):
 		self.center_mesh = center_mesh
 
 		# Initialize superclass with samplables
-		super().__init__(name, self.dimensions, self.position, self.rotation, orientation=orientation)
+		super().__init__(name, self.dimensions, self.position, self.rotation, orientation=orientation, *additional_deps)
 
 		# If sampling is needed, delay transformations
 		if needsSampling(self):
@@ -423,6 +425,15 @@ class _MeshRegion(Region):
 			self.mesh.apply_transform(position_matrix)
 
 	## API Methods ##
+	# Mesh Access #
+	@property
+	def mesh(self):
+		# Prevent access to mesh unless it actually represents region.
+		if needsSampling(self):
+			raise ValueError("Attempting to access the Mesh of an unsampled MeshRegion.")
+
+		return self._mesh
+
 	# Composition methods #
 	def intersect(self, other, triedReversed=False):
 		""" Get a `Region` representing the intersection of this region's
@@ -434,9 +445,9 @@ class _MeshRegion(Region):
 		if needsSampling(self) or needsSampling(other):
 			return super().intersect(other, triedReversed)
 
-		# If other region is represented by a mesh, we can extract the mesh to
-		# perform boolean operations on it
 		if isinstance(other, (_MeshRegion)):
+			# Other region is a MeshRegion.
+			# We can extract the mesh to perform boolean operations on it
 			other_mesh = other.mesh
 
 			# Compute intersection using Trimesh
@@ -449,6 +460,36 @@ class _MeshRegion(Region):
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
 
+		elif toPolygon(other) is not None:
+			# Other region is a polygon.
+			# We can extrude it to cover the entire mesh vertically
+			# and then take the intersection.
+			other_polygon = toPolygon(other)
+
+			# Determine the mesh's vertical bounds, and extrude the polygon to have height equal to the mesh
+			# (plus a little extra).
+			vertical_bounds = (self.mesh.bounds[0][2], self.mesh.bounds[1][2])
+			polygon_height = vertical_bounds[1] - vertical_bounds[0] + 1
+
+			polygon_mesh = trimesh.creation.extrude_polygon(polygon=other_polygon, height=polygon_height)
+
+			# Translate the polygon mesh vertically so it covers the main mesh.
+			polygon_z_pos = (vertical_bounds[1] + vertical_bounds[0])/2
+			polygon_mesh.vertices[:,2] += polygon_z_pos - polygon_mesh.bounding_box.center_mass[2]
+
+			# Compute intersection using Trimesh
+			new_mesh = self.mesh.intersection(polygon_mesh)
+
+			if new_mesh.is_empty:
+				return EmptyRegion("EmptyMesh")
+			elif new_mesh.is_watertight:
+				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
+			else:
+				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
+
+		# Don't know how to compute this intersection, fall back to default behavior.
+		return super().intersect(other, triedReversed)
+
 	def union(self, other, triedReversed=False):
 		""" Get a `Region` representing the union of this region's
 		volume with another region. If the resulting mesh is watertight,
@@ -457,7 +498,7 @@ class _MeshRegion(Region):
 		"""
 		# If one of the regions isn't fixed fall back on default behavior
 		if needsSampling(self) or needsSampling(other):
-			return super().intersect(other, triedReversed)
+			return super().union(other, triedReversed)
 
 		# If other region is represented by a mesh, we can extract the mesh to
 		# perform boolean operations on it
@@ -474,7 +515,11 @@ class _MeshRegion(Region):
 				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+		# TODO Look into union between mesh and polygon.
+		# If mesh projection onto plane contained by polygon then the union is the polygon.
 
+		# Don't know how to compute this union, fall back to default behavior.
+		return super().union(other, triedReversed)
 
 	def difference(self, other):
 		""" Get a `Region` representing the difference of this region's
@@ -484,7 +529,7 @@ class _MeshRegion(Region):
 		"""
 		# If one of the regions isn't fixed fall back on default behavior
 		if needsSampling(self) or needsSampling(other):
-			return super().intersect(other, triedReversed)
+			return super().difference(other)
 
 		# If other region is represented by a mesh, we can extract the mesh to
 		# perform boolean operations on it
@@ -500,12 +545,35 @@ class _MeshRegion(Region):
 				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+		elif toPolygon(other) is not None:
+			# Other region is a polygon.
+			# We can extrude it to cover the entire mesh vertically
+			# and then take the difference.
+			other_polygon = toPolygon(other)
 
-	## Sampling Methods ##
-	def sampleGiven(self, value):
-		return self.__class__(self.mesh, self.name, \
-			value[self.dimensions], value[self.position], value[self.rotation], \
-			self.orientation, self.tolerance, self.center_mesh)
+			# Determine the mesh's vertical bounds, and extrude the polygon to have height equal to the mesh
+			# (plus a little extra).
+			vertical_bounds = (self.mesh.bounds[0][2], self.mesh.bounds[1][2])
+			polygon_height = vertical_bounds[1] - vertical_bounds[0] + 1
+
+			polygon_mesh = trimesh.creation.extrude_polygon(polygon=other_polygon, height=polygon_height)
+
+			# Translate the polygon mesh vertically so it covers the main mesh.
+			polygon_z_pos = (vertical_bounds[1] + vertical_bounds[0])/2
+			polygon_mesh.vertices[:,2] += polygon_z_pos - polygon_mesh.bounding_box.center_mass[2]
+
+			# Compute intersection using Trimesh
+			new_mesh = self.mesh.difference(polygon_mesh)
+
+			if new_mesh.is_empty:
+				return EmptyRegion("EmptyMesh")
+			elif new_mesh.is_watertight:
+				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
+			else:
+				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
+
+		# Don't know how to compute this difference, fall back to default behavior.
+		return super().difference(other)
 
 class MeshVolumeRegion(_MeshRegion):
 	""" An instance of _MeshRegion that performs operations over the volume
@@ -516,7 +584,7 @@ class MeshVolumeRegion(_MeshRegion):
 
 		# Ensure the mesh is watertight so volume is well defined
 		if not self.mesh.is_watertight:
-			raise ValueError("A MeshShape cannot be defined with a mesh that is not watertight.")
+			raise ValueError("A MeshVolumeRegion cannot be defined with a mesh that does not have a well defined volume.")
 
 	# Property testing methods #
 	def intersects(self, other, triedReversed=False):
@@ -608,6 +676,12 @@ class MeshVolumeRegion(_MeshRegion):
 		# Return the minimum of these distances.
 		return min(distances)
 
+	## Sampling Methods ##
+	def sampleGiven(self, value):
+		return MeshVolumeRegion(self._mesh, self.name, \
+			value[self.dimensions], value[self.position], value[self.rotation], \
+			self.orientation, self.tolerance, self.center_mesh)
+
 	## Utility Methods ##
 	def getSurfaceRegion(self):
 		""" Return a region equivalent to this one except as a MeshSurfaceRegion"""
@@ -616,6 +690,7 @@ class MeshVolumeRegion(_MeshRegion):
 	def getVolumeRegion(self):
 		""" Returns this object, as it is already a MeshVolumeRegion"""
 		return self
+
 
 class MeshSurfaceRegion(_MeshRegion):
 	""" An instance of _MeshRegion that performs operations over the surface
@@ -681,10 +756,19 @@ class MeshSurfaceRegion(_MeshRegion):
 		# Return the minimum of these distances.
 		return min(distances)
 
+	## Sampling Methods ##
+	def sampleGiven(self, value):
+		return MeshSurfaceRegion(self._mesh, self.name, \
+			value[self.dimensions], value[self.position], value[self.rotation], \
+			self.orientation, self.tolerance, self.center_mesh)
+
 	## Utility Methods ##
 	def getVolumeRegion(self):
 		""" Return a region equivalent to this one except as a MeshVolumeRegion"""
 		return MeshVolumeRegion(self.mesh, self.name, center_mesh=False)
+
+	def getSurfaceRegion(self):
+		return self
 
 class BoxRegion(MeshVolumeRegion):
 	"""Region in the shape of a rectangular cuboid, i.e. a box. By default the unit box centered at the origin
@@ -701,6 +785,26 @@ class BoxRegion(MeshVolumeRegion):
 	def __init__(self, name=None, position=None, rotation=None, dimensions=None, orientation=None, tolerance=1e-8):
 		box_mesh = trimesh.creation.box((1, 1, 1))
 		super().__init__(box_mesh, name, position, rotation, dimensions, orientation, tolerance)
+
+class DefaultTopSurface(MeshSurfaceRegion):
+	def __init__(self, mesh, min_top_z, name=None, dimensions=None, position=None, rotation=None):
+		# Initialize base MeshSurfaceRegion class
+		super().__init__(mesh, name=name, dimensions=dimensions, position=position, rotation=rotation)
+
+		# Store minimum face normal z value to be considered an upright face.
+		self.min_top_z = min_top_z
+
+	## Sampling Methods ##
+	def sampleGiven(self, value):
+		surface_region = super().sampleGiven(value)
+		surface_mesh = surface_region.mesh
+
+		face_mask = surface_mesh.face_normals[:, 2] >= self.min_top_z
+		surface_mesh.faces = surface_mesh.faces[face_mask]
+		surface_mesh.remove_unreferenced_vertices()
+
+		return surface_region
+
 
 ###################################################################################################
 # 2D Regions
