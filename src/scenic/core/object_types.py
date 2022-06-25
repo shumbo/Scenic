@@ -195,7 +195,6 @@ class _Constructible(Samplable):
 			dfs(spec)
 		assert len(order) == len(specifiers)
 
-		# 
 		for spec in specifiers:
 			if isinstance(spec, ModifyingSpecifier):
 				for mod in modified:
@@ -219,8 +218,9 @@ class _Constructible(Samplable):
 		# Possibly register this object
 		self._register()
 
-	def _specify(self, prop, value):
-		assert prop not in self.properties
+	def _specify(self, prop, value, modifying=False):
+		if not modifying:
+			assert prop not in self.properties
 
 		# Normalize types of some built-in properties
 		if prop == 'position':
@@ -526,13 +526,13 @@ class Object(OrientedPoint, _RotatedRectangle):
 
 		self._relations = []
 
-	def _specify(self, prop, value):
+	def _specify(self, prop, value, modifying=False):
 		# Normalize types of some built-in properties
 		if prop == 'behavior':
 			import scenic.syntax.veneer as veneer	# TODO improve?
 			value = toType(value, veneer.Behavior,
 			               f'"behavior" of {self} not a behavior')
-		super()._specify(prop, value)
+		super()._specify(prop, value, modifying)
 
 	def _register(self):
 		import scenic.syntax.veneer as veneer	# TODO improve?

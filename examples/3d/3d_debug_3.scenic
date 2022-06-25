@@ -9,6 +9,8 @@ workspace = Workspace(workspace_region)
 floor = Object at (0,0, 0),
     with shape BoxShape(dimensions=(30,30,0.1))
 
+floor.region.mesh.visual.face_colors = [30, 30, 150, 255]
+
 # Load chair mesh from file
 with open(localPath("mesh.obj"), "r") as mesh_file:
     mesh = trimesh.load(mesh_file, file_type="obj")
@@ -28,13 +30,5 @@ top_cube = Object on chair,
     with requireVisible False
 
 # Place a small cube in the empty space of the large chair
-bottom_cube = Object in chair.emptySpace,
+bottom_cube = Object in chair.emptySpace, on floor,
     with requireVisible False
-
-# Create a small chair object to the left of the large chair
-# Object left of ego, on floor,
-#     with width 1,
-#     with length 1,
-#     with height 1,
-#     with pitch 90 deg,
-#     with shape chair_shape

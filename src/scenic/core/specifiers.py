@@ -29,8 +29,9 @@ class Specifier:
 		self.requiredProperties = deps
 
 	def applyTo(self, obj, modifying):
-		"""Apply specifier to an object, including the specified modified properties."""
+		"""Apply specifier to an object"""
 		val = valueInContext(self.value, obj, modifying)
+
 		if isinstance(val, dict):
 			for prop in modifying:
 				distV = toDistribution(val[prop])
@@ -47,7 +48,26 @@ class Specifier:
 		return f'<Specifier of {self.priorities}>'
 
 class ModifyingSpecifier(Specifier):
-	pass
+	def applyTo(self, obj, modifying):
+		"""Apply modifying properties to object. Then call super() class for
+		all non modifying properties.
+		"""
+		val = valueInContext(self.value[0], obj, modifying)
+		self.value = self.value[1]
+
+		deprecate = []
+
+		for prop in modifying:
+			if modifying[prop]:
+				distV = toDistribution(val[prop](getattr(obj, prop)))
+				assert not needsLazyEvaluation(distV)
+				obj._specify(prop, distV, modifying=True)
+				deprecate.append(prop)
+
+		for prop in deprecate:
+			del(modifying[prop])
+
+		super().applyTo(obj, modifying)
 
 ## Support for property defaults
 

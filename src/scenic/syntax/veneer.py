@@ -778,15 +778,24 @@ def On(thing):
 	def helper(context, spec):
 		pos = Region.uniformPointIn(region)
 
-		# TODO Add tolerance to collision checker
 		values = {'position': (pos - context.centerOffset + (0,0,context.onSurfaceTolerance))}
+		modifying_values = {'position': lambda pos: findOnHelper(region, pos) - context.centerOffset + (0,0,context.onSurfaceTolerance)}
 
 		if 'parentOrientation' in props:
 			values['parentOrientation'] = region.orientation[pos]
 
-		return values
+		return (modifying_values, values)
 
 	return ModifyingSpecifier(props, DelayedArgument({'centerOffset', 'onSurfaceTolerance'}, helper))
+
+@distributionFunction
+def findOnHelper(region, pos):
+	on_pos = region.findOn(pos)
+
+	if on_pos is None:
+		raise RejectionException("Unable to place object on surface.")
+	else:
+		return on_pos
 
 def alwaysProvidesOrientation(region):
 	"""Whether a Region or distribution over Regions always provides an orientation."""

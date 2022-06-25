@@ -575,6 +575,30 @@ class _MeshRegion(Region):
 		# Don't know how to compute this difference, fall back to default behavior.
 		return super().difference(other)
 
+	def findOn(self, point):
+		""" Find the nearest point in the region with the same x,y value.
+		Returns None if no such points exist.
+		"""
+		# Get first point hit in both directions of ray
+		point = point.coordinates
+
+		intersection_data, _, _ = self.mesh.ray.intersects_location(ray_origins=[point, point], ray_directions=[(0,0,1), (0,0,-1)], multiple_hits=False)
+
+		if len(intersection_data) == 0:
+			return None
+
+		# Get point with least euclidean distance
+		def euclidean_distance(p_1, p_2):
+		    diff_list = [p_1[i] - p_2[i] for i in range(3)]
+		    square_list = [math.pow(p, 2) for p in diff_list]
+		    return math.sqrt(sum(square_list))
+
+		distances = [euclidean_distance(point, p) for p in intersection_data]
+
+		closest_point = intersection_data[distances.index(min(distances))]
+
+		return Vector(*closest_point)
+
 class MeshVolumeRegion(_MeshRegion):
 	""" An instance of _MeshRegion that performs operations over the volume
 	of the mesh.
