@@ -48,26 +48,33 @@ class Specifier:
 		return f'<Specifier of {self.priorities}>'
 
 class ModifyingSpecifier(Specifier):
+	"""Modifying specifier providing a value for a property given dependencies.
+	"""
+	def __init__(self, priorities, value, mod_value, deps=None, internal=False):
+		self.mod_value = mod_value
+
+		super().__init__(priorities, value, deps, internal)
+
 	def applyTo(self, obj, modifying):
 		"""Apply modifying properties to object. Then call super() class for
 		all non modifying properties.
 		"""
-		val = valueInContext(self.value[0], obj, modifying)
-		self.value = self.value[1]
 
-		deprecate = []
+		if any(modifying.values()):
+			mod_func = valueInContext(self.mod_value, obj, modifying)
 
-		for prop in modifying:
-			if modifying[prop]:
-				distV = toDistribution(val[prop](getattr(obj, prop)))
-				assert not needsLazyEvaluation(distV)
-				obj._specify(prop, distV, modifying=True)
+			deprecate = []
+			for prop in modifying:
+				mod_val = toDistribution(mod_func[prop])
+				assert not needsLazyEvaluation(mod_val)
+				obj._specify(prop, mod_val, modifying=True)
 				deprecate.append(prop)
 
-		for prop in deprecate:
-			del(modifying[prop])
+			for prop in deprecate:
+				del(modifying[prop])
+		else:
+			super().applyTo(obj, modifying)
 
-		super().applyTo(obj, modifying)
 
 ## Support for property defaults
 

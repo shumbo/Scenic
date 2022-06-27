@@ -6,6 +6,7 @@ import itertools
 from abc import ABC
 
 import numpy
+import scipy
 import shapely.geometry
 import shapely.ops
 import shapely.prepared
@@ -415,11 +416,12 @@ class _MeshRegion(Region):
 
 			self.mesh.apply_transform(scale_matrix)
 
+		# If rotation is provided, apply rotation
 		if rotation is not None:
 			rotation_matrix = quaternion_matrix((rotation.w, rotation.x, rotation.y, rotation.z))
 			self.mesh.apply_transform(rotation_matrix)
 
-		# If rotation is provided, apply rotation
+		# If position is provided, translate mesh.
 		if position is not None:
 			position_matrix = translation_matrix(position)
 			self.mesh.apply_transform(position_matrix)
@@ -610,6 +612,15 @@ class MeshVolumeRegion(_MeshRegion):
 		if not self._mesh.is_volume:
 			raise ValueError("A MeshVolumeRegion cannot be defined with a mesh that does not have a well defined volume.")
 
+		# Compute how many samples are necessary to achieve 99% probability
+		# of success when rejection sampling volume.
+		p_volume = self._mesh.volume/self._mesh.bounding_box.volume
+
+		if p_volume == 1:
+			self.num_samples = 1
+		else:
+			self.num_samples = math.ceil(math.log(0.01, p_volume))
+
 	# Property testing methods #
 	def intersects(self, other, triedReversed=False):
 		"""Check if this region's volume intersects another.
@@ -627,13 +638,27 @@ class MeshVolumeRegion(_MeshRegion):
 			# Check if bounding boxes intersect. If not, volumes cannot intersect.
 			# For bounding boxes to intersect there must be overlap of the bounds
 			# in all 3 dimensions.
-			range_overlaps = [(self.mesh.bounds[0,dim] <= other.mesh.bounds[1,dim]) and (other.mesh.bounds[0,dim] <= self.mesh.bounds[1,dim]) for dim in range(3)]
-			bounding_box_overlap = all(range_overlaps)
+			range_overlaps = [(self.mesh.bounds[0,dim] <= other.mesh.bounds[1,dim]) and \
+							  (other.mesh.bounds[0,dim] <= self.mesh.bounds[1,dim]) \
+							  for dim in range(3)]
+			bb_overlap = all(range_overlaps)
 
-			if not bounding_box_overlap:
+			if not bb_overlap:
 				return False
 
 			# PASS 2
+			# If all of the vertices of the other region's bounding box are contained in this region,
+			# or vice-versa, one region contains the other and thus they intersect.
+			other_vertices_contained = self.mesh.contains(other.mesh.vertices)
+			other_any_contained = any(other_vertices_contained)
+
+			self_vertices_contained = other.mesh.contains(self.mesh.vertices)
+			self_any_contained = any(self_vertices_contained)
+
+			if other_any_contained or self_any_contained:
+				return True
+
+			# PASS 3
 			# Use Trimesh's collision manager to check for intersection.
 			# If the surfaces collide, that implies a collision of the volumes.
 			# Cheaper than computing volumes immediately.
@@ -647,9 +672,10 @@ class MeshVolumeRegion(_MeshRegion):
 			if surface_collision:
 				return True
 
-			# PASS 3
+			# PASS 4
 			# Compute intersection and check if it's empty. Expensive but guaranteed
 			# to give the right answer.
+			# TODO: @Eric Can this case ever occur?
 			return not isinstance(self.intersect(other), EmptyRegion)
 
 		elif not triedReversed:
@@ -666,16 +692,27 @@ class MeshVolumeRegion(_MeshRegion):
 		"""Check if this region's volume contains an :obj:`~scenic.core.object_types.Object`.
 		The object must support coercion to a mesh.
 		"""
+		# PASS 1
+		# If all vertices of the object's bounding box are contained in the region,
+		# then the object must also be contained in the region.
+		bb_vertices_contained = self.mesh.contains(obj.region.mesh.bounding_box.vertices)
+		bb_contained = all(bb_vertices_contained)
+
+		if bb_contained:
+			return True
+		
+		# PASS 2
 		# If the difference between the object's region and this region is empty,
 		# i.e. obj_region - self_region = EmptyRegion, that means the object is
-		# entirely contained in this region.
+		# entirely contained in this region. Expensive but guaranteed to give the
+		# right answer.
 		return isinstance(obj.region.difference(self), EmptyRegion)
 
 	def uniformPointInner(self):
 		""" Samples a point uniformly from the volume of the region"""
 		# TODO: Look into tetrahedralization, perhaps to be turned on when a heuristic
 		# is met. Currently using Trimesh's rejection sampling.
-		sample = trimesh.sample.volume_mesh(self.mesh, 1)
+		sample = trimesh.sample.volume_mesh(self.mesh, self.num_samples)
 
 		if len(sample) == 0:
 			raise RejectionException("Rejection sampling MeshVolumeRegion failed.")
@@ -684,33 +721,21 @@ class MeshVolumeRegion(_MeshRegion):
 
 	def distanceTo(self, point):
 		""" Get the minimum distance from this region (including volume) to the specified point."""
-		# First check if the mesh contains the point, as then the minimum distance is 0.
-		if self.containsPoint(point):
-			return 0
+		pq = trimesh.proximity.ProximityQuery(self.mesh)
 
-		# Otherwise, we know the point is outside the mesh and the mesh is watertight, so we can
-		# compute distance like we would for a surface mesh.
+		dist = pq.signed_distance([point.coordinates])[0]
 
-		# For each triangle on the mesh, get the point that is contained in the triangle
-		# and closest to the input point.
-		point_list = trimesh.triangles.closest_point(self.mesh.triangles, [point for triangle in self.mesh.triangles])
+		# Positive distance indicates being contained in the mesh.
+		if dist > 0:
+			dist = 0
 
-		# Calculate the euclidean distance between each point and the input point
-		def euclidean_distance(p_1, p_2):
-		    diff_list = [p_1[i] - p_2[i] for i in range(3)]
-		    square_list = [math.pow(p, 2) for p in diff_list]
-		    return math.sqrt(sum(square_list))
-
-		distances = [euclidean_distance(p, point) for p in point_list]
-
-		# Return the minimum of these distances.
-		return min(distances)
+		return dist
 
 	## Sampling Methods ##
 	def sampleGiven(self, value):
-		return MeshVolumeRegion(self._mesh, self.name, \
-			value[self.dimensions], value[self.position], value[self.rotation], \
-			self.orientation, self.tolerance, self.center_mesh)
+		return MeshVolumeRegion(mesh=self._mesh, name=self.name, \
+			dimensions=value[self.dimensions], position=value[self.position], rotation=value[self.rotation], \
+			orientation=self.orientation, tolerance=self.tolerance, center_mesh=self.center_mesh)
 
 	## Utility Methods ##
 	def getSurfaceRegion(self):
@@ -726,6 +751,12 @@ class MeshSurfaceRegion(_MeshRegion):
 	""" An instance of _MeshRegion that performs operations over the surface
 	of the mesh.
 	"""
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+
+		# Set default orientation to one inferred from face norms if none is provided.
+		if self.orientation is None:
+			self.orientation = VectorField("DefaultSurfaceVectorField", lambda pos: self.getFlatOrientation(pos))
 
 	# Property testing methods #
 	def intersects(self, other, triedReversed=False):
@@ -763,7 +794,8 @@ class MeshSurfaceRegion(_MeshRegion):
 		return min_distance < self.tolerance
 
 	def containsObject(self, obj):
-		raise NotImplementedError()
+		# A surface cannot contain an object, which must have a volume.
+		return False
 
 	def uniformPointInner(self):
 		""" Sample a point uniformly at random from the surface of them mesh"""
@@ -771,26 +803,32 @@ class MeshSurfaceRegion(_MeshRegion):
 
 	def distanceTo(self, point):
 		""" Get the minimum distance from this object to the specified point."""
-		# For each triangle on the mesh, get the point that is contained in the triangle
-		# and closest to the input point.
-		point_list = trimesh.triangles.closest_point(self.mesh.triangles, [point for triangle in self.mesh.triangles])
+		pq = trimesh.proximity.ProximityQuery(self.mesh)
 
-		# Calculate the euclidean distance between each point and the input point
-		def euclidean_distance(p_1, p_2):
-		    diff_list = [p_1[i] - p_2[i] for i in range(3)]
-		    square_list = [math.pow(p, 2) for p in diff_list]
-		    return math.sqrt(sum(square_list))
+		dist = abs(pq.signed_distance([point.coordinates])[0])
 
-		distances = [euclidean_distance(p, point) for p in point_list]
+		return dist
 
-		# Return the minimum of these distances.
-		return min(distances)
+	def getFlatOrientation(self, pos):
+		prox_query = trimesh.proximity.ProximityQuery(self.mesh)
+
+		_, distance, triangle_id = prox_query.on_surface([pos.coordinates])
+
+		if distance > self.tolerance:
+			return None
+
+		face_normal_vector = self.mesh.face_normals[triangle_id][0]
+
+		transform = trimesh.geometry.align_vectors([0,0,1], face_normal_vector)
+		orientation = tuple(scipy.spatial.transform.Rotation.from_matrix(transform[:3,:3]).as_euler('ZXY'))
+
+		return orientation
 
 	## Sampling Methods ##
 	def sampleGiven(self, value):
-		return MeshSurfaceRegion(self._mesh, self.name, \
-			value[self.dimensions], value[self.position], value[self.rotation], \
-			self.orientation, self.tolerance, self.center_mesh)
+		return MeshSurfaceRegion(mesh=self._mesh, name=self.name, \
+			dimensions=value[self.dimensions], position=value[self.position], rotation=value[self.rotation], \
+			orientation=self.orientation, tolerance=self.tolerance, center_mesh=self.center_mesh)
 
 	## Utility Methods ##
 	def getVolumeRegion(self):
@@ -815,6 +853,174 @@ class BoxRegion(MeshVolumeRegion):
 	def __init__(self, name=None, position=None, rotation=None, dimensions=None, orientation=None, tolerance=1e-8):
 		box_mesh = trimesh.creation.box((1, 1, 1))
 		super().__init__(mesh=box_mesh, name=name, position=position, rotation=rotation, dimensions=dimensions, orientation=orientation, tolerance=tolerance)
+
+class SpheroidRegion(MeshVolumeRegion):
+	"""Region in the shape of a spheroid. By default the unit sphere centered at the origin
+	and aligned with the axes is used.
+
+	:param name: An optional name to help with debugging.
+	:param position: An optional position, which determines where the center of the region will be.
+	:param position: An optional Orientation object which determines the rotation of the object in space.
+	:param dimensions: An optional 3-tuple, describing the length, width, and height of the box.
+	:param orientation: An optional vector field describing the preferred orientation at every point in
+		the region.
+	:param tolerance: Tolerance for collision computations.
+	"""
+	def __init__(self, name=None, position=None, rotation=None, dimensions=None, orientation=None, tolerance=1e-8):
+		sphere_mesh = trimesh.creation.icosphere(radius=1)
+		super().__init__(mesh=sphere_mesh, name=name, position=position, rotation=rotation, dimensions=dimensions, orientation=orientation, \
+			tolerance=tolerance)
+
+class PyramidViewRegion(MeshVolumeRegion):
+	""" A rectangular sector of a sphere.
+	:param visibleDistance: The view distance for this region.
+	:param viewAngles: The view angles for this region.
+	:param rotation: An optional Orientation object which determines the rotation of the object in space.
+	"""
+	def __init__(self, visibleDistance, viewAngle, rotation=None):
+		if min(viewAngle) <= 0 or max(viewAngle) >= math.pi:
+			raise ValueError("viewAngle members must be between 0 and Pi.")
+
+		x_dim = 2*visibleDistance*math.tan(viewAngle[0]/2)
+		z_dim = 2*visibleDistance*math.tan(viewAngle[1]/2)
+
+		dimensions = (x_dim, visibleDistance*1.01, z_dim)
+
+		# Create pyramid mesh and scale it appropriately.
+		vertices = [[ 0,  0,  0],
+		            [-1,  1,  1],
+		            [ 1,  1,  1],
+		            [ 1,  1, -1],
+		            [-1,  1, -1]]
+
+		faces = [[0,2,1],
+		         [0,3,2],
+		         [0,4,3],
+	             [0,1,4],
+		         [1,2,4],
+		         [2,3,4]]
+
+		pyramid_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+		scale = pyramid_mesh.extents / numpy.array(dimensions)
+
+		scale_matrix = numpy.eye(4)
+		scale_matrix[:3, :3] /= scale
+
+		pyramid_mesh.apply_transform(scale_matrix)
+
+		super().__init__(mesh=pyramid_mesh, rotation=rotation, center_mesh=False)
+
+class DefaultViewRegion(MeshVolumeRegion):
+	""" The default view region shape.
+	:param visibleDistance: The view distance for this region.
+	:param viewAngles: The view angles for this region.
+	:param name: An optional name to help with debugging.
+	:param position: An optional position, which determines where the center of the region will be.
+	:param position: An optional Orientation object which determines the rotation of the object in space.
+	:param orientation: An optional vector field describing the preferred orientation at every point in
+		the region.
+	:param tolerance: Tolerance for collision computations.
+	"""
+	def __init__(self, visibleDistance, viewAngle, name=None, position=Vector(0,0,0), cameraOffset=Vector(0,0,0), rotation=None,\
+		orientation=None, tolerance=1e-8):
+		# Bound viewAngle from either side.
+		viewAngle = tuple([min(angle, math.tau) for angle in viewAngle])
+
+		if min(viewAngle) <= 0:
+			raise ValueError("viewAngle cannot have a component less than or equal to 0")
+
+		# Compute true position
+		true_pos = position.offsetRotated(rotation, cameraOffset)
+
+		# Cases in view region computation
+		# Case 1: 		One view angle = 360 degrees
+		# 	Case 1.a: 	Other view angle >= 180 degrees => Full Sphere View Region
+		# 	Case 1.b: 	Other view angle < 180 degrees 	=> Sphere - (Cone + Cone) (Cones on appropriate hemispheres)
+		# Case 2: 		One view angle = 180 degrees
+		# 	Case 2.a:	Other view angle > 180 degrees 	=> ???
+		# 	Case 2.b:	Other view angle = 180 degrees 	=> Hemisphere View Region
+		# 	Case 2.c:	Other view angle < 180 degrees	=> Hemisphere - (Cone + Cone) (Cones on appropriate hemispheres)
+		# Case 3: 		Both view angles < 180 			=> Capped Pyramid View Region
+		# Case 4: 		Both view angles > 180 			=> Sphere - Backwards Capped Pyramid View Region
+		# Case 5:		HAngle < 180, VAngle > 180		=> ???
+		# Case 6:		Hangle > 180, Vangle < 180		=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
+
+		view_region = None
+		diameter = 2*visibleDistance
+		base_sphere = SpheroidRegion(dimensions=(diameter, diameter, diameter))
+
+		if (math.tau-0.01 <= viewAngle[0] <= math.tau+0.01) or (math.tau-0.01 <= viewAngle[1] <= math.tau+0.01):
+			# Case 1
+			if min(viewAngle) > math.pi-0.01:
+				#Case 1.a
+				view_region = base_sphere
+			else:
+				# Case 1.b
+				# Find cone_direction. 0 indicates on the pitch axis. 1 indicates on the yaw axis.
+				if viewAngle[0] < viewAngle[1]:
+					cone_direction = 0
+				else:
+					cone_direction = 1
+
+				# Create cone with yaw oriented around (0,0,-1)
+				padded_height = visibleDistance * 1.1
+				radius = 2*padded_height*math.tan((math.pi-viewAngle[cone_direction])/2)
+
+				cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
+
+				position_matrix = translation_matrix((0,0,-padded_height))
+				cone_mesh.apply_transform(position_matrix)
+
+				# Create two cones around the appropriate axis
+				if cone_direction == 0:
+					# Position on the pitch axis
+					orientation_1 = Orientation.fromEuler(0,0,math.pi/2)
+					orientation_2 = Orientation.fromEuler(0,0,-math.pi/2)
+				else:
+					# Position on the yaw axis
+					orientation_1 = Orientation.fromEuler(0,0,0)
+					orientation_2 = Orientation.fromEuler(0,0,math.pi)
+
+				cone_1 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_1, center_mesh=False)
+				cone_2 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_2, center_mesh=False)
+
+				view_region = base_sphere.difference(cone_1).difference(cone_2)
+
+		elif (math.pi-0.01 <= viewAngle[0] <= math.pi+0.01) or (math.pi-0.01 <= viewAngle[1] <= math.pi+0.01):
+			# Case 2
+			if min(viewAngle) > math.pi+0.01:
+				# Case 2.a
+				raise NotImplementedError()
+			elif math.pi-0.01 <= min(viewAngle) <= math.pi+0.01:
+				# Case 2.b
+				padded_diameter = 1.1*diameter
+				view_region = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
+			else:
+				# Case 2.c
+				raise NotImplementedError()
+		elif viewAngle[0] < math.pi and viewAngle[1] < math.pi:
+			# Case 3
+			view_region = base_sphere.intersect(PyramidViewRegion(visibleDistance, viewAngle))
+		elif viewAngle[0] > math.pi and viewAngle[1] > math.pi:
+			# Case 4
+			backwards_orientation = Orientation.fromEuler(math.pi, 0, 0)
+			backwards_view_angle = (math.tau-viewAngle[0], math.tau-viewAngle[1])
+			view_region = base_sphere.difference(PyramidViewRegion(visibleDistance, backwards_view_angle, rotation=backwards_orientation))
+		elif viewAngle[0] < math.pi and viewAngle[1] > math.pi:
+			# Case 5
+			raise NotImplementedError()
+		elif viewAngle[0] > math.pi and viewAngle[1] < math.pi:
+			# Case 6
+			raise NotImplementedError()
+		else:
+			assert False
+
+		assert view_region is not None
+
+		# Initialize volume region
+		super().__init__(mesh=view_region.mesh, name=name, position=true_pos, rotation=rotation, orientation=orientation, \
+			tolerance=tolerance, center_mesh=False)
 
 ###################################################################################################
 # 2D Regions

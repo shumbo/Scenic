@@ -7,7 +7,6 @@ workspace_region_3 = MeshVolumeRegion(trimesh.creation.icosphere(radius=20)) # T
 workspace_region_4 = MeshVolumeRegion(trimesh.creation.icosphere(radius=20), position=(5,5,5)).intersect(RectangularRegion(0 @ 0, 0, 30, 30)) # Tests intersection of 3D Regions and 2D Regions
 workspace_region_6 = MeshVolumeRegion(trimesh.creation.icosphere(radius=20), position=(5,5,5)).difference(RectangularRegion(0 @ 0, 0, 5, 5)) # Tests difference of 3D Regions and 2D Regions
 
-
 workspace = Workspace(workspace_region_1)
 
 # Place items only in the top or bottom half of workspace, at random

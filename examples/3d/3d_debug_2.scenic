@@ -2,7 +2,6 @@ import trimesh
 
 # Pick a workspace
 workspace_region = BoxRegion(dimensions=(25,25,25))
-
 workspace = Workspace(workspace_region)
 
 # Place an ego object at the origin
@@ -18,5 +17,4 @@ for i in range(40):
     Object in sample_space,
         with width 0.5,
         with length 0.5,
-        with height 0.5,
-        with requireVisible False
+        with height 0.5

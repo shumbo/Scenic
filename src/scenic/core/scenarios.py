@@ -248,6 +248,7 @@ class Scenario:
 				if not vi.allowCollisions:
 					for j in range(i):
 						vj = sample[objects[j]]
+
 						if not vj.allowCollisions and vi.intersects(vj):
 							rejection = 'object intersection'
 							break

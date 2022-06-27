@@ -298,7 +298,7 @@ class Vector(Samplable, collections.abc.Sequence):
 	@vectorOperator
 	def cartesianToSpherical(self):
 		"""Returns this vector in spherical coordinates"""
-		rho = math.hypot(self.x, self.y, self.z) 
+		rho = math.hypot(self.x, self.y, self.z)
 		theta = math.atan2(self.y, self.x) - math.pi/2
 		phi = math.atan2(self.z, math.hypot(self.x,self.y))
 		return Vector(rho, theta, phi)
@@ -401,6 +401,17 @@ class Vector(Samplable, collections.abc.Sequence):
 	def __hash__(self):
 		return hash(self.coordinates)
 
+	@classmethod
+	def fromSpherical(cls, vector):
+		# Assuming (rho, theta, phi) and the Physics convention
+		rho, theta, phi = vector
+		print("V", vector)
+		x = rho * cos(phi) * sin(theta)
+		y = rho * sin(phi) * sin(theta)
+		z = rho * cos(theta)
+
+		return Vector(x,y,z)
+
 VectorDistribution.defaultValueType = Vector
 
 class OrientedVector(Vector):
@@ -441,7 +452,6 @@ class VectorField:
 		defaultStepSize (float): Default step size for `followFrom`; default 5.
 	"""
 	def __init__(self, name, value, minSteps=4, defaultStepSize=5):
-        # TODO: @Matthew needs to return an orientation, not just 3 angles
 		self.name = name
 		self.value = value
 		self.valueType = Orientation
@@ -451,8 +461,12 @@ class VectorField:
 	@distributionMethod
 	def __getitem__(self, pos) -> Orientation:
 		val = self.value(pos)
+		
 		if isinstance(val, (int, float)):
 			val = Orientation.fromEuler(val, 0, 0)
+		elif isinstance(val, (tuple, list)) and len(val) == 3:
+			val = Orientation.fromEuler(*val)
+
 		return val
 
 	@vectorDistributionMethod

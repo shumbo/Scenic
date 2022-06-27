@@ -4,6 +4,7 @@ import collections
 import math
 import random
 import numpy as np
+import trimesh
 from abc import ABC, abstractmethod
 
 from scenic.core.distributions import Samplable, needsSampling, distributionMethod, distributionFunction
@@ -11,8 +12,8 @@ from scenic.core.specifiers import Specifier, PropertyDefault, ModifyingSpecifie
 from scenic.core.vectors import Vector, Orientation, alwaysGlobalOrientation
 from scenic.core.geometry import (_RotatedRectangle, averageVectors, hypot, min,
                                   pointIsInCone)
-from scenic.core.regions import (CircularRegion, SectorRegion, MeshVolumeRegion, MeshSurfaceRegion, 
-								  BoxRegion, EmptyRegion)
+from scenic.core.regions import (Region, CircularRegion, SectorRegion, MeshVolumeRegion, MeshSurfaceRegion, 
+								  BoxRegion, SpheroidRegion, DefaultViewRegion, EmptyRegion)
 from scenic.core.type_support import toVector, toHeading, toType, toScalar
 from scenic.core.lazy_eval import needsLazyEvaluation
 from scenic.core.utils import DefaultIdentityDict, areEquivalent, cached_property
@@ -158,6 +159,7 @@ class _Constructible(Samplable):
 				spec.modifying[prop] = False
 				deprecate.append(prop)
 
+
 		# Delete all deprecated modifiers. Any remaining will modify a specified property later.
 		for d in deprecate:
 			assert d in modified
@@ -169,6 +171,7 @@ class _Constructible(Samplable):
 				spec = defs[prop]
 				specifiers.append(spec)
 				properties[prop] = spec
+
 
 		# Topologically sort specifiers
 		order = []
@@ -355,7 +358,8 @@ class Point(_Constructible):
 
 	@cached_property
 	def visibleRegion(self):
-		return CircularRegion(self.position, self.visibleDistance)
+		dimensions = (self.visibleDistance, self.visibleDistance, self.visibleDistance)
+		return SpheroidRegion(position=self.position, dimensions=dimensions)
 
 	@cached_property
 	def corners(self):
@@ -364,12 +368,15 @@ class Point(_Constructible):
 	def toVector(self) -> Vector:
 		return self.position
 
-	# TODO: @Matthew Does this work for 3D space?
-	def canSee(self, other) -> bool:	# TODO improve approximation?
-		for corner in other.corners:
-			if self.visibleRegion.containsPoint(corner):
-				return True
-		return False
+	def canSee(self, other) -> bool:
+		if isinstance(other, (Point, OrientedPoint)):
+			return self.visibleRegion.containsPoint(other.position)
+		if isinstance(other, (Object)):
+			return self.visibleRegion.intersects(other.region)
+		if isinstance(other, (Region)):
+			return self.visibleRegion.intersects(other)
+
+		raise NotImplementedError("Cannot check if " + str(other) + " of type " + type(other) + " can be seen.")
 
 	def sampleGiven(self, value):
 		sample = super().sampleGiven(value)
@@ -420,7 +427,7 @@ class OrientedPoint(Point):
 	heading: PropertyDefault({'orientation'}, {'final'},
 	    lambda self: self.yaw if alwaysGlobalOrientation(self.parentOrientation) else self.orientation.yaw)
 
-	viewAngle: math.tau # TODO: @Matthew Implement 2-tuple view angle for 3D views
+	viewAngle: (math.tau, math.tau)
 
 	mutator: PropertyDefault({'headingStdDev'}, {'additive'},
 		lambda self: HeadingMutator(self.headingStdDev))
@@ -428,8 +435,12 @@ class OrientedPoint(Point):
 
 	@cached_property
 	def visibleRegion(self):
-		return SectorRegion(self.position, self.visibleDistance,
-		                    self.heading, self.viewAngle)
+		if self.viewAngle == (math.tau, math.tau):
+			dimensions = (self.visibleDistance, self.visibleDistance, self.visibleDistance)
+			return SpheroidRegion(position=self.position, dimensions=dimensions)
+
+		return DefaultViewRegion(visibleDistance=self.visibleDistance, viewAngle=self.viewAngle,\
+			position=self.position, rotation=self.orientation)
 
 	def relativize(self, vec):
 		pos = self.relativePosition(vec)
@@ -483,7 +494,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 	allowCollisions: False
 	requireVisible: True
 	regionContainedIn: None
-	cameraOffset: Vector(0, 0)
+	cameraOffset: Vector(0, 0, 0)
 
 	shape: BoxShape()
 	region: PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation'), \
@@ -491,7 +502,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 		MeshVolumeRegion(mesh=self.shape.mesh, dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation))
 
 	centerOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
-	onSurfaceTolerance: 0.00001
+	contactTolerance: 0.001
 
 	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
 	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))
@@ -631,8 +642,11 @@ class Object(OrientedPoint, _RotatedRectangle):
 
 	@cached_property
 	def visibleRegion(self):
-		camera = self.position.offsetRotated(self.heading, self.cameraOffset)
-		return SectorRegion(camera, self.visibleDistance, self.heading, self.viewAngle)
+		# Full circle view case
+		visible_region = DefaultViewRegion(visibleDistance=self.visibleDistance, viewAngle=self.viewAngle,\
+			cameraOffset=self.cameraOffset, position=self.position, rotation=self.orientation)
+
+		return visible_region
 
 	@cached_property
 	def corners(self):
@@ -648,12 +662,26 @@ class Object(OrientedPoint, _RotatedRectangle):
 		if needsSampling(self):
 			raise RuntimeError('tried to show() symbolic Object')
 
-		viewer_mesh = self.region.mesh.copy()
+		# Render the object
+		object_mesh = self.region.mesh.copy()
 
 		if highlight:
-			viewer_mesh.visual.face_colors = [30, 179, 0, 255]
+			object_mesh.visual.face_colors = [30, 179, 0, 255]
 
-		viewer.add_geometry(viewer_mesh)
+		viewer.add_geometry(object_mesh)
+
+		# If the camera is not a sphere, render the visible pyramid as a blue wireframe
+		if self.viewAngle != (math.tau, math.tau) or self.visibleDistance != 50:
+			camera_pyramid_mesh = self.visibleRegion.mesh.copy()
+
+			edges = camera_pyramid_mesh.face_adjacency_edges[camera_pyramid_mesh.face_adjacency_angles > np.radians(0.1)].copy()
+			vertices = camera_pyramid_mesh.vertices.copy()
+
+			edge_path = trimesh.path.Path3D(**trimesh.path.exchange.misc.edges_to_path(edges, vertices))
+
+			edge_path.colors = [[30, 30, 150, 255] for _ in range(len(edge_path.entities))]
+
+			viewer.add_geometry(edge_path)
 
 	def show_2d(self, workspace, plt, highlight=False):
 		if needsSampling(self):

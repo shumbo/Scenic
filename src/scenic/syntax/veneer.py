@@ -27,7 +27,8 @@ __all__ = (
 	# Primitive types
 	'Vector', 'VectorField', 'PolygonalVectorField',
 	'MeshShape', 'BoxShape',
-	'MeshVolumeRegion', 'MeshSurfaceRegion', 'BoxRegion',
+	'MeshVolumeRegion', 'MeshSurfaceRegion', 
+	'BoxRegion', 'SpheroidRegion',
 	'Region', 'PointSetRegion', 'RectangularRegion', 'CircularRegion', 'SectorRegion',
 	'PolygonalRegion', 'PolylineRegion',
 	'Workspace', 'Mutator',
@@ -59,7 +60,8 @@ from scenic.core.shapes import MeshShape, BoxShape
 from scenic.core.regions import (Region, PointSetRegion, RectangularRegion,
 	CircularRegion, SectorRegion, PolygonalRegion, PolylineRegion,
 	everywhere, nowhere,
-	MeshVolumeRegion, MeshSurfaceRegion, BoxRegion)
+	MeshVolumeRegion, MeshSurfaceRegion,
+	BoxRegion, SpheroidRegion)
 from scenic.core.workspaces import Workspace
 from scenic.core.distributions import (Range, DiscreteRange, Options, Uniform, Normal,
 	TruncatedNormal)
@@ -778,15 +780,30 @@ def On(thing):
 	def helper(context, spec):
 		pos = Region.uniformPointIn(region)
 
-		values = {'position': (pos - context.centerOffset + (0,0,context.onSurfaceTolerance))}
-		modifying_values = {'position': lambda pos: findOnHelper(region, pos) - context.centerOffset + (0,0,context.onSurfaceTolerance)}
+		values = {}
+
+		contactOffset = Vector(0,0,context.contactTolerance) - context.centerOffset
 
 		if 'parentOrientation' in props:
 			values['parentOrientation'] = region.orientation[pos]
+			contactOffset = contactOffset.rotatedBy(values['parentOrientation'])
 
-		return (modifying_values, values)
+		values['position'] = (pos + contactOffset)
 
-	return ModifyingSpecifier(props, DelayedArgument({'centerOffset', 'onSurfaceTolerance'}, helper))
+		return values
+
+	def mod_helper(context, spec):
+		new_pos = findOnHelper(region, context.position)
+		contactOffset = Vector(0,0,context.contactTolerance) - context.centerOffset
+
+		modifying_values = {'position': new_pos + contactOffset}
+
+		if 'parentOrientation' in props:
+			modifying_values['parentOrientation'] = region.orientation[new_pos]
+
+		return modifying_values
+
+	return ModifyingSpecifier(props, DelayedArgument({'centerOffset', 'contactTolerance'}, helper), DelayedArgument({'position'}, mod_helper))
 
 @distributionFunction
 def findOnHelper(region, pos):
@@ -1038,7 +1055,7 @@ def LeftSpec(pos, dist=0, specs=None):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('left of', pos, dist, 'width', lambda dist: (dist, 0, 0),
-						  lambda self, dx, dy, dz: Vector(-self.width / 2 - dx, dy, dz))
+						  lambda self, dims, tol, dx, dy, dz: Vector(-self.width/2 - dx - dims[0]/2 - tol, dy, dz))
 
 def RightSpec(pos, dist=0):
 	"""The 'right of X [by Y]' polymorphic specifier.
@@ -1052,7 +1069,7 @@ def RightSpec(pos, dist=0):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('right of', pos, dist, 'width', lambda dist: (dist, 0, 0),
-						  lambda self, dx, dy, dz: Vector(self.width / 2 + dx, dy, dz))
+						  lambda self, dims, tol, dx, dy, dz: Vector(self.width / 2 + dx + dims[0]/2 + tol, dy, dz))
 
 def Ahead(pos, dist=0):
 	"""The 'ahead of X [by Y]' polymorphic specifier.
@@ -1067,7 +1084,7 @@ def Ahead(pos, dist=0):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('ahead of', pos, dist, 'length', lambda dist: (0, dist, 0),
-						  lambda self, dx, dy, dz: Vector(dx, self.length / 2 + dy, dz))
+						  lambda self, dims, tol, dx, dy, dz: Vector(dx, self.length / 2 + dy + dims[1]/2 + tol, dz))
 
 def Behind(pos, dist=0):
 	"""The 'behind X [by Y]' polymorphic specifier.
@@ -1081,7 +1098,7 @@ def Behind(pos, dist=0):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('behind', pos, dist, 'length', lambda dist: (0, dist, 0),
-						  lambda self, dx, dy, dz: Vector(dx, -self.length / 2 - dy, dz))
+						  lambda self, dims, tol, dx, dy, dz: Vector(dx, -self.length / 2 - dy - dims[1]/2 - tol, dz))
 
 def Above(pos, dist=0):
 	"""The 'above X [by Y]' polymorphic specifier.
@@ -1095,12 +1112,12 @@ def Above(pos, dist=0):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('above', pos, dist, 'height', lambda dist: (0, 0, dist),
-						  lambda self, dx, dy, dz: Vector(dx, dy, -self.height / 2 + dz))
+						  lambda self, dims, tol, dx, dy, dz: Vector(dx, dy, self.height / 2 + dz + dims[2]/2 + tol))
 
 def Below(pos, dist=0):
 	"""The 'below X [by Y]' polymorphic specifier.
 
-	Specifies 'position', depending on 'height'. 
+	Specifies 'position', depending on 'height'.
 
 	Allowed forms:
 		below <oriented point> [by <scalar/vector>] -- optionally specifies 'heading;
@@ -1109,7 +1126,7 @@ def Below(pos, dist=0):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('above', pos, dist, 'height', lambda dist: (0, 0, dist),
-						  lambda self, dx, dy, dz: Vector(dx, dy, self.height / 2 - dz))
+						  lambda self, dims, tol, dx, dy, dz: Vector(dx, dy, -self.height / 2 - dz - dims[2]/2 - tol))
 
 def leftSpecHelper(syntax, pos, dist, axis, toComponents, makeOffset):
 	prop = {'position': 1}
@@ -1119,16 +1136,25 @@ def leftSpecHelper(syntax, pos, dist, axis, toComponents, makeOffset):
 		dx, dy, dz = coerce(dist, Vector)
 	else:
 		raise RuntimeParseError(f'"{syntax} X by D" with D not a number or vector')
-	if isinstance(pos, OrientedPoint):		# TODO too strict?
+
+	if isinstance(pos, Object):
+		prop['parentOrientation'] = 3
+		obj_dims = (pos.width, pos.length, pos.height)
+		val = lambda self, spec: {
+			'position': pos.relativize(makeOffset(self, obj_dims, self.contactTolerance, dx, dy, dz)),
+			'parentOrientation': pos.orientation
+		}
+		new = DelayedArgument({axis, "contactTolerance"}, val)
+	elif isinstance(pos, OrientedPoint):		# TODO too strict?
 		prop['parentOrientation'] = 3
 		val = lambda self, spec: {
-			'position': pos.relativize(makeOffset(self, dx, dy, dz)),
+			'position': pos.relativize(makeOffset(self, (0,0,0), 0, dx, dy, dz)),
 			'parentOrientation': pos.orientation
 		}
 		new = DelayedArgument({axis}, val)
 	else:
 		pos = toVector(pos, f'specifier "{syntax} X" with X not a vector')
-		val = lambda self, spec: {'position': pos.offsetRotated(self.orientation, makeOffset(self, dx, dy, dz))}
+		val = lambda self, spec: {'position': pos.offsetRotated(self.orientation, makeOffset(self, (0,0,0), 0, dx, dy, dz))}
 		new = DelayedArgument({axis, 'orientation'}, val)
 	return Specifier(prop, new)
 

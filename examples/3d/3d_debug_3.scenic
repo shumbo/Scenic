@@ -1,34 +1,62 @@
 import trimesh
 
 # Pick a workspace
-workspace_region = RectangularRegion(0 @ 0, 0, 40, 40)
-
+workspace_region = RectangularRegion(0 @ 0, 0, 40.1, 40.1)
 workspace = Workspace(workspace_region)
 
+air_vf = VectorField("TestVF", lambda pos: (42 deg, 45 deg, 52 deg))
+air_region = BoxRegion(dimensions=(30,30,30), position=(0,0,15), orientation=air_vf)
+
+# Place a large cube in the workspace, which should inherit the
+# workspace's parentOrientation. 
+air_cube = Object in air_region,
+    with width 5,
+    with length 5,
+    with height 5,
+    with viewAngle (90 deg, 45 deg),
+    with visibleDistance 10
+
+# Place a small cone on the air_cube, which should automatically
+# have it's parent orientation set to make its bounding box
+# flush with the face.
+small_air_cone = Object on air_cube,
+    with shape MeshShape(trimesh.creation.cone(radius=0.5, height=1))
+
+small_air_cone.region._mesh.visual.face_colors = [150, 30, 30, 255]
+
 # Create floor region
-floor = Object at (0,0, 0),
-    with shape BoxShape(dimensions=(30,30,0.1))
+floor = Object at (0,0,0),
+    with shape BoxShape(dimensions=(40,40,0.1))
 
 floor.region.mesh.visual.face_colors = [30, 30, 150, 255]
 
-# Load chair mesh from file
+# Place a small cone below the air_cube, and another on the floor below the air_cube.
+small_below_cone = Object below air_cube,
+    with shape MeshShape(trimesh.creation.cone(radius=0.5, height=1))
+
+small_below_cone.region._mesh.visual.face_colors = [150, 30, 30, 255]
+
+small_floor_cone = Object below air_cube, on floor,
+    with name "DEBUG",
+    with shape MeshShape(trimesh.creation.cone(radius=0.5, height=1))
+
+small_floor_cone.region._mesh.visual.face_colors = [150, 30, 30, 255]
+
+# # Load chair mesh from file and create chair shape from it
 with open(localPath("mesh.obj"), "r") as mesh_file:
     mesh = trimesh.load(mesh_file, file_type="obj")
 
-# Create surface shape
 chair_shape = MeshShape(mesh, dimensions=(5,5,5))
 
-# Create large chair object
+# # Create large chair object
 chair = Object on floor,
     with pitch 90 deg,
     with shape chair_shape
 
 ego = chair
 
-# Place a small cube on the large chair
-top_cube = Object on chair,
-    with requireVisible False
+# # Place a small cube on the large chair
+top_cube = Object on chair
 
-# Place a small cube in the empty space of the large chair
-bottom_cube = Object in chair.emptySpace, on floor,
-    with requireVisible False
+# # Place a small cube in the empty space of the large chair
+bottom_cube = Object in chair.emptySpace, on floor

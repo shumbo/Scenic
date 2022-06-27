@@ -20,9 +20,9 @@ class Workspace(Region):
 		workspace_polygon = toPolygon(self.region)
 
 		if isinstance(self.region, (MeshVolumeRegion, MeshSurfaceRegion)):
-			workspace_mesh = self.region.mesh
+			workspace_mesh = self.region.mesh.copy()
 			# We can render this workspace as the wireframe of a mesh
-			edges = workspace_mesh.face_adjacency_edges[workspace_mesh.face_adjacency_angles > np.radians(0)].copy()
+			edges = workspace_mesh.face_adjacency_edges[workspace_mesh.face_adjacency_angles > np.radians(0.1)].copy()
 			vertices = workspace_mesh.vertices.copy()
 
 			edge_path = trimesh.path.Path3D(**trimesh.path.exchange.misc.edges_to_path(edges, vertices))
@@ -33,7 +33,7 @@ class Workspace(Region):
 			# We can render the workspace as a shapely polygon.
 			workspace_mesh = trimesh.creation.extrude_polygon(workspace_polygon, height=0.0001)
 
-			edges = workspace_mesh.face_adjacency_edges[workspace_mesh.face_adjacency_angles > np.radians(0)].copy()
+			edges = workspace_mesh.face_adjacency_edges[workspace_mesh.face_adjacency_angles > np.radians(0.1)].copy()
 			vertices = workspace_mesh.vertices.copy()
 
 			edge_path = trimesh.path.Path3D(**trimesh.path.exchange.misc.edges_to_path(edges, vertices))
