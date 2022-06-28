@@ -778,7 +778,11 @@ def On(thing):
 		props['parentOrientation'] = 2
 
 	def helper(context, spec):
-		pos = Region.uniformPointIn(region)
+		# Pick position based on whether we are specifying or modifying
+		if 'position' in context.properties:
+			pos = findOnHelper(region, context.position)
+		else:
+			pos = Region.uniformPointIn(region)
 
 		values = {}
 
@@ -792,18 +796,7 @@ def On(thing):
 
 		return values
 
-	def mod_helper(context, spec):
-		new_pos = findOnHelper(region, context.position)
-		contactOffset = Vector(0,0,context.contactTolerance) - context.centerOffset
-
-		modifying_values = {'position': new_pos + contactOffset}
-
-		if 'parentOrientation' in props:
-			modifying_values['parentOrientation'] = region.orientation[new_pos]
-
-		return modifying_values
-
-	return ModifyingSpecifier(props, DelayedArgument({'centerOffset', 'contactTolerance'}, helper), DelayedArgument({'position'}, mod_helper))
+	return ModifyingSpecifier(props, DelayedArgument({'centerOffset', 'contactTolerance'}, helper))
 
 @distributionFunction
 def findOnHelper(region, pos):

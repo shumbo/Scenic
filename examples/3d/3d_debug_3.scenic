@@ -20,7 +20,9 @@ air_cube = Object in air_region,
 # have it's parent orientation set to make its bounding box
 # flush with the face.
 small_air_cone = Object on air_cube,
-    with shape MeshShape(trimesh.creation.cone(radius=0.5, height=1))
+    with shape MeshShape(trimesh.creation.cone(radius=0.5, height=1)),
+    with viewAngle (60 deg, 30 deg),
+    with visibleDistance 5
 
 small_air_cone.region._mesh.visual.face_colors = [150, 30, 30, 255]
 

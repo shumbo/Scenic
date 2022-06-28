@@ -12,7 +12,7 @@ ego = Object with visibleDistance 20,
     with width 5,
     with length 5,
     with height 5,
-    with viewAngle (360 deg, 360 deg)
+    with viewAngle (270 deg, 270 deg)
 
 Object in sample_space,
     with width 1,

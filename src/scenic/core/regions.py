@@ -938,13 +938,12 @@ class DefaultViewRegion(MeshVolumeRegion):
 		# 	Case 1.a: 	Other view angle >= 180 degrees => Full Sphere View Region
 		# 	Case 1.b: 	Other view angle < 180 degrees 	=> Sphere - (Cone + Cone) (Cones on appropriate hemispheres)
 		# Case 2: 		One view angle = 180 degrees
-		# 	Case 2.a:	Other view angle > 180 degrees 	=> ???
-		# 	Case 2.b:	Other view angle = 180 degrees 	=> Hemisphere View Region
-		# 	Case 2.c:	Other view angle < 180 degrees	=> Hemisphere - (Cone + Cone) (Cones on appropriate hemispheres)
+		# 	Case 2.a:	Other view angle = 180 degrees 	=> Hemisphere View Region
+		# 	Case 2.b:	Other view angle < 180 degrees	=> Hemisphere - (Cone + Cone) (Cones on appropriate hemispheres)
 		# Case 3: 		Both view angles < 180 			=> Capped Pyramid View Region
 		# Case 4: 		Both view angles > 180 			=> Sphere - Backwards Capped Pyramid View Region
-		# Case 5:		HAngle < 180, VAngle > 180		=> ???
-		# Case 6:		Hangle > 180, Vangle < 180		=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
+		# Case 5:		HAngle < 180, VAngle > 180		=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
+		# Case 6:		HAngle > 180, Vangle < 180		=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
 
 		view_region = None
 		diameter = 2*visibleDistance

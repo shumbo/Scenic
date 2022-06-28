@@ -149,6 +149,7 @@ class _Constructible(Samplable):
 		for prop, spec in modified.items():
 			if prop in properties:
 				if spec.priorities[prop] < priorities[prop]:   # Higher priority level, so it specifies
+					print(prop, spec.priorities[prop], priorities[prop])
 					properties[prop] = spec
 					priorities[prop] = spec.priorities[prop]
 					spec.modifying[prop] = False
@@ -223,7 +224,7 @@ class _Constructible(Samplable):
 
 	def _specify(self, prop, value, modifying=False):
 		if not modifying:
-			assert prop not in self.properties
+			assert prop not in self.properties, ("Resetting " + str(prop))
 
 		# Normalize types of some built-in properties
 		if prop == 'position':
