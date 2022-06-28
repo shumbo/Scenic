@@ -796,7 +796,7 @@ def On(thing):
 
 		return values
 
-	return ModifyingSpecifier(props, DelayedArgument({'centerOffset', 'contactTolerance'}, helper))
+	return ModifyingSpecifier(props, DelayedArgument({'centerOffset', 'contactTolerance'}, helper), modifiable_props={'position'})
 
 @distributionFunction
 def findOnHelper(region, pos):

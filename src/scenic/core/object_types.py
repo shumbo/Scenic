@@ -80,60 +80,62 @@ class _Constructible(Samplable):
 		specifiers = list(args)
 		for prop, val in kwargs.items():	# kwargs supported for internal use
 			specifiers.append(Specifier({prop: 1}, val, internal=True))
+
+		# Declare properties dictionary which maps properties to the specifier
+		# that will specify that property.
 		properties = dict()
-		modified = dict()
+
+		# Declare modifying dictionary, which maps properties to a specifier
+		# that will modify that property.
+		modifying = dict()
+
+		# Dictionary mapping properties set so far to the priority with which they have
+		# been set.
 		priorities = dict()
-		optionals = collections.defaultdict(list)
+
+		# Extract default property values dictionary and set of final properties
 		defs = self.__class__._defaults
 		finals = self.__class__._finalProperties
 
 		# TODO: @Matthew Check for incompatible specifiers used with modifying specifier (itself or `at`)
 
+		# Split the specifiers into two groups, normal and modifying. Normal specifiers set all relevant properties
+		# first. Then modifying specifiers can modify or set additional properties
+		normal_specifiers = [spec for spec in specifiers if not isinstance(spec, ModifyingSpecifier)]
+		modifying_specifiers = [spec for spec in specifiers if isinstance(spec, ModifyingSpecifier)]
+
 		'''
-		For each specifier:
-			* If a modifying specifier, modifying[p] = specifier
-			* If a specifier, and not in properties specified, properties[p] = specifier
-				- Otherwise, if property specified, check if specifier's priority is higher.
-				- If so, replace it with specifier
+		For each property specified by a normal specifier:
+			- If not in properties specified, properties[p] = specifier
+			- Otherwise, if property specified, check if specifier's priority is higher. If so, replace it with specifier
 
 		Priorties are inversed: A lower priority number means semantically that it has a higher priority level
 		'''
-		for spec in specifiers:
+		for spec in normal_specifiers:
 			assert isinstance(spec, Specifier), (name, spec)
-			# Extract dictionary mapping from properties to priorities
-			props = spec.priorities
 
 			# Iterate over each property.
-			for p in props:
+			for prop in spec.priorities:
 				# Check if this is a final property has been specified. If so, throw an assertion or error,
 				# depending on whether or not this object is internal.
-				if p in finals:
+				if prop in finals:
 					assert not _internal
-					raise RuntimeParseError(f'property "{p}" of {name} cannot be directly specified')
-				# Check if this is a modifying specifier, and if so if this property has already been modified.
-				# If so throw an error, as no property can be modified twice. Otherwise, note that it is a
-				# modifying specifier and deal with it later.
-				if isinstance(spec, ModifyingSpecifier):
-					if p in modified:
-						raise RuntimeParseError(f'property "{p}" of {name} modified twice')
-					modified[p] = spec
+					raise RuntimeParseError(f'property "{prop}" of {name} cannot be directly specified')
+
+
+				if prop in properties:
+					# This property already exists. Check that it has not already been specified
+					# at equal priority level. Then if it was previously specified at a lower priority
+					# level, override it with the value that this specifier sets.
+					if spec.priorities[prop] == priorities[prop]:
+						raise RuntimeParseError(f'property "{prop}" of {name} specified twice with the same priority')
+					if spec.priorities[prop] < priorities[prop]:
+						properties[prop] = spec
+						priorities[prop] = spec.properties[prop]
 				else:
-					# Otherwise we need to apply the changes this specifier makes to the property.
-					if p in properties:
-						# This property already exists. Check that it has not already been specified
-						# at equal priority level. Then if it was previously specified at a lower priority
-						# level, override it with the value that this specifier sets.
-						if spec.priorities[p] == priorities[p]:
-							raise RuntimeParseError(f'property "{p}" of {name} specified twice with the same priority')
-						if spec.priorities[p] < priorities[p]:
-							properties[p] = spec
-							priorities[p] = spec.properties[p]
-							spec.modifying[p] = False
-					else:
-						# This property does not already exist, so we should initialize it.
-						properties[p] = spec
-						priorities[p] = spec.priorities[p]
-						spec.modifying[p] = False
+					# This property has not already been specified, so we should initialize it.
+					properties[prop] = spec
+					priorities[prop] = spec.priorities[prop]
 
 		'''
 		If a modifying specifier specifies the property with a higher priority,
@@ -146,35 +148,62 @@ class _Constructible(Samplable):
 		act as a normal specifier for that property. 
 		'''
 		deprecate = []
-		for prop, spec in modified.items():
-			if prop in properties:
-				if spec.priorities[prop] < priorities[prop]:   # Higher priority level, so it specifies
-					print(prop, spec.priorities[prop], priorities[prop])
+		for spec in modifying_specifiers:
+			for prop in spec.priorities:
+				# If it has already been modified, which also implies this property has already been specified.
+
+
+				# Now we check if the propert has already been specified
+				if prop in properties:
+					# This property has already been specified, so we should either modify
+					# it or specify it.
+
+					if spec.priorities[prop] < priorities[prop]:
+						# Higher priority level, so it specifies
+						properties[prop] = spec
+						priorities[prop] = spec.priorities[prop]
+						deprecate.append(prop)
+					elif prop in spec.modifiable_props:
+						# This specifer can modify this prop, so we set it to do so after
+						# first checking it has not already been modified.
+						if prop in modifying:
+							raise RuntimeParseError(f'property "{prop}" of {name} modified twice.')
+
+						modifying[prop] = spec
+				else:
+					# This property has not been specified, so we should specify it.
 					properties[prop] = spec
 					priorities[prop] = spec.priorities[prop]
-					spec.modifying[prop] = False
 					deprecate.append(prop)
-			else:                                              # Not specified, so specify it
-				properties[prop] = spec
-				priorities[prop] = spec.priorities[prop]
-				spec.modifying[prop] = False
-				deprecate.append(prop)
-
-
-		# Delete all deprecated modifiers. Any remaining will modify a specified property later.
-		for d in deprecate:
-			assert d in modified
-			del modified[d]
 
 		# Add any default specifiers needed
-		for prop in defs:
-			if prop not in properties:
-				spec = defs[prop]
-				specifiers.append(spec)
-				properties[prop] = spec
+		for prop, default_spec in defs.items():
+			if prop not in priorities:
+				specifiers.append(default_spec)
+				properties[prop] = default_spec
 
+		# Create the actual_props dictionary, which maps each specifier to a set of properties
+		# it is actually specifying or modifying.
+		actual_props = {spec: set() for spec in specifiers}
+		for prop in properties:
+			# Extract the specifier that is specifying this prop and add it to the
+			# specifier's entry in actual_props
+			specifying_spec = properties[prop]
+			actual_props[specifying_spec].add(prop)
 
-		# Topologically sort specifiers
+			# If a specifier modifies this property, add this prop to the specifiers
+			# actual_props list.
+			if prop in modifying:
+				modifying_spec = modifying[prop]
+				actual_props[modifying_spec].add(prop)
+
+		# Create an inversed modifying dictionary that specifiers to the properties they
+		# are modifying.
+		modifying_inv = {spec:prop for prop, spec in modifying.items()}
+
+		# Topologically sort specifiers. Specifiers become vertices and the properties
+		# those specifiers depend on become the in-edges of each vertex. The specifiers
+		# are then sorted topologically according to this graph.
 		order = []
 		seen, done = set(), set()
 
@@ -185,6 +214,8 @@ class _Constructible(Samplable):
 				raise RuntimeParseError(f'specifier for property {spec.priorities} '
 										'depends on itself')
 			seen.add(spec)
+
+			# Recurse on dependencies
 			for dep in spec.requiredProperties:
 				child = properties.get(dep)
 				if child is None:
@@ -192,6 +223,13 @@ class _Constructible(Samplable):
 											f'specifier {spec} is not specified')
 				else:
 					dfs(child)
+
+			# If this is a modifying specifier, recurse on the specifier
+			# that specifies the property being modified.
+			if spec in modifying_inv:
+				specifying_spec = properties[modifying_inv[spec]]
+				dfs(specifying_spec)
+
 			order.append(spec)
 			done.add(spec)
 
@@ -199,17 +237,20 @@ class _Constructible(Samplable):
 			dfs(spec)
 		assert len(order) == len(specifiers)
 
-		for spec in specifiers:
-			if isinstance(spec, ModifyingSpecifier):
-				for mod in modified:
-					spec.modifying[mod] = True
+		# Establish a boolean array tracking which properties will be modified.
+		self._mod_tracker = {prop: True for prop in modifying}
 
-		# Evaluate and apply specifiers
+		# Evaluate and apply specifiers, using actual_props to indicate which properties
+		# it should actually specify.
 		self.properties = set()		# will be filled by calls to _specify below
 		self._evaluated = DefaultIdentityDict()		# temporary cache for lazily-evaluated values
 		for spec in order:
-			spec.applyTo(self, spec.modifying)
+			spec.applyTo(self, actual_props[spec])
 		del self._evaluated
+
+		# Check that all modifications have been applied and then delete tracker
+		assert all(self._mod_tracker)
+		del self._mod_tracker
 
 		# Set up dependencies
 		deps = []
@@ -222,9 +263,17 @@ class _Constructible(Samplable):
 		# Possibly register this object
 		self._register()
 
-	def _specify(self, prop, value, modifying=False):
-		if not modifying:
-			assert prop not in self.properties, ("Resetting " + str(prop))
+	def _specify(self, prop, value):
+		if prop in self.properties:
+			# We have already specified this property. Check if we can modify it and otherwise
+			# raise an assert.
+			if prop not in self._mod_tracker:
+				assert prop not in self.properties, ("Resetting (not modifying) " + str(prop))
+			else:
+				# We can modify this prop. Ensure it hasn't already been modified and then mark
+				# it so it can't be modified down the line.
+				assert self._mod_tracker[prop] == True
+				self._mod_tracker[prop] = False
 
 		# Normalize types of some built-in properties
 		if prop == 'position':
@@ -538,13 +587,13 @@ class Object(OrientedPoint, _RotatedRectangle):
 
 		self._relations = []
 
-	def _specify(self, prop, value, modifying=False):
+	def _specify(self, prop, value):
 		# Normalize types of some built-in properties
 		if prop == 'behavior':
 			import scenic.syntax.veneer as veneer	# TODO improve?
 			value = toType(value, veneer.Behavior,
 			               f'"behavior" of {self} not a behavior')
-		super()._specify(prop, value, modifying)
+		super()._specify(prop, value)
 
 	def _register(self):
 		import scenic.syntax.veneer as veneer	# TODO improve?

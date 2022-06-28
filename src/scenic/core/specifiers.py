@@ -19,7 +19,6 @@ class Specifier:
 			priorities = {priorities: -1}
 		self.priorities = priorities
 		self.value = value
-		self.modifying = dict()
 		if deps is None:
 			deps = set()
 		deps |= requiredProperties(self.value)
@@ -28,16 +27,15 @@ class Specifier:
 				raise RuntimeParseError(f'specifier for property {p} depends on itself')
 		self.requiredProperties = deps
 
-	def applyTo(self, obj, modifying):
+	def applyTo(self, obj, properties):
 		"""Apply specifier to an object"""
-		val = valueInContext(self.value, obj, modifying)
+		val = valueInContext(self.value, obj)
 
 		if isinstance(val, dict):
-			for prop in modifying:
-				print(modifying)
-				distV = toDistribution(val[prop])
-				assert not needsLazyEvaluation(distV)
-				obj._specify(prop, distV)
+			for prop in properties:
+				dist_val = toDistribution(val[prop])
+				assert not needsLazyEvaluation(dist_val)
+				obj._specify(prop, dist_val)
 		else:
 			assert len(self.priorities) == 1
 			val = toDistribution(val)
@@ -49,7 +47,11 @@ class Specifier:
 		return f'<Specifier of {self.priorities}>'
 
 class ModifyingSpecifier(Specifier):
-	pass
+	def __init__(self, priorities, value, modifiable_props, deps=None, internal=False):
+		# modifiable_props keeps track of what properties specified by this specifier
+		# can be modified.
+		self.modifiable_props = modifiable_props
+		super().__init__(priorities, value, deps, internal)
 
 ## Support for property defaults
 
@@ -76,7 +78,7 @@ class PropertyDefault:
 		if isinstance(value, PropertyDefault):
 			return value
 		else:
-			return PropertyDefault(set(), set(), lambda self, modifying: value)
+			return PropertyDefault(set(), set(), lambda self: value)
 
 	def resolveFor(self, prop, overriddenDefs):
 		"""Create a Specifier for a property from this default and any superclass defaults."""
