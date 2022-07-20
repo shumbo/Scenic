@@ -647,15 +647,13 @@ class MeshVolumeRegion(_MeshRegion):
 				return False
 
 			# PASS 2
-			# If all of the vertices of the other region's bounding box are contained in this region,
-			# or vice-versa, one region contains the other and thus they intersect.
+			# If any of the vertices of the other region are contained in this region,
+			# or vice-versa, they intersect.
+			# TODO: Make only volumes
 			other_vertices_contained = self.mesh.contains(other.mesh.vertices)
-			other_any_contained = any(other_vertices_contained)
-
 			self_vertices_contained = other.mesh.contains(self.mesh.vertices)
-			self_any_contained = any(self_vertices_contained)
 
-			if other_any_contained or self_any_contained:
+			if any(other_vertices_contained) or any(self_vertices_contained):
 				return True
 
 			# PASS 3
@@ -695,18 +693,19 @@ class MeshVolumeRegion(_MeshRegion):
 		# PASS 1
 		# If all vertices of the object's bounding box are contained in the region,
 		# then the object must also be contained in the region.
-		bb_vertices_contained = self.mesh.contains(obj.region.mesh.bounding_box.vertices)
-		bb_contained = all(bb_vertices_contained)
+		# TODO: CHECK THIS
+		# bb_vertices_contained = self.mesh.contains(obj.region.mesh.bounding_box.vertices)
+		# bb_contained = all(bb_vertices_contained)
 
-		if bb_contained:
-			return True
+		# if bb_contained:
+		# 	return True
 		
 		# PASS 2
 		# If the difference between the object's region and this region is empty,
 		# i.e. obj_region - self_region = EmptyRegion, that means the object is
 		# entirely contained in this region. Expensive but guaranteed to give the
 		# right answer.
-		return isinstance(obj.region.difference(self), EmptyRegion)
+		return isinstance(obj.occupiedSpace.difference(self), EmptyRegion)
 
 	def uniformPointInner(self):
 		""" Samples a point uniformly from the volume of the region"""

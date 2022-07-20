@@ -39,26 +39,37 @@ small_below_cone = Object below air_cube,
 small_below_cone.region._mesh.visual.face_colors = [150, 30, 30, 255]
 
 small_floor_cone = Object below air_cube, on floor,
-    with name "DEBUG",
     with shape MeshShape(trimesh.creation.cone(radius=0.5, height=1))
 
 small_floor_cone.region._mesh.visual.face_colors = [150, 30, 30, 255]
 
-# # Load chair mesh from file and create chair shape from it
+# Load chair mesh from file and create chair shape from it
 with open(localPath("mesh.obj"), "r") as mesh_file:
     mesh = trimesh.load(mesh_file, file_type="obj")
 
-chair_shape = MeshShape(mesh, dimensions=(5,5,5))
+chair_shape = MeshShape(mesh, dimensions=(5,5,5), initial_rotation=(0,90 deg,0))
 
-# # Create large chair object
+# Create large chair object
 chair = Object on floor,
-    with pitch 90 deg,
     with shape chair_shape
 
 ego = chair
 
-# # Place a small cube on the large chair
-top_cube = Object on chair
+# Place a small cube on the large chair
+Object on chair
 
-# # Place a small cube in the empty space of the large chair
-bottom_cube = Object in chair.emptySpace, on floor
+# Place a small cube in the empty space of the large chair
+Object in chair.emptySpace, on floor
+
+# Create large chair object fallen on the floor on a random side
+fall_orientation = Uniform((0, -90 deg, 0), (0, 90 deg, 0), (0, 0, -90 deg), (0, 0, 90 deg))
+
+fallen_chair = Object on floor,
+    with shape chair_shape,
+    facing fall_orientation
+
+# Place a small cube on the large chair
+Object on fallen_chair
+
+# Place a small cube in the empty space of the large chair
+Object in fallen_chair.emptySpace, on floor

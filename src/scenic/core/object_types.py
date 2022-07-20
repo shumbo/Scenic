@@ -547,9 +547,6 @@ class Object(OrientedPoint, _RotatedRectangle):
 	cameraOffset: Vector(0, 0, 0)
 
 	shape: BoxShape()
-	region: PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation'), \
-		{'dynamic'}, lambda self: \
-		MeshVolumeRegion(mesh=self.shape.mesh, dimensions=(self.width, self.length, self.height), position=self.position, rotation=self.orientation))
 
 	centerOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
 	contactTolerance: 0.001
@@ -560,11 +557,17 @@ class Object(OrientedPoint, _RotatedRectangle):
 	angularSpeed: PropertyDefault((), {'dynamic'}, lambda self: 0)
 
 	min_top_z: 0.4
-	topSurface: PropertyDefault(('region', 'min_top_z'), \
-		{'dynamic'}, lambda self: defaultTopSurface(self.region, self.min_top_z))
 
-	emptySpace: PropertyDefault(('region',), \
-		{'dynamic'}, lambda self: defaultEmptySpace(self.region))
+	occupiedSpace: PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation'), \
+		{'final'}, lambda self: MeshVolumeRegion(mesh=self.shape.mesh, \
+			dimensions=(self.width, self.length, self.height), \
+			position=self.position, rotation=self.orientation))
+
+	topSurface: PropertyDefault(('occupiedSpace', 'min_top_z'), \
+		{}, lambda self: defaultTopSurface(self.occupiedSpace, self.min_top_z))
+
+	emptySpace: PropertyDefault(('occupiedSpace',), \
+		{}, lambda self: defaultEmptySpace(self.occupiedSpace))
 
 	behavior: None
 	lastActions: None
@@ -612,11 +615,10 @@ class Object(OrientedPoint, _RotatedRectangle):
 		object.__delattr__(proxy, name)
 
 	def containsPoint(self, point):
-		return self.region.containsPoint(point)
+		return self.occupiedSpace.containsPoint(point)
 
 	def intersects(self, other):
-		other_region = other.region
-		return self.region.intersects(other_region)
+		return self.occupiedSpace.intersects(other.occupiedSpace)
 
 	@cached_property
 	def left(self):
@@ -692,7 +694,6 @@ class Object(OrientedPoint, _RotatedRectangle):
 
 	@cached_property
 	def visibleRegion(self):
-		# Full circle view case
 		visible_region = DefaultViewRegion(visibleDistance=self.visibleDistance, viewAngle=self.viewAngle,\
 			cameraOffset=self.cameraOffset, position=self.position, rotation=self.orientation)
 
@@ -713,7 +714,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 			raise RuntimeError('tried to show() symbolic Object')
 
 		# Render the object
-		object_mesh = self.region.mesh.copy()
+		object_mesh = self.occupiedSpace.mesh.copy()
 
 		if highlight:
 			object_mesh.visual.face_colors = [30, 179, 0, 255]
@@ -767,9 +768,9 @@ class Object(OrientedPoint, _RotatedRectangle):
 		plt.plot(x + (x[0],), y + (y[0],), color="k", linewidth=1)
 
 @distributionFunction
-def defaultTopSurface(region, min_top_z):
+def defaultTopSurface(occupiedSpace, min_top_z):
 	# Extract mesh from object
-	obj_mesh = region.mesh.copy()
+	obj_mesh = occupiedSpace.mesh.copy()
 
 	# Drop all faces whose normal vector do not have a sufficiently
 	# large z component.
@@ -784,16 +785,16 @@ def defaultTopSurface(region, min_top_z):
 		return EmptyRegion(name="EmptyTopSurface")
 
 @distributionFunction
-def defaultEmptySpace(obj):
+def defaultEmptySpace(occupiedSpace):
 	# Extract the bounding box mesh, center it around the origin, scale it down slightly, and
 	# then move it back to it's original position.
-	bb_mesh = obj.mesh.bounding_box.copy()
+	bb_mesh = occupiedSpace.mesh.bounding_box.copy()
 	bb_pos = bb_mesh.center_mass
 	bb_extents = bb_mesh.extents*.99
 
 	# Take the difference of the objects bounding box and its mesh.
 	bb_region = BoxRegion(position=Vector(*bb_pos), dimensions=bb_extents)
-	empty_space_region = bb_region.difference(obj)
+	empty_space_region = bb_region.difference(occupiedSpace)
 
 	# If empty_space_region forms a volume, it is meaningful. Else set it to EmptyRegion.
 	if isinstance(empty_space_region, MeshVolumeRegion):

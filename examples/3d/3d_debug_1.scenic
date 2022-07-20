@@ -18,7 +18,7 @@ with open(localPath("mesh.obj"), "r") as mesh_file:
     mesh = trimesh.load(mesh_file, file_type="obj")
 
 # Load chair shape at 1/10th of the original size
-chair_shape = MeshShape(mesh, scale=0.1)
+chair_shape = MeshShape(mesh, scale=0.1, initial_rotation=(0,90 deg,0))
 
 # Create the ego object, which will have random dimensions between close to zero and 2
 ego = Object in sample_space,
@@ -33,7 +33,6 @@ Object in sample_space,
 
 # Create a chair shaped object in the sample_space.
 Object in sample_space,
-    with pitch 90 deg,
     with shape chair_shape,
     with requireVisible False
 
@@ -43,6 +42,5 @@ Object in sample_space,
     with width 1,
     with length 1,
     with height 1,
-    with pitch 90 deg,
     with shape chair_shape,
     with requireVisible False

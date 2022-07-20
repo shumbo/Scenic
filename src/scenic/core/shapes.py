@@ -8,7 +8,7 @@ import numpy
 
 from scenic.core.distributions import (distributionFunction, distributionMethod, Samplable,
                                        needsSampling, toDistribution)
-
+from scenic.core.vectors import Orientation
 
 ###################################################################################################
 # Abstract Classes and Utilities
@@ -55,8 +55,10 @@ class MeshShape(Shape):
     :param scale: Scales all the dimensions of the shape by a multiplicative factor.
         If dimensions and scale are both specified the dimensions are first set by dimensions,
         and then scaled by scale.
+    :param initial_rotation: A 3-tuple containing the yaw, pitch, and roll respectively to apply when loading
+        the mesh. Note the initial_rotation must be fixed.
     """
-    def __init__(self, mesh, dimensions=None, scale=1):
+    def __init__(self, mesh, dimensions=None, scale=1, initial_rotation=None):
         # Ensure the mesh is watertight so volume is well defined
         if not mesh.is_watertight:
             raise ValueError("A MeshShape cannot be defined with a mesh that does not have a well defined volume.")
@@ -67,6 +69,16 @@ class MeshShape(Shape):
         # If dimensions are not specified, infer them.
         if dimensions is None:
             dimensions = self.mesh.extents
+
+        # If rotation is provided, apply rotation
+        if initial_rotation is not None:
+            if needsSampling(initial_rotation):
+                raise ValueError("Shape initial_rotation parameter must be fixed." +
+                    "If you want to orient an Object randomly, you should change the Object's rotation.")
+
+            rotation = Orientation.fromEuler(*initial_rotation)
+            rotation_matrix = quaternion_matrix((rotation.w, rotation.x, rotation.y, rotation.z))
+            self.mesh.apply_transform(rotation_matrix)
 
         # Report samplables
         super().__init__(dimensions, scale)
