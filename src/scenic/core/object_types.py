@@ -288,6 +288,8 @@ class _Constructible(Samplable):
 		pass	# do nothing by default; may be overridden by subclasses
 
 	def sampleGiven(self, value):
+		if not needsSampling(self):
+			return self
 		return self.withProperties({ prop: value[getattr(self, prop)]
 								   for prop in self.properties })
 
