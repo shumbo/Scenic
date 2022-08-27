@@ -7,8 +7,7 @@ from tests.utils import compileScenic, sampleEgoFrom, sampleParamP, sampleParamP
 
 ## Scalar operators
 
-# relative heading
-
+# Relative Heading
 def test_relative_heading():
     p = sampleParamPFrom("""
         ego = Object facing 30 deg
@@ -16,6 +15,14 @@ def test_relative_heading():
         param p = relative heading of other
     """)
     assert p == pytest.approx(math.radians(65 - 30))
+
+def test_relative_orientation():
+    p = sampleParamPFrom("""
+        ego = Object facing (30 deg, 40 deg, 50 deg)
+        other = Object facing (60 deg, 80 deg, 100 deg)
+        param p = relative orientation of other
+    """)
+    assert p.eulerAngles() == pytest.approx(math.radians(60 - 30), math.radians(80 - 40), math.radians(100 - 50))
 
 def test_relative_heading_no_ego():
     with pytest.raises(RuntimeParseError):
@@ -28,8 +35,7 @@ def test_relative_heading_from():
     ego = sampleEgoFrom('ego = Object facing relative heading of 70 deg from -10 deg')
     assert ego.heading == pytest.approx(math.radians(70 + 10))
 
-# apparent heading
-
+# Apparent heading
 def test_apparent_heading():
     p = sampleParamPFrom("""
         ego = Object facing 30 deg
@@ -52,8 +58,61 @@ def test_apparent_heading_from():
     """)
     assert ego.heading == pytest.approx(math.radians(-60 - 45))
 
-# distance
+# Angle
+def test_angle():
+    p = sampleParamPFrom("""
+        ego = Object facing 30 deg
+        other = Object facing 65 deg, at 10@10
+        param p = angle to other
+    """)
+    assert p == pytest.approx(math.radians(-45))
 
+def test_angle_3d():
+    p = sampleParamPFrom("""
+        ego = Object facing (30 deg, 0 deg, 30 deg)
+        other = Object facing (65 deg, 0 deg, 65 deg), at (10, 10, 10)
+        param p = angle to other
+    """)
+    assert p == pytest.approx(math.radians(-45))
+
+def test_angle_no_ego():
+    with pytest.raises(RuntimeParseError):
+        compileScenic("""
+            other = Object
+            ego = Object at 2@2, facing angle to other
+        """)
+
+def test_angle_from():
+    ego = sampleEgoFrom('ego = Object facing angle from 2@4 to 3@5')
+    assert ego.heading == pytest.approx(math.radians(-45))
+
+def test_angle_from_3d():
+    ego = sampleEgoFrom('ego = Object facing angle from (2, 4, 5) to (3, 5, 6)')
+    assert ego.heading == pytest.approx(math.radians(-45))
+
+# Azimuth/Altitude
+def test_azimuth_to():
+    ego = sampleEgoFrom('ego = Object at (0,0,0)\n'
+                        'ego = Object facing azimuth to (1, 1, 0)'
+                        )
+    assert ego.heading == pytest.approx(math.radians(45))
+
+def test_azimuth_from_to():
+    ego = sampleEgoFrom('ego = Object facing azimuth from (0,0,0) to (1, 1, 0)'
+                        )
+    assert ego.heading == pytest.approx(math.radians(45))
+
+def test_altitude_to():
+    ego = sampleEgoFrom('ego = Object at (0,0,0)\n'
+                        'ego = Object facing azimuth to (1, 0, 1)'
+                        )
+    assert ego.heading == pytest.approx(math.radians(45))
+
+def test_azimuth_from_to():
+    ego = sampleEgoFrom('ego = Object facing azimuth from (0,0,0) to (1, 0, 1)')
+    assert ego.heading == pytest.approx(math.radians(45))
+
+# Distance
 def test_distance():
     p = sampleParamPFrom("""
         ego = Object at 5@10
@@ -93,43 +152,9 @@ def test_distance_to_region():
     """)
     assert p == pytest.approx(2)
 
-# angle
+## Boolean operators ##
 
-def test_angle():
-    p = sampleParamPFrom("""
-        ego = Object facing 30 deg
-        other = Object facing 65 deg, at 10@10
-        param p = angle to other
-    """)
-    assert p == pytest.approx(math.radians(-45))
-
-def test_angle_3d():
-    p = sampleParamPFrom("""
-        ego = Object facing (30 deg, 0 deg, 30 deg)
-        other = Object facing (65 deg, 0 deg, 65 deg), at (10, 10, 10)
-        param p = angle to other
-    """)
-    assert p == pytest.approx(math.radians(-45)) # passes, but shouldn't? 
-
-def test_angle_no_ego():
-    with pytest.raises(RuntimeParseError):
-        compileScenic("""
-            other = Object
-            ego = Object at 2@2, facing angle to other
-        """)
-
-def test_angle_from():
-    ego = sampleEgoFrom('ego = Object facing angle from 2@4 to 3@5')
-    assert ego.heading == pytest.approx(math.radians(-45))
-
-def test_angle_from_3d():
-    ego = sampleEgoFrom('ego = Object facing angle from (2, 4, 5) to (3, 5, 6)')
-    assert ego.heading == pytest.approx(math.radians(-45)) # passes, but shouldn't
-
-## Boolean operators
-
-# can see
-
+# Can See
 def test_point_can_see_vector():
     p = sampleParamPFrom("""
         ego = Object
@@ -163,31 +188,53 @@ def test_oriented_point_can_see_object():
     """)
     assert p == (True, False)
 
-# in
-
-def test_point_in_region():
+# In
+def test_point_in_region_2d():
     p = sampleParamPFrom("""
         ego = Object
         reg = RectangularRegion(10@5, 0, 4, 2)
         ptA = Point at 11@4.5
         ptB = Point at 11@3.5
-        param p = tuple([9@5.5 in reg, 9@7 in reg, ptA in reg, ptB in reg])
+        ptC = Point at (11, 4.5, 1)
+        param p = tuple([9@5.5 in reg, 9@7 in reg, (11, 4.5, -1) in reg, ptA in reg, ptB in reg, ptC in reg])
     """)
-    assert p == (True, False, True, False)
+    assert p == (True, False, True, True, False, True)
 
-def test_object_in_region():
+def test_object_in_region_2d():
     p = sampleParamPFrom("""
         reg = RectangularRegion(10@5, 0, 4, 2)
         ego = Object at 11.5@5.5, with width 0.25, with length 0.25
-        other = Object at 9@4.5, with width 2.5
-        param p = tuple([ego in reg, other in reg])
+        other_1 = Object at 9@4.5, with width 2.5
+        other_2 = Object at (11.5, 5.5, 1), with width 2.5
+        param p = tuple([ego in reg, other_1 in reg], other_2 in reg)
     """)
-    assert p == (True, False)
+    assert p == (True, False, True)
+
+def test_point_in_region_3d():
+    p = sampleParamPFrom("""
+        ego = Object
+        reg = BoxRegion()
+        ptA = Point at (0.25,0.25,0.25)
+        ptB = Point at (1,1,1)
+        param p = tuple([(0,0,0) in reg, (0.5,0.5,0.5) in reg, ptA in reg, ptB in reg])
+    """)
+    assert p == (True, True, True, False)
+
+def test_object_in_region_3d():
+    p = sampleParamPFrom("""
+        ego = Object
+        reg = BoxRegion(dimensions=(2,2,2))
+        obj_1 = Object at (0,0,0)
+        obj_2 = Object at (0.5, 0.5, 0.5)
+        obj_3 = Object at (0.75, 0.75, 0.75)
+        obj_4 = Object at (3,3,3)
+        param p = tuple([obj_1 in reg, obj_2 in reg, obj_3 in reg, obj_4 in reg])
+    """)
+    assert p == (True, True, False, False)
 
 ## Heading operators
 
-# at
-
+# At
 def test_field_at_vector():
     ego = sampleEgoFrom("""
         vf = VectorField("Foo", lambda pos: (3 * pos.x) + pos.y)
@@ -195,8 +242,14 @@ def test_field_at_vector():
     """)
     assert ego.heading == pytest.approx((3 * 0.02) - 1)
 
-# relative to
+def test_field_at_vector_3d():
+    ego = sampleEgoFrom(        
+            'vf = VectorField("Foo", lambda pos: (pos.x deg, pos.y deg, pos.z deg)\n'
+            'ego = Object facing (vf at (1, 5, 3))'
+            )
+    assert ego.heading == Orientation.fromEuler(math.radians(1), math.radians(5), math.radians(3))
 
+# Relative To
 def test_heading_relative_to_field():
     ego = sampleEgoFrom("""
         vf = VectorField("Foo", lambda pos: 3 * pos.x)
@@ -240,10 +293,28 @@ def test_mistyped_relative_to_lazy():
             ego = Object facing 1@2 relative to (0 relative to vf)
         """)
 
+def test_orientation_relative_to_orientation():
+    ego = sampleEgoFrom("ego = Object facing (0, -90 deg, 0) relative to (90 deg, 90 deg, 90 deg)")
+    assert ego.orientation == Orientation.fromEuler(0,0,0)
+
 ## Vector operators
 
-# offset by
+# Relative To
+def test_relative_to_vector():
+    ego = sampleEgoFrom('ego = Object at 3@2 relative to -4@10')
+    assert tuple(ego.position) == pytest.approx((-1, 12, 0))
 
+def test_relative_to_vector_3d():
+    ego = sampleEgoFrom('ego = Object at (3, 2, 1) relative to (-4, 10, 5)')
+    assert tuple(ego.position) == pytest.approx((-1, 12, 6))
+
+def test_relative_to_oriented_point():
+    ego = sampleEgoFrom('op = OrientedPoint at (12,13,14) facing (90 deg, 0, 0)'
+                        'ego = Object at ((1,0,0) relative to op)'
+                        )
+    assert tuple(ego.position) == pytest.approx((0,1,0))
+
+# Offset By
 def test_offset_by():
     ego = sampleEgoFrom('ego = Object at 3@2 offset by -4@10')
     assert tuple(ego.position) == pytest.approx((-1, 12, 0))
@@ -252,8 +323,7 @@ def test_offset_by_3d():
     ego = sampleEgoFrom('ego = Object at (3, 2, 1) offset by (-4, 10, 5)')
     assert tuple(ego.position) == pytest.approx((-1, 12, 6))
 
-# offset along
-
+# Offset Along
 def test_offset_along_heading():
     ego = sampleEgoFrom('ego = Object at 3@2 offset along 45 deg by -4@10')
     d = 1 / math.sqrt(2)
@@ -279,8 +349,7 @@ def test_offset_along_field_3d():
     d = 1 / math.sqrt(2)
     assert tuple(ego.position) == pytest.approx((15 + 3*d + 2*d, 7 - 3*d + 2*d, 9))
 
-# follow
-
+# Follow
 def test_follow():
     ego = sampleEgoFrom("""
         vf = VectorField("Foo", lambda pos: 90 deg * (pos.x + pos.y - 1),
@@ -303,8 +372,7 @@ def test_follow_3d():
 
 ## Region operators
 
-# visible
-
+# Visible
 def test_visible():
     scenario = compileScenic("""
         ego = Object at 100 @ 200, facing -45 deg,

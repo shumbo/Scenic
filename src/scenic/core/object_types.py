@@ -551,7 +551,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 	shape: BoxShape()
 
 	centerOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
-	contactTolerance: 0.001
+	contactTolerance: 0.0000001
 
 	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
 	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))

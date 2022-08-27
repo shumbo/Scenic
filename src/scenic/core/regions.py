@@ -691,15 +691,9 @@ class MeshVolumeRegion(_MeshRegion):
 		The object must support coercion to a mesh.
 		"""
 		# PASS 1
-		# If all vertices of the object's bounding box are contained in the region,
-		# then the object must also be contained in the region.
-		# TODO: CHECK THIS
-		# bb_vertices_contained = self.mesh.contains(obj.region.mesh.bounding_box.vertices)
-		# bb_contained = all(bb_vertices_contained)
+		# TODO: Check if bounding box of object intersects the region? Need to make sure this
+		# has enough speedup to be worth it.
 
-		# if bb_contained:
-		# 	return True
-		
 		# PASS 2
 		# If the difference between the object's region and this region is empty,
 		# i.e. obj_region - self_region = EmptyRegion, that means the object is
@@ -962,12 +956,12 @@ class DefaultViewRegion(MeshVolumeRegion):
 					cone_direction = 1
 
 				# Create cone with yaw oriented around (0,0,-1)
-				padded_height = visibleDistance * 1.1
+				padded_height = visibleDistance * 2
 				radius = 2*padded_height*math.tan((math.pi-viewAngle[cone_direction])/2)
 
 				cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
 
-				position_matrix = translation_matrix((0,0,-padded_height))
+				position_matrix = translation_matrix((0,0,-1*padded_height))
 				cone_mesh.apply_transform(position_matrix)
 
 				# Create two cones around the appropriate axis

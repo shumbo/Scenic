@@ -65,8 +65,9 @@ def test_with():
     ego = sampleEgoFrom('ego = Object with flubber 37')
     assert ego.flubber == 37
 
-## Position specifiers
+## Position specifiers ##
 
+# At
 def test_at():
     ego = sampleEgoFrom('ego = Object at 149 @ 42')
     assert tuple(ego.position) == pytest.approx((149, 42, 0))
@@ -75,6 +76,7 @@ def test_at_3d():
     ego = sampleEgoFrom('ego = Object at (3, 4, 12)')
     assert tuple(ego.position) == pytest.approx((3, 4, 12))
 
+# Offset By/Along
 def test_offset_by():
     ego = sampleEgoFrom(
         'ego = Object at 10 @ 40, facing 90 deg\n'
@@ -89,7 +91,6 @@ def test_offset_by_3d():
     )
     assert tuple(ego.position) == pytest.approx((-5, 30, -5))
 
-
 def test_offset_by_3d_2():
     ego = sampleEgoFrom(
         'ego = Object at (10, 10, 10), facing (90 deg, 90 deg, 90 deg)\n'
@@ -99,12 +100,11 @@ def test_offset_by_3d_2():
 
 def test_offset_by_3d_3():
     ego = sampleEgoFrom(
-        'ego = Object at (10,40,35), facing (90 deg,90 deg,90 deg)\n'
+        'ego = Object at (10,40,35), facing (90 deg, 90 deg,90 deg)\n'
         'ego = Object offset by (5, 10, 15)'
     )
-    # Check that new ego has correct position and that it has correctly
-    # inherited orientation.
     assert tuple(ego.position) == pytest.approx((5, 55, 45))
+    assert tuple(ego.orientation.eulerAngles) == pytest.approx(math.pi/2, math.pi/2, math.pi/2)
 
 def test_offset_by_no_ego():
     with pytest.raises(RuntimeParseError):
@@ -134,7 +134,7 @@ def test_offset_along_no_ego():
     with pytest.raises(RuntimeParseError):
         compileScenic('ego = Object offset along 0 by 10 @ 0')
 
-## Left Of/Right Of ##
+# Left/Right Of 
 def test_left_of_vector():
     ego = sampleEgoFrom('ego = Object left of 10 @ 20, facing 90 deg')
     assert tuple(ego.position) == pytest.approx((10, 19.5, 0))
@@ -154,6 +154,22 @@ def test_left_of_vector_by():
 def test_left_of_vector_by_3d():
     ego = sampleEgoFrom('ego = Object left of (10, 20, 15) by 20')
     assert tuple(ego.position) == pytest.approx((-10.5, 20, 15))
+
+def test_left_of_oriented_point():
+    ego = sampleEgoFrom(
+                        'target = OrientedPoint facing (-90 deg, 0, 0)\n'
+                        'ego = Object left of target'
+                       )
+    assert tuple(ego.position) == pytest.approx((0, -0.5, 0))
+    assert ego.orientation = Orientation.fromEuler(-math.pi/2, 0, 0)
+
+def test_left_of_object():
+    ego = sampleEgoFrom(
+                        'target = Object facing (-90 deg, 0, 0)\n'
+                        'ego = Object left of target'
+                       )
+    assert tuple(ego.position) == pytest.approx((0, -1, 0))
+    assert ego.orientation = Orientation.fromEuler(-math.pi/2, 0, 0)
 
 def test_right_of_vector():
     ego = sampleEgoFrom('ego = Object right of 10 @ 20, facing 90 deg')
@@ -175,7 +191,23 @@ def test_right_of_vector_by_3d():
     ego = sampleEgoFrom('ego = Object right of (10, 20, 15) by 20')
     assert tuple(ego.position) == pytest.approx((30.5, 20, 15))
 
-## Ahead Of/Behind ##
+def test_right_of_oriented_point():
+    ego = sampleEgoFrom(
+                        'target = OrientedPoint facing (-90 deg, 0, 0)\n'
+                        'ego = Object left of target'
+                       )
+    assert tuple(ego.position) == pytest.approx((0, 0.5, 0))
+    assert ego.orientation = Orientation.fromEuler(-math.pi/2, 0, 0)
+
+def test_right_of_object():
+    ego = sampleEgoFrom(
+                        'target = Object facing (-90 deg, 0, 0)\n'
+                        'ego = Object left of target'
+                       )
+    assert tuple(ego.position) == pytest.approx((0, 1, 0))
+    assert ego.orientation = Orientation.fromEuler(-math.pi/2, 0, 0)
+
+# Ahead Of/Behind
 def test_ahead_of_vector():
     ego = sampleEgoFrom('ego = Object ahead of 10 @ 20, facing 90 deg')
     assert tuple(ego.position) == pytest.approx((9.5, 20, 0))
@@ -197,6 +229,22 @@ def test_ahead_of_vector_by_3d():
     assert tuple(ego.position) == pytest.approx((10, 40.5, 15))
     ego = sampleEgoFrom('ego = Object ahead of (10, 20, 15), facing (90 deg, 0, 90 deg), with length 10')
     assert tuple(ego.position) == pytest.approx((5, 20, 15))
+
+def test_ahead_of_oriented_point():
+    ego = sampleEgoFrom(
+                        'target = OrientedPoint facing (-90 deg, 0, 0)\n'
+                        'ego = Object ahead of target'
+                       )
+    assert tuple(ego.position) == pytest.approx((0.5, 0, 0))
+    assert ego.orientation = Orientation.fromEuler(-math.pi/2, 0, 0)
+
+def test_ahead_of_object():
+    ego = sampleEgoFrom(
+                        'target = Object facing (-90 deg, 0, 0)\n'
+                        'ego = Object ahead of target'
+                       )
+    assert tuple(ego.position) == pytest.approx((1, 0, 0))
+    assert ego.orientation = Orientation.fromEuler(-math.pi/2, 0, 0)
 
 def test_behind_vector():
     ego = sampleEgoFrom('ego = Object behind 10 @ 20, facing 90 deg')
@@ -222,7 +270,23 @@ def test_behind_vector_by_3d():
     ego = sampleEgoFrom('ego = Object behind (10, 20, 15) by 20, facing (90 deg, 0, 90 deg), with length 10')
     assert tuple(ego.position) == pytest.approx((35, 20, 15))
 
-## Above/Below ##
+def test_behind_oriented_point():
+    ego = sampleEgoFrom(
+                        'target = OrientedPoint facing (-90 deg, 0, 0)\n'
+                        'ego = Object behind target'
+                       )
+    assert tuple(ego.position) == pytest.approx((-0.5, 0, 0))
+    assert ego.orientation = Orientation.fromEuler(-math.pi/2, 0, 0)
+
+def test_behind_object():
+    ego = sampleEgoFrom(
+                        'target = Object facing (-90 deg, 0, 0)\n'
+                        'ego = Object behind target'
+                       )
+    assert tuple(ego.position) == pytest.approx((-1, 0, 0))
+    assert ego.orientation = Orientation.fromEuler(-math.pi/2, 0, 0)
+
+# Above/Below
 def test_above_vector_3d():
     ego = sampleEgoFrom('ego = Object above (10, 20, 15)')
     assert tuple(ego.position) == pytest.approx((10, 20, 15.5))
@@ -234,6 +298,22 @@ def test_above_vector_by_3d():
     assert tuple(ego.position) == pytest.approx((10, 20, 35.5))
     ego = sampleEgoFrom('ego = Object above (10, 20, 15) by 20, facing (90 deg, 0, 90 deg), with height 10')
     assert tuple(ego.position) == pytest.approx((10, 45, 15))
+
+def test_above_oriented_point():
+    ego = sampleEgoFrom(
+                        'target = OrientedPoint facing (0, 90 deg, 0)\n'
+                        'ego = Object above target'
+                       )
+    assert tuple(ego.position) == pytest.approx((0, -0.5, 0))
+    assert ego.orientation = Orientation.fromEuler(0, math.pi/2, 0)
+
+def test_above_object():
+    ego = sampleEgoFrom(
+                        'target = Object facing (0, 90 deg, 0)\n'
+                        'ego = Object above target'
+                       )
+    assert tuple(ego.position) == pytest.approx((0, -1, 0))
+    assert ego.orientation = Orientation.fromEuler(0, math.pi/2, 0)
 
 def test_below_vector_3d():
     ego = sampleEgoFrom('ego = Object below (10, 20, 15)')
@@ -247,6 +327,23 @@ def test_below_vector_by_3d():
     ego = sampleEgoFrom('ego = Object below (10, 20, 15) by 20, facing (90 deg, 0, 90 deg), with height 10')
     assert tuple(ego.position) == pytest.approx((10, -5, 15))
 
+def test_above_oriented_point():
+    ego = sampleEgoFrom(
+                        'target = OrientedPoint facing (0, 90 deg, 0)\n'
+                        'ego = Object below target'
+                       )
+    assert tuple(ego.position) == pytest.approx((0, 0.5, 0))
+    assert ego.orientation = Orientation.fromEuler(0, math.pi/2, 0)
+
+def test_above_object():
+    ego = sampleEgoFrom(
+                        'target = Object facing (0, 90 deg, 0)\n'
+                        'ego = Object below target'
+                       )
+    assert tuple(ego.position) == pytest.approx((0, 1, 0))
+    assert ego.orientation = Orientation.fromEuler(0, math.pi/2, 0)
+
+# Beyond
 def test_beyond():
     ego = sampleEgoFrom(
         'ego = Object at 10 @ 5\n'
@@ -288,6 +385,7 @@ def test_beyond_from_3d():
     #ego = sampleEgoFrom('ego = Object beyond (5, 15, 10) by (15, 20, 5) from (5, 10, 20)')
     #assert tuple(ego.position) == pytest.approx((-10, -20, 0))
 
+# Visible
 def test_visible():
     scenario = compileScenic(
         'ego = Object at 100 @ 200, facing -45 deg,\n'
@@ -352,8 +450,7 @@ def test_visible_from_oriented_point_3d():
         assert pos.y >= base.y
         assert pos.z >= base.z
 
-## Position specifiers optionally specifying heading
-
+# In
 def test_in():
     scenario = compileScenic(
         'r = RectangularRegion(100 @ 200, 90 deg, 50, 10)\n'
@@ -365,6 +462,33 @@ def test_in():
         assert 95 <= pos.x <= 105
         assert 150 <= pos.y <= 250
         assert scene.egoObject.heading == 0
+
+def test_in_3d():
+    scenario = compileScenic(
+        'region = BoxRegion(dimensions=(10,20,30))\n'
+        'ego = Object in region'
+    )
+    for i in range(30):
+        scene = sampleScene(scenario)
+        pos = scene.egoObject.position
+        assert -5 <= pos.x <= 5
+        assert -10 <= pos.y <= 10
+        assert -15 <= pos.z <= 15
+        assert scene.egoObject.orientation == Orientation.fromEuler(0,0,0)
+
+def test_in_3d_heading():
+    scenario = compileScenic(
+        'vf = VectorField("TestVF", lambda pos: (0.5, 0.6, 0.7))\n'
+        'region = BoxRegion(dimensions=(10,20,30), orientation=vf)\n'
+        'ego = Object in region'
+    )
+    for i in range(30):
+        scene = sampleScene(scenario)
+        pos = scene.egoObject.position
+        assert -5 <= pos.x <= 5
+        assert -10 <= pos.y <= 10
+        assert -15 <= pos.z <= 15
+        assert scene.egoObject.orientation.eulerAngles == pytest.approx(0.5,0.6,0.7)
 
 def test_in_heading():
     scenario = compileScenic(
@@ -407,6 +531,75 @@ def test_in_heading_distribution():
     assert any(h == 1 for h in hs)
     assert any(h == h2 for h in hs)
 
+# Contained In
+def test_contained_in_2d():
+    scenario = compileScenic(
+        'region = RectangularRegion(0@0, 0, 2, 2))\n'
+        'ego = Object contained in region'
+    )
+    for _ in range(30):
+        pos = scene.egoObject.position
+        assert -0.5 <= pos.x <= 0.5
+        assert -0.5 <= pos.y <= 0.5
+        assert pos.z == 0
+
+def test_contained_in_3d():
+    scenario = compileScenic(
+        'region = BoxRegion(dimensions=(1,1,1))\n'
+        'ego = Object contained in region'
+    )
+    for _ in range(30):
+        pos = scene.egoObject.position
+        assert -0.5 <= pos.x <= 0.5
+        assert -0.5 <= pos.y <= 0.5
+        assert -0.5 <= pos.z <= 0.5
+
+# On
+def test_on_3d():
+    scenario = compileScenic(
+        'region = BoxRegion(dimensions=(10,20,30))\n'
+        'ego = Object on region'
+    )
+    for i in range(30):
+        scene = sampleScene(scenario)
+        pos = scene.egoObject.position
+        assert -5 <= pos.x <= 5
+        assert -10 <= pos.y <= 10
+        assert -15 <= pos.z <= 15
+        assert scene.egoObject.orientation == Orientation.fromEuler(0,0,0)
+
+def test_on_3d_heading():
+    scenario = compileScenic(
+        'vf = VectorField("TestVF", lambda pos: (0.5, 0.6, 0.7))\n'
+        'region = BoxRegion(dimensions=(10,20,30), orientation=vf)\n'
+        'ego = Object on region'
+    )
+    for i in range(30):
+        scene = sampleScene(scenario)
+        pos = scene.egoObject.position
+        assert -5 <= pos.x <= 5
+        assert -10 <= pos.y <= 10
+        assert -15 <= pos.z <= 15
+        assert scene.egoObject.orientation.eulerAngles == pytest.approx(0.5,0.6,0.7)
+
+def test_on_modifying():
+    scenario = compileScenic(
+        'floor = Object at (0,0,0), with shape BoxShape(dimensions=(40,40,0.1))\n'
+        'air_region = BoxRegion(dimensions=(30,30,30), position=(0,0,15))\n'
+        'ego = Object in air_region, on floor'
+    )
+    for i in range(30):
+        scene = sampleScene(scenario)
+        pos = scene.egoObject.position
+        assert -15 <= pos.x <= 15
+        assert -15 <= pos.y <= 15
+        assert pos.z == pytest.approx(0.5, abs=0.001)
+
+def test_on_mistyped():
+    with pytest.raises(RuntimeParseError):
+        compileScenic('ego = Object on 3@2')
+
+# Following
 def test_following():
     ego = sampleEgoFrom("""
         vf = VectorField("Foo", lambda pos: 90 deg * (pos.x + pos.y - 1),
@@ -423,4 +616,66 @@ def test_following_random():
         ego = Object following vf from 1@2 for x, facing x
     """)
     assert tuple(ego.position) == pytest.approx((1+ego.heading, 2, 0))
+
+## Orientation Specifiers ##
+
+# Facing
+def test_facing_heading():
+    ego = sampleEgoFrom('ego = Object facing 90 deg')
+    assert ego.heading == math.radians(90)
+
+def test_facing_orientation():
+    ego = sampleEgoFrom('ego = Object facing (90 deg, 90 deg, 90 deg)')
+    assert ego.orientation == Orientation.fromEuler(math.pi/2, math.pi/2, math.pi/2)
+
+def test_facing_vf_2d():
+    ego = sampleEgoFrom(        
+            'vf = VectorField("Foo", lambda pos: (100 * pos.x + 10 * pos.y) deg\n'
+            'ego = Object at 1@5'
+            )
+    assert ego.heading == math.radians(150)
+
+def test_facing_vf_3d():
+    ego = sampleEgoFrom(        
+            'vf = VectorField("Foo", lambda pos: (pos.x deg, pos.y deg, pos.z deg)\n'
+            'ego = Object at (1, 5, 3)'
+            )
+    assert ego.orientation == Orientation.fromEuler(math.radians(1), math.radians(5), math.radians(3))
+
+# Facing Toward/Away From
+def test_facing_toward():
+    ego = sampleEgoFrom("ego = Object facing toward (math.sqrt(0.5),math.sqrt(0.5),1), with pitch 0")
+    assert ego.heading == pytest.approx(math.radians(45))
+    assert ego.pitch == 0
+    assert ego.roll == 0
+
+def test_facing_away_from():
+    ego = sampleEgoFrom("ego = Object facing away from (math.sqrt(0.5),math.sqrt(0.5),1), with pitch 0")
+    assert ego.heading == pytest.approx(math.radians(135))
+    assert ego.pitch == 0
+    assert ego.roll == 0
+
+# Facing directly Toward/Away From
+def test_facing_directly_toward():
+    ego = sampleEgoFrom("ego = Object facing toward (math.sqrt(0.5),math.sqrt(0.5),1)")
+    assert ego.yaw == pytest.approx(math.radians(45))
+    assert ego.pitch == pytest.approx(math.radians(45))
+    assert ego.roll == 0
+
+def test_facing_directly_away_from():
+    ego = sampleEgoFrom("ego = Object facing away from (math.sqrt(0.5),math.sqrt(0.5),1)")
+    assert ego.yaw == pytest.approx(math.radians(225))
+    assert ego.pitch == pytest.approx(math.radians(225))
+    assert ego.roll == 0
+
+# Apparently Facing
+def test_apparently_facing():
+    ego = sampleEgoFrom('ego = Object at (0,0,0)\n'
+                        'ego = Object at (1,1,0), apparently facing 90 deg'
+                        )
+    assert ego.heading == pytest.approx(math.radians(135))
+
+def test_apparently_facing_from():
+    ego = sampleEgoFrom('ego = Object at (1,1,0), apparently facing 90 deg from (0,0,0)')
+    assert ego.heading == pytest.approx(math.radians(135))
 

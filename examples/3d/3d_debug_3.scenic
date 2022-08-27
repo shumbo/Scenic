@@ -24,24 +24,16 @@ small_air_cone = Object on air_cube,
     with viewAngle (60 deg, 30 deg),
     with visibleDistance 5
 
-small_air_cone.region._mesh.visual.face_colors = [150, 30, 30, 255]
-
 # Create floor region
 floor = Object at (0,0,0),
     with shape BoxShape(dimensions=(40,40,0.1))
-
-floor.region.mesh.visual.face_colors = [30, 30, 150, 255]
 
 # Place a small cone below the air_cube, and another on the floor below the air_cube.
 small_below_cone = Object below air_cube,
     with shape MeshShape(trimesh.creation.cone(radius=0.5, height=1))
 
-small_below_cone.region._mesh.visual.face_colors = [150, 30, 30, 255]
-
 small_floor_cone = Object below air_cube, on floor,
     with shape MeshShape(trimesh.creation.cone(radius=0.5, height=1))
-
-small_floor_cone.region._mesh.visual.face_colors = [150, 30, 30, 255]
 
 # Load chair mesh from file and create chair shape from it
 with open(localPath("mesh.obj"), "r") as mesh_file:

@@ -39,7 +39,7 @@ decorator = "^5.0.9"
 importlib_metadata = { version = "^3.7", python = "~3.7" }
 
 trimesh = "^3.9.2"
-python-fcl = "^0.6.1"
+python-fcl = "^0.7"
 
 pyproj = {version = "^3.0.0", optional = true}
 
