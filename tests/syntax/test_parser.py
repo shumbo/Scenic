@@ -20,6 +20,16 @@ def assert_equal_source_ast(source: str, expected: ast.AST) -> bool:
     assert dump(stmt, annotate_fields=False) == dump(expected, annotate_fields=False)
 
 
+class TestAST:
+    def test_copy_location(self):
+        original = Wait(lineno=10, col_offset=20, end_lineno=30, end_col_offset=40)
+        copy = ast.copy_location(Wait(), original)
+        assert copy.lineno == 10
+        assert copy.col_offset == 20
+        assert copy.end_lineno == 30
+        assert copy.end_col_offset == 40
+
+
 class TestTry:
     def test_try_interrupt_when(self):
         mod = parse_string_helper(
