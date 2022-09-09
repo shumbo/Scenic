@@ -1,6 +1,8 @@
 import ast
 from typing import Optional, Union
 
+LOCATIONS = ("lineno", "col_offset", "end_lineno", "end_col_offset")
+
 
 class AST(ast.AST):
     "Scenic AST base class"
@@ -9,10 +11,20 @@ class AST(ast.AST):
         super().__init__(*args, **kwargs)
 
 
+class stmt(AST):
+    "Scenic statement base class"
+    _attributes = LOCATIONS
+
+
+class expr(AST):
+    "Scenic expression base class"
+    _attributes = LOCATIONS
+
+
 # special statements
 
 
-class TryInterrupt(AST):
+class TryInterrupt(stmt):
     """Scenic AST node that represents try-interrupt statements"""
 
     __match_args__ = (
@@ -51,6 +63,7 @@ class TryInterrupt(AST):
 
 class InterruptWhenHandler(AST):
     __match_args__ = ("cond", "body")
+    _attributes = LOCATIONS
 
     def __init__(
         self, cond: ast.AST, body: list[ast.AST], *args: any, **kwargs: any
@@ -61,7 +74,7 @@ class InterruptWhenHandler(AST):
         self._fields = ["cond", "body"]
 
 
-class TrackedAssign(AST):
+class TrackedAssign(stmt):
     __match_args__ = (
         "target",
         "value",
@@ -94,7 +107,7 @@ class InitialScenario(AST):
     pass
 
 
-class PropertyDef(AST):
+class PropertyDef(stmt):
     __match_args__ = ("property", "attributes", "value")
 
     def __init__(
@@ -129,7 +142,7 @@ class Dynamic(AST):
 # behavior / monitor
 
 
-class BehaviorDef(AST):
+class BehaviorDef(stmt):
     __match_args__ = ("name", "args", "docstring", "header", "body")
 
     def __init__(
@@ -151,7 +164,7 @@ class BehaviorDef(AST):
         self._fields = ["name", "args", "docstring", "header", "body"]
 
 
-class MonitorDef(AST):
+class MonitorDef(stmt):
     __match_args__ = ("name", "docstring", "body")
 
     def __init__(
@@ -169,7 +182,7 @@ class MonitorDef(AST):
         self._fields = ["name", "docstring", "body"]
 
 
-class Precondition(AST):
+class Precondition(stmt):
     __match_args__ = ("value",)
 
     def __init__(self, value: ast.AST, *args: any, **kwargs: any) -> None:
@@ -178,7 +191,7 @@ class Precondition(AST):
         self._fields = ["value"]
 
 
-class Invariant(AST):
+class Invariant(stmt):
     __match_args__ = ("value",)
 
     def __init__(self, value: ast.AST, *args: any, **kwargs: any) -> None:
@@ -190,7 +203,7 @@ class Invariant(AST):
 # simple statements
 
 
-class Model(AST):
+class Model(stmt):
     __match_args__ = ("name",)
 
     def __init__(self, name: str, *args: any, **kwargs: any) -> None:
@@ -199,7 +212,7 @@ class Model(AST):
         self._fields = ["name"]
 
 
-class Param(AST):
+class Param(stmt):
     "`param identifier = value, …` statements"
 
     __match_args__ = ("elts",)
@@ -223,7 +236,7 @@ class parameter(AST):
         self._fields = ["identifier", "value"]
 
 
-class Require(AST):
+class Require(stmt):
     __match_args__ = ("cond", "prob", "name")
 
     def __init__(
@@ -241,7 +254,7 @@ class Require(AST):
         self._fields = ["cond", "prob", "name"]
 
 
-class RequireAlways(AST):
+class RequireAlways(stmt):
     __match_args__ = ("cond", "name")
 
     def __init__(
@@ -253,7 +266,7 @@ class RequireAlways(AST):
         self._fields = ["cond", "name"]
 
 
-class RequireEventually(AST):
+class RequireEventually(stmt):
     __match_args__ = ("cond", "name")
 
     def __init__(
@@ -265,7 +278,7 @@ class RequireEventually(AST):
         self._fields = ["cond", "name"]
 
 
-class Record(AST):
+class Record(stmt):
     __match_args__ = ("value", "name")
 
     def __init__(
@@ -276,7 +289,7 @@ class Record(AST):
         self.name = name
 
 
-class RecordInitial(AST):
+class RecordInitial(stmt):
     __match_args__ = ("value", "name")
 
     def __init__(
@@ -287,7 +300,7 @@ class RecordInitial(AST):
         self.name = name
 
 
-class RecordFinal(AST):
+class RecordFinal(stmt):
     __match_args__ = ("value", "name")
 
     def __init__(
@@ -298,7 +311,7 @@ class RecordFinal(AST):
         self.name = name
 
 
-class Mutate(AST):
+class Mutate(stmt):
     __match_args__ = ("elts", "scale")
 
     def __init__(
@@ -314,11 +327,11 @@ class Mutate(AST):
         self._fields = ["elts", "scale"]
 
 
-class Abort(AST):
+class Abort(stmt):
     pass
 
 
-class Take(AST):
+class Take(stmt):
     __match_args__ = ("elts",)
 
     def __init__(self, elts: list[ast.AST], *args: any, **kwargs: any) -> None:
@@ -327,15 +340,15 @@ class Take(AST):
         self._fields = ["elts"]
 
 
-class Wait(AST):
+class Wait(stmt):
     pass
 
 
-class Terminate(AST):
+class Terminate(stmt):
     pass
 
 
-class TerminateSimulationWhen(AST):
+class TerminateSimulationWhen(stmt):
     __match_args__ = ("cond",)
 
     def __init__(self, cond=ast.AST, *args: any, **kwargs: any) -> None:
@@ -344,7 +357,7 @@ class TerminateSimulationWhen(AST):
         self._fields = ["cond"]
 
 
-class TerminateWhen(AST):
+class TerminateWhen(stmt):
     __match_args__ = ("cond",)
 
     def __init__(self, cond=ast.AST, *args: any, **kwargs: any) -> None:
@@ -353,7 +366,7 @@ class TerminateWhen(AST):
         self._fields = ["cond"]
 
 
-class TerminateAfter(AST):
+class TerminateAfter(stmt):
     __match_args__ = ("duration",)
 
     def __init__(
@@ -364,7 +377,7 @@ class TerminateAfter(AST):
         self._fields = ["duration"]
 
 
-class DoFor(AST):
+class DoFor(stmt):
     __match_args__ = ("elts", "duration")
 
     def __init__(
@@ -400,7 +413,7 @@ class Steps(AST):
         self._fields = ["value"]
 
 
-class DoUntil(AST):
+class DoUntil(stmt):
     __match_args__ = ("elts", "cond")
 
     def __init__(
@@ -412,7 +425,7 @@ class DoUntil(AST):
         self._fields = ["value", "cond"]
 
 
-class DoChoose(AST):
+class DoChoose(stmt):
     __match_args__ = ("elts",)
 
     def __init__(self, elts: list[ast.AST], *args: any, **kwargs: any) -> None:
@@ -421,7 +434,7 @@ class DoChoose(AST):
         self._fields = ["elts"]
 
 
-class DoShuffle(AST):
+class DoShuffle(stmt):
     __match_args__ = ("elts",)
 
     def __init__(self, elts: list[ast.AST], *args: any, **kwargs: any) -> None:
@@ -430,7 +443,7 @@ class DoShuffle(AST):
         self._fields = ["elts"]
 
 
-class Do(AST):
+class Do(stmt):
     __match_args__ = ("elts",)
 
     def __init__(self, elts: list[ast.AST], *args: any, **kwargs: any) -> None:
@@ -442,7 +455,7 @@ class Do(AST):
 # Instance Creation
 
 
-class New(AST):
+class New(expr):
     __match_args__ = ("className", "specifiers")
 
     def __init__(
@@ -637,7 +650,7 @@ class ApparentlyFacingSpecifier(AST):
 
 
 # Operators
-class RelativePositionOp(AST):
+class RelativePositionOp(expr):
     __match_args__ = ("target", "base")
 
     def __init__(
@@ -649,7 +662,7 @@ class RelativePositionOp(AST):
         self._fields = ["target", "base"]
 
 
-class RelativeHeadingOp(AST):
+class RelativeHeadingOp(expr):
     __match_args__ = ("target", "base")
 
     def __init__(
@@ -661,7 +674,7 @@ class RelativeHeadingOp(AST):
         self._fields = ["target", "base"]
 
 
-class ApparentHeadingOp(AST):
+class ApparentHeadingOp(expr):
     __match_args__ = ("target", "base")
 
     def __init__(
@@ -673,7 +686,7 @@ class ApparentHeadingOp(AST):
         self._fields = ["target", "base"]
 
 
-class DistanceFromOp(AST):
+class DistanceFromOp(expr):
     __match_args__ = ("target", "base")
 
     def __init__(
@@ -690,7 +703,7 @@ class DistanceFromOp(AST):
         self._fields = ["target", "base"]
 
 
-class DistancePastOp(AST):
+class DistancePastOp(expr):
     __match_args__ = ("target", "base")
 
     def __init__(
@@ -702,7 +715,7 @@ class DistancePastOp(AST):
         self._fields = ["target", "base"]
 
 
-class AngleFromOp(AST):
+class AngleFromOp(expr):
     __match_args__ = ("target", "base")
 
     def __init__(
@@ -718,7 +731,7 @@ class AngleFromOp(AST):
         self._fields = ["target", "base"]
 
 
-class FollowOp(AST):
+class FollowOp(expr):
     __match_args__ = ("target", "base", "distance")
 
     def __init__(
@@ -736,7 +749,7 @@ class FollowOp(AST):
         self._fields = ["target", "base", "distance"]
 
 
-class VisibleOp(AST):
+class VisibleOp(expr):
     __match_args__ = ("region",)
 
     def __init__(self, region: ast.AST, *args: any, **kwargs: any) -> None:
@@ -745,7 +758,7 @@ class VisibleOp(AST):
         self._fields = ["region"]
 
 
-class NotVisibleOp(AST):
+class NotVisibleOp(expr):
     __match_args__ = ("region",)
 
     def __init__(self, region: ast.AST, *args: any, **kwargs: any) -> None:
@@ -754,7 +767,7 @@ class NotVisibleOp(AST):
         self._fields = ["region"]
 
 
-class PositionOfOp(AST):
+class PositionOfOp(expr):
     __match_args__ = ("position", "target")
 
     def __init__(
@@ -842,7 +855,7 @@ class BackRight(AST):
         super().__init__(*args, **kwargs)
 
 
-class DegOp(AST):
+class DegOp(expr):
     __match_args__ = ("operand",)
 
     def __init__(self, operand: ast.AST, *args: any, **kwargs: any) -> None:
@@ -850,7 +863,7 @@ class DegOp(AST):
         self.operand = operand
 
 
-class VectorOp(AST):
+class VectorOp(expr):
     __match_args__ = ("left", "right")
 
     def __init__(
@@ -862,7 +875,7 @@ class VectorOp(AST):
         self._fields = ["left", "right"]
 
 
-class FieldAtOp(AST):
+class FieldAtOp(expr):
     __match_args__ = ("left", "right")
 
     def __init__(
@@ -873,7 +886,7 @@ class FieldAtOp(AST):
         self.right = right
 
 
-class RelativeToOp(AST):
+class RelativeToOp(expr):
     __match_args__ = ("left", "right")
 
     def __init__(
@@ -884,7 +897,7 @@ class RelativeToOp(AST):
         self.right = right
 
 
-class OffsetAlongOp(AST):
+class OffsetAlongOp(expr):
     __match_args__ = ("base", "direction", "offset")
 
     def __init__(
@@ -901,7 +914,7 @@ class OffsetAlongOp(AST):
         self.offset = offset
 
 
-class CanSeeOp(AST):
+class CanSeeOp(expr):
     __match_args__ = ("left", "right")
 
     def __init__(
