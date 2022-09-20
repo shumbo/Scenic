@@ -13,8 +13,8 @@ are handled as follows:
 	1. During compilation, all instances of `ExternalParameter` are gathered
 	   together and given to the `ExternalSampler.forParameters` function;
 	   this function creates an appropriate `ExternalSampler`,
-	   whose configuration can be controlled using various global parameters
-	   (``param`` statements).
+	   whose configuration can be controlled using :term:`global parameters`
+	   (see the function documentation for details).
 
 	2. When sampling a scene, before sampling any other distributions the
 	   :obj:`~ExternalSampler.sample` method of the `ExternalSampler` is
@@ -55,9 +55,9 @@ to the primitive distributions: `VerifaiRange` and `VerifaiDiscreteRange` for
 continuous and discrete intervals, and `VerifaiOptions` for discrete sets.
 For example, suppose we write::
 
-	ego = Object at VerifaiRange(5, 15) @ 0
+	ego = Object at (VerifaiRange(5, 15), 0)
 
-This is equivalent to the ordinary Scenic line ``ego = Object at (5, 15) @ 0``,
+This is equivalent to the ordinary Scenic line :samp:`ego = Object at (Range(5, 15), 0)`,
 except that the X coordinate of the ego is sampled by VerifAI within the range
 (5, 15) instead of being uniformly distributed over it. By default the
 `VerifaiSampler` uses VerifAI's `Halton`_ sampler, so the range will still be
@@ -65,7 +65,7 @@ covered uniformly but more systematically. If we want to use a different sampler
 we can set the ``verifaiSamplerType`` global parameter::
 
 	param verifaiSamplerType = 'ce'
-	ego = Object at VerifaiRange(5, 15) @ 0
+	ego = Object at (VerifaiRange(5, 15), 0)
 
 Now the X coordinate will be sampled using VerifAI's `cross-entropy`_ sampler.
 If we pass a feedback value to `Scenario.generate` which scores the previous
@@ -79,7 +79,7 @@ Scenic provides a convenient way to define this prior using the ordinary syntax
 for distributions::
 
 	param verifaiSamplerType = 'ce'
-	ego = Object at VerifaiParameter.withPrior(Normal(10, 3)) @ 0
+	ego = Object at (VerifaiParameter.withPrior(Normal(10, 3)), 0)
 
 Now cross-entropy sampling will start from a normal distribution with mean 10
 and standard deviation 3. Priors are restricted to primitive distributions and
@@ -105,6 +105,9 @@ from scenic.core.errors import InvalidScenarioError
 class ExternalSampler:
 	"""Abstract class for objects called to sample values for each external parameter.
 
+	The initializer for this class takes the same arguments as the factory function
+	`forParameters` below.
+
 	Attributes:
 		rejectionFeedback: Value passed to the `sample` method when the last sample was rejected.
 		  This value can be chosen by a Scenic scenario using the global parameter
@@ -118,13 +121,14 @@ class ExternalSampler:
 	def forParameters(params, globalParams):
 		"""Create an `ExternalSampler` given the sets of external and global parameters.
 
-		The scenario may explicitly select an external sampler by assigning the global
-		parameter ``externalSampler`` to a subclass of `ExternalSampler`. Otherwise, a
-		`VerifaiSampler` is used by default.
+		The scenario may explicitly select an external sampler by assigning the
+		:term:`global parameter` ``externalSampler`` to a subclass of `ExternalSampler`.
+		Otherwise, a `VerifaiSampler` is used by default.
 
 		Args:
 			params (tuple): Tuple listing each `ExternalParameter`.
-			globalParams (dict): Dictionary of global parameters for the `Scenario`.
+			globalParams (dict): Dictionary of global parameters for the `Scenario`, made
+			  available here to support sampler customization through setting parameters.
 			  Note that the values of these parameters may be instances of `Distribution`!
 
 		Returns:
@@ -145,7 +149,7 @@ class ExternalSampler:
 		Args:
 			feedback: Feedback from the last sample (for active samplers).
 		"""
-		self.cachedSample, self.cachedInfo = self.nextSample(feedback)
+		self.cachedSample = self.nextSample(feedback)
 
 	def nextSample(self, feedback):
 		"""Actually do the sampling. Implemented by subclasses."""
@@ -158,7 +162,7 @@ class ExternalSampler:
 class VerifaiSampler(ExternalSampler):
 	"""An external sampler exposing the samplers in the VerifAI toolkit.
 
-	The sampler can be configured using the following Scenic global parameters:
+	The sampler can be configured using the following Scenic :term:`global parameters`:
 
 		* ``verifaiSamplerType`` -- sampler type (see the ``verifai.server.choose_sampler``
 		  function); the default is ``'halton'``
@@ -218,9 +222,11 @@ class VerifaiSampler(ExternalSampler):
 			samplerParams.cont.buckets = cont_buckets
 			samplerParams.cont.dist = numpy.array(cont_dists)
 			samplerParams.disc.dist = numpy.array(disc_dists)
-		_, sampler = verifai.server.choose_sampler(space, samplerType,
-		                                           sampler_params=samplerParams)
-		self.sampler = sampler
+		data = verifai.server.choose_sampler(space, samplerType,
+		                                     sampler_params=samplerParams)
+		if not data:
+			raise RuntimeError(f'Unknown VerifAI sampler type "{samplerType}"')
+		self.sampler = data[1]
 
 		# default rejection feedback is positive so cross-entropy sampler won't update;
 		# for other active samplers an appropriate value should be set manually
@@ -282,7 +288,7 @@ class VerifaiParameter(ExternalParameter):
 class VerifaiRange(VerifaiParameter):
 	"""A :obj:`~scenic.core.distributions.Range` (real interval) sampled by VerifAI."""
 
-	defaultValueType = float
+	_defaultValueType = float
 
 	def __init__(self, low, high, buckets=None, weights=None):
 		import verifai.features
@@ -308,7 +314,7 @@ class VerifaiRange(VerifaiParameter):
 class VerifaiDiscreteRange(VerifaiParameter):
 	"""A :obj:`~scenic.core.distributions.DiscreteRange` (integer interval) sampled by VerifAI."""
 
-	defaultValueType = float
+	_defaultValueType = float
 
 	def __init__(self, low, high, weights=None):
 		import verifai.features

@@ -1,4 +1,8 @@
-"""Objects representing regions in space."""
+"""Objects representing regions in space.
+
+Manipulations of polygons and line segments are done using the
+`shapely <https://github.com/shapely/shapely>`_ package.
+"""
 
 import math
 import random
@@ -16,8 +20,8 @@ from scenic.core.vectors import Vector, OrientedVector, VectorDistribution, Vect
 from scenic.core.geometry import _RotatedRectangle
 from scenic.core.geometry import sin, cos, hypot, findMinMax, pointIsInCone, averageVectors
 from scenic.core.geometry import headingOfSegment, triangulatePolygon, plotPolygon, polygonUnion
-from scenic.core.type_support import toVector
-from scenic.core.utils import cached, cached_property, areEquivalent
+from scenic.core.type_support import toVector, toScalar
+from scenic.core.utils import cached, cached_property
 
 def toPolygon(thing):
 	if needsSampling(thing):
@@ -31,7 +35,7 @@ def toPolygon(thing):
 	return None
 
 def regionFromShapelyObject(obj, orientation=None):
-	"""Build a 'Region' from Shapely geometry."""
+	"""Build a `Region` from Shapely geometry."""
 	assert obj.is_valid, obj
 	if obj.is_empty:
 		return nowhere
@@ -43,7 +47,7 @@ def regionFromShapelyObject(obj, orientation=None):
 		raise RuntimeError(f'unhandled type of Shapely geometry: {obj}')
 
 class PointInRegionDistribution(VectorDistribution):
-	"""Uniform distribution over points in a Region"""
+	"""Uniform distribution over points in a Region."""
 	def __init__(self, region):
 		super().__init__(region)
 		self.region = region
@@ -71,8 +75,11 @@ class Region(Samplable):
 	def sampleGiven(self, value):
 		return self
 
-	def intersect(self, other, triedReversed=False):
-		"""Get a `Region` representing the intersection of this one with another."""
+	def intersect(self, other, triedReversed=False) -> 'Region':
+		"""intersect(other)
+
+		Get a `Region` representing the intersection of this one with another.
+		"""
 		if triedReversed:
 			orientation = self.orientation
 			if orientation is None:
@@ -83,18 +90,32 @@ class Region(Samplable):
 		else:
 			return other.intersect(self, triedReversed=True)
 
-	def intersects(self, other):
-		"""Check if this `Region` intersects another."""
-		raise NotImplementedError
+	def intersects(self, other, triedReversed=False) -> bool:
+		"""intersects(other)
 
-	def difference(self, other):
+		Check if this `Region` intersects another.
+		"""
+		if triedReversed:
+			# Last-ditch attempt to check intersection by converting to polygons
+			p1, p2 = toPolygon(self), toPolygon(other)
+			if p1 is not None and p2 is not None:
+				return not (p1 & p2).is_empty
+			raise NotImplementedError
+		else:
+			return other.intersects(self, triedReversed=True)
+
+	def difference(self, other) -> 'Region':
 		"""Get a `Region` representing the difference of this one and another."""
 		if isinstance(other, EmptyRegion):
 			return self
+		elif isinstance(other, AllRegion):
+			return nowhere
 		return DifferenceRegion(self, other)
 
-	def union(self, other, triedReversed=False):
-		"""Get a `Region` representing the union of this one with another.
+	def union(self, other, triedReversed=False) -> 'Region':
+		"""union(other)
+
+		Get a `Region` representing the union of this one with another.
 
 		Not supported by all region types.
 		"""
@@ -120,12 +141,12 @@ class Region(Samplable):
 		"""Do the actual random sampling. Implemented by subclasses."""
 		raise NotImplementedError
 
-	def containsPoint(self, point):
+	def containsPoint(self, point) -> bool:
 		"""Check if the `Region` contains a point. Implemented by subclasses."""
 		raise NotImplementedError
 
-	def containsObject(self, obj):
-		"""Check if the `Region` contains an :obj:`~scenic.core.object_types.Object`.
+	def containsObject(self, obj) -> bool:
+		"""Check if the `Region` contains an `Object`.
 
 		The default implementation assumes the `Region` is convex; subclasses must
 		override the method if this is not the case.
@@ -135,7 +156,7 @@ class Region(Samplable):
 				return False
 		return True
 
-	def __contains__(self, thing):
+	def __contains__(self, thing) -> bool:
 		"""Check if this `Region` contains an object or vector."""
 		from scenic.core.object_types import Object
 		if isinstance(thing, Object):
@@ -143,7 +164,11 @@ class Region(Samplable):
 		vec = toVector(thing, '"X in Y" with X not an Object or a vector')
 		return self.containsPoint(vec)
 
-	def distanceTo(self, point):
+	def distanceTo(self, point) -> float:
+		"""Distance to this region from a given point.
+
+		Not supported by all region types.
+		"""
 		raise NotImplementedError
 
 	def getAABB(self):
@@ -174,6 +199,12 @@ class AllRegion(Region):
 	def intersect(self, other, triedReversed=False):
 		return other
 
+	def intersects(self, other, triedReversed=False):
+		return not isinstance(other, EmptyRegion)
+
+	def union(self, other, triedReversed=False):
+		return self
+
 	def containsPoint(self, point):
 		return True
 
@@ -192,6 +223,12 @@ class AllRegion(Region):
 class EmptyRegion(Region):
 	"""Region containing no points."""
 	def intersect(self, other, triedReversed=False):
+		return self
+
+	def intersects(self, other, triedReversed=False):
+		return False
+
+	def difference(self, other):
 		return self
 
 	def union(self, other, triedReversed=False):
@@ -218,14 +255,30 @@ class EmptyRegion(Region):
 	def __hash__(self):
 		return hash(EmptyRegion)
 
+#: A `Region` containing all points.
+#:
+#: Points may not be sampled from this region, as no uniform distribution over it exists.
 everywhere = AllRegion('everywhere')
+
+#: A `Region` containing no points.
+#:
+#: Attempting to sample from this region causes the sample to be rejected.
 nowhere = EmptyRegion('nowhere')
 
 class CircularRegion(Region):
+	"""A circular region with a possibly-random center and radius.
+
+	Args:
+		center (`Vector`): center of the disc.
+		radius (float): radius of the disc.
+		resolution (int; optional): number of vertices to use when approximating this region as a
+			polygon.
+		name (str; optional): name for debugging.
+	"""
 	def __init__(self, center, radius, resolution=32, name=None):
 		super().__init__(name, center, radius)
 		self.center = toVector(center, "center of CircularRegion not a vector")
-		self.radius = radius
+		self.radius = toScalar(radius, "radius of CircularRegion not a scalar")
 		self.circumcircle = (self.center, self.radius)
 		self.resolution = resolution
 
@@ -244,6 +297,11 @@ class CircularRegion(Region):
 		radius = valueInContext(self.radius, context)
 		return CircularRegion(center, radius,
 		                      name=self.name, resolution=self.resolution)
+
+	def intersects(self, other, triedReversed=False):
+		if isinstance(other, CircularRegion):
+			return self.center.distanceTo(other.center) <= self.radius + other.radius
+		return super().intersects(other, triedReversed)
 
 	def containsPoint(self, point):
 		point = point.toVector()
@@ -264,21 +322,29 @@ class CircularRegion(Region):
 		r = self.radius
 		return ((x - r, y - r), (x + r, y + r))
 
-	def isEquivalentTo(self, other):
-		if type(other) is not CircularRegion:
-			return False
-		return (areEquivalent(other.center, self.center)
-		        and areEquivalent(other.radius, self.radius))
-
 	def __repr__(self):
 		return f'CircularRegion({self.center}, {self.radius})'
 
 class SectorRegion(Region):
+	"""A sector of a `CircularRegion`.
+
+	This region consists of a sector of a disc, i.e. the part of a disc subtended by a
+	given arc.
+
+	Args:
+		center (`Vector`): center of the corresponding disc.
+		radius (float): radius of the disc.
+		heading (float): heading of the centerline of the sector.
+		angle (float): angle subtended by the sector.
+		resolution (int; optional): number of vertices to use when approximating this region as a
+			polygon.
+		name (str; optional): name for debugging.
+	"""
 	def __init__(self, center, radius, heading, angle, resolution=32, name=None):
 		self.center = toVector(center, "center of SectorRegion not a vector")
-		self.radius = radius
-		self.heading = heading
-		self.angle = angle
+		self.radius = toScalar(radius, "radius of SectorRegion not a scalar")
+		self.heading = toScalar(heading, "heading of SectorRegion not a scalar")
+		self.angle = toScalar(angle, "angle of SectorRegion not a scalar")
 		super().__init__(name, self.center, radius, heading, angle)
 		r = (radius / 2) * cos(angle / 2)
 		self.circumcircle = (self.center.offsetRadially(r, heading), r)
@@ -330,24 +396,25 @@ class SectorRegion(Region):
 		pt = Vector(x + (r * cos(t)), y + (r * sin(t)))
 		return self.orient(pt)
 
-	def isEquivalentTo(self, other):
-		if type(other) is not SectorRegion:
-			return False
-		return (areEquivalent(other.center, self.center)
-		        and areEquivalent(other.radius, self.radius)
-		        and areEquivalent(other.heading, self.heading)
-		        and areEquivalent(other.angle, self.angle))
-
 	def __repr__(self):
 		return f'SectorRegion({self.center},{self.radius},{self.heading},{self.angle})'
 
 class RectangularRegion(_RotatedRectangle, Region):
+	"""A rectangular region with a possibly-random position, heading, and size.
+
+	Args:
+		position (`Vector`): center of the rectangle.
+		heading (float): the heading of the ``length`` axis of the rectangle.
+		width (float): width of the rectangle.
+		length (float): length of the rectangle.
+		name (str; optional): name for debugging.
+	"""
 	def __init__(self, position, heading, width, length, name=None):
 		super().__init__(name, position, heading, width, length)
 		self.position = toVector(position, "position of RectangularRegion not a vector")
-		self.heading = heading
-		self.width = width
-		self.length = length
+		self.heading = toScalar(heading, "heading of RectangularRegion not a scalar")
+		self.width = toScalar(width, "width of RectangularRegion not a scalar")
+		self.length = toScalar(length, "length of RectangularRegion not a scalar")
 		self.hw = hw = width / 2
 		self.hl = hl = length / 2
 		self.radius = hypot(hw, hl)		# circumcircle; for collision detection
@@ -381,19 +448,24 @@ class RectangularRegion(_RotatedRectangle, Region):
 		miny, maxy = findMinMax(y)
 		return ((minx, miny), (maxx, maxy))
 
-	def isEquivalentTo(self, other):
-		if type(other) is not RectangularRegion:
-			return False
-		return (areEquivalent(other.position, self.position)
-		        and areEquivalent(other.heading, self.heading)
-		        and areEquivalent(other.width, self.width)
-		        and areEquivalent(other.length, self.length))
-
 	def __repr__(self):
 		return f'RectangularRegion({self.position},{self.heading},{self.width},{self.length})'
 
 class PolylineRegion(Region):
-	"""Region given by one or more polylines (chain of line segments)"""
+	"""Region given by one or more polylines (chain of line segments).
+
+	The region may be specified by giving either a sequence of points or ``shapely``
+	polylines (a ``LineString`` or ``MultiLineString``).
+
+	Args:
+		points: sequence of points making up the polyline (or `None` if using the
+			**polyline** argument instead).
+		polyline: ``shapely`` polyline or collection of polylines (or `None` if using
+			the **points** argument instead).
+		orientation (optional): :term:`preferred orientation` to use, or `True` to use an
+			orientation aligned with the direction of the polyline (the default).
+		name (str; optional): name for debugging.
+	"""
 	def __init__(self, points=None, polyline=None, orientation=True, name=None):
 		if orientation is True:
 			orientation = VectorField('Polyline', self.defaultOrientation)
@@ -521,12 +593,12 @@ class PolylineRegion(Region):
 			return PolylineRegion(polyline=intersection)
 		return super().intersect(other, triedReversed)
 
-	def intersects(self, other):
+	def intersects(self, other, triedReversed=False):
 		poly = toPolygon(other)
 		if poly is not None:
 			intersection = self.lineString & poly
 			return not intersection.is_empty
-		return super().intersects(other)
+		return super().intersects(other, triedReversed)
 
 	def difference(self, other):
 		poly = toPolygon(other)
@@ -565,11 +637,11 @@ class PolylineRegion(Region):
 		return False
 
 	@distributionMethod
-	def distanceTo(self, point):
+	def distanceTo(self, point) -> float:
 		return self.lineString.distance(shapely.geometry.Point(point))
 
 	@distributionMethod
-	def signedDistanceTo(self, point):
+	def signedDistanceTo(self, point) -> float:
 		"""Compute the signed distance of the PolylineRegion to a point.
 
 		The distance is positive if the point is left of the nearest segment,
@@ -595,7 +667,13 @@ class PolylineRegion(Region):
 		# FYI, could also get here if loop runs to completion due to rounding error
 		return (Vector(*segment[0]), Vector(*segment[1]))
 
-	def pointAlongBy(self, distance, normalized=False):
+	def pointAlongBy(self, distance, normalized=False) -> Vector:
+		"""Find the point a given distance along the polyline from its start.
+
+		If **normalized** is true, then distance should be between 0 and 1, and
+		is interpreted as a fraction of the length of the polyline. So for example
+		``pointAlongBy(0.5, normalized=True)`` returns the polyline's midpoint.
+		"""
 		pt = self.lineString.interpolate(distance, normalized=normalized)
 		return Vector(pt.x, pt.y)
 
@@ -615,7 +693,7 @@ class PolylineRegion(Region):
 	def show(self, plt, style='r-', **kwargs):
 		plotPolygon(self.lineString, plt, style=style, **kwargs)
 
-	def __getitem__(self, i):
+	def __getitem__(self, i) -> Vector:
 		"""Get the ith point along this polyline.
 
 		If the region consists of multiple polylines, this order is linear
@@ -637,7 +715,8 @@ class PolylineRegion(Region):
 		newString = shapely.geometry.MultiLineString(strings)
 		return PolylineRegion(polyline=newString)
 
-	def __len__(self):
+	def __len__(self) -> int:
+		"""Get the number of vertices of the polyline."""
 		return len(self.points)
 
 	def __repr__(self):
@@ -653,7 +732,20 @@ class PolylineRegion(Region):
 		return hash(str(self.lineString))
 
 class PolygonalRegion(Region):
-	"""Region given by one or more polygons (possibly with holes)"""
+	"""Region given by one or more polygons (possibly with holes).
+
+	The region may be specified by giving either a sequence of points defining the
+	boundary of the polygon, or a collection of ``shapely`` polygons (a ``Polygon``
+	or ``MultiPolygon``).
+
+	Args:
+		points: sequence of points making up the boundary of the polygon (or `None` if
+			using the **polygon** argument instead).
+		polygon: ``shapely`` polygon or collection of polygons (or `None` if using
+			the **points** argument instead).
+		orientation (`VectorField`; optional): :term:`preferred orientation` to use.
+		name (str; optional): name for debugging.
+	"""
 	def __init__(self, points=None, polygon=None, orientation=None, name=None):
 		super().__init__(name, orientation=orientation)
 		if polygon is None and points is None:
@@ -753,12 +845,12 @@ class PolygonalRegion(Region):
 				raise RuntimeError('unhandled type of polygon intersection')
 		return super().intersect(other, triedReversed)
 
-	def intersects(self, other):
+	def intersects(self, other, triedReversed=False):
 		poly = toPolygon(other)
 		if poly is not None:
 			intersection = self.polygons & poly
 			return not intersection.is_empty
-		return super().intersects(other)
+		return super().intersects(other, triedReversed)
 
 	def union(self, other, triedReversed=False, buf=0):
 		poly = toPolygon(other)
@@ -784,7 +876,8 @@ class PolygonalRegion(Region):
 		return PolygonalRegion(polygon=union, orientation=orientation)
 
 	@property
-	def boundary(self):
+	def boundary(self) -> PolylineRegion:
+		"""Get the boundary of this region as a `PolylineRegion`."""
 		return PolylineRegion(polyline=self.polygons.boundary)
 
 	@cached_property
@@ -812,7 +905,7 @@ class PolygonalRegion(Region):
 		return self.polygons.distance(shapely.geometry.Point(point))
 
 	def getAABB(self):
-		xmin, xmax, ymin, ymax = self.polygons.bounds
+		xmin, ymin, xmax, ymax = self.polygons.bounds
 		return ((xmin, ymin), (xmax, ymax))
 
 	def show(self, plt, style='r-', **kwargs):
@@ -840,17 +933,16 @@ class PolygonalRegion(Region):
 class PointSetRegion(Region):
 	"""Region consisting of a set of discrete points.
 
-	No :obj:`~scenic.core.object_types.Object` can be contained in a `PointSetRegion`,
-	since the latter is discrete. (This may not be true for subclasses, e.g.
-	`GridRegion`.)
+	No `Object` can be contained in a `PointSetRegion`, since the latter is discrete.
+	(This may not be true for subclasses, e.g. `GridRegion`.)
 
 	Args:
 		name (str): name for debugging
 		points (iterable): set of points comprising the region
-		kdtree (:obj:`scipy.spatial.KDTree`, optional): k-D tree for the points (one will
+		kdTree (`scipy.spatial.KDTree`, optional): k-D tree for the points (one will
 		  be computed if none is provided)
-		orientation (:obj:`~scenic.core.vectors.VectorField`, optional): orientation for
-		  the region
+		orientation (`VectorField`; optional): :term:`preferred orientation` for the
+			region
 		tolerance (float; optional): distance tolerance for checking whether a point lies
 		  in the region
 	"""
@@ -862,7 +954,7 @@ class PointSetRegion(Region):
 			if needsSampling(point):
 				raise RuntimeError('only fixed PointSetRegions are supported')
 		import scipy.spatial	# slow import not often needed
-		self.kdTree = scipy.spatial.cKDTree(self.points) if kdTree is None else kdTree
+		self.kdTree = scipy.spatial.KDTree(self.points) if kdTree is None else kdTree
 		self.orientation = orientation
 		self.tolerance = tolerance
 
@@ -896,9 +988,9 @@ class PointSetRegion(Region):
 	def __eq__(self, other):
 		if type(other) is not PointSetRegion:
 			return NotImplemented
-		return (other.name == self.name
-		        and other.points == self.points
-		        and other.orientation == self.orientation)
+		return (self.name == other.name
+		        and self.points == other.points
+		        and self.orientation == other.orientation)
 
 	@cached
 	def __hash__(self):
@@ -918,7 +1010,7 @@ class GridRegion(PointSetRegion):
 		Ay (float): spacing between grid points along Y axis
 		Bx (float): X coordinate of leftmost grid column
 		By (float): Y coordinate of lowest grid row
-		orientation (:obj:`~scenic.core.vectors.VectorField`, optional): orientation of region
+		orientation (`VectorField`; optional): orientation of region
 	"""
 	def __init__(self, name, grid, Ax, Ay, Bx, By, orientation=None):
 		self.grid = numpy.array(grid)
@@ -976,15 +1068,13 @@ class IntersectionRegion(Region):
 		if len(self.regions) < 2:
 			raise RuntimeError('tried to take intersection of fewer than 2 regions')
 		super().__init__(name, *self.regions, orientation=orientation)
-		if sampler is None:
-			sampler = self.genericSampler
 		self.sampler = sampler
 
 	def sampleGiven(self, value):
 		regs = [value[reg] for reg in self.regions]
 		# Now that regions have been sampled, attempt intersection again in the hopes
 		# there is a specialized sampler to handle it (unless we already have one)
-		if self.sampler is self.genericSampler:
+		if not self.sampler:
 			failed = False
 			intersection = regs[0]
 			for region in regs[1:]:
@@ -1008,7 +1098,10 @@ class IntersectionRegion(Region):
 		return all(region.containsPoint(point) for region in self.regions)
 
 	def uniformPointInner(self):
-		return self.orient(self.sampler(self))
+		sampler = self.sampler
+		if not sampler:
+			sampler = self.genericSampler
+		return self.orient(sampler(self))
 
 	@staticmethod
 	def genericSampler(intersection):
@@ -1020,12 +1113,6 @@ class IntersectionRegion(Region):
 				    f'sampling intersection of Regions {regs[0]} and {region}')
 		return point
 
-	def isEquivalentTo(self, other):
-		if type(other) is not IntersectionRegion:
-			return False
-		return (areEquivalent(set(other.regions), set(self.regions))
-		        and other.orientation == self.orientation)
-
 	def __repr__(self):
 		return f'IntersectionRegion({self.regions})'
 
@@ -1033,15 +1120,13 @@ class DifferenceRegion(Region):
 	def __init__(self, regionA, regionB, sampler=None, name=None):
 		self.regionA, self.regionB = regionA, regionB
 		super().__init__(name, regionA, regionB, orientation=regionA.orientation)
-		if sampler is None:
-			sampler = self.genericSampler
 		self.sampler = sampler
 
 	def sampleGiven(self, value):
 		regionA, regionB = value[self.regionA], value[self.regionB]
 		# Now that regions have been sampled, attempt difference again in the hopes
 		# there is a specialized sampler to handle it (unless we already have one)
-		if self.sampler is self.genericSampler:
+		if not self.sampler:
 			diff = regionA.difference(regionB)
 			if not isinstance(diff, DifferenceRegion):
 				diff.orientation = value[self.orientation]
@@ -1057,10 +1142,13 @@ class DifferenceRegion(Region):
 		                        sampler=self.sampler, name=self.name)
 
 	def containsPoint(self, point):
-		return regionA.containsPoint(point) and not regionB.containsPoint(point)
+		return self.regionA.containsPoint(point) and not self.regionB.containsPoint(point)
 
 	def uniformPointInner(self):
-		return self.orient(self.sampler(self))
+		sampler = self.sampler
+		if not sampler:
+			sampler = self.genericSampler
+		return self.orient(sampler(self))
 
 	@staticmethod
 	def genericSampler(difference):
@@ -1070,13 +1158,6 @@ class DifferenceRegion(Region):
 			raise RejectionException(
 			    f'sampling difference of Regions {regionA} and {regionB}')
 		return point
-
-	def isEquivalentTo(self, other):
-		if type(other) is not DifferenceRegion:
-			return False
-		return (areEquivalent(self.regionA, other.regionA)
-		        and areEquivalent(self.regionB, other.regionB)
-		        and other.orientation == self.orientation)
 
 	def __repr__(self):
 		return f'DifferenceRegion({self.regionA}, {self.regionB})'

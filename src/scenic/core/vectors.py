@@ -15,12 +15,12 @@ from scenic.core.distributions import (Samplable, Distribution, MethodDistributi
     needsSampling, makeOperatorHandler, distributionMethod, distributionFunction,
 	RejectionException)
 from scenic.core.lazy_eval import valueInContext, needsLazyEvaluation, makeDelayedFunctionCall
-import scenic.core.utils as utils
+from scenic.core.utils import argsToString
 from scenic.core.geometry import normalizeAngle
 
 class VectorDistribution(Distribution):
 	"""A distribution over Vectors."""
-	defaultValueType = None		# will be set after Vector is defined
+	_defaultValueType = None		# will be set after Vector is defined
 
 	def toVector(self):
 		return self
@@ -42,7 +42,7 @@ class CustomVectorDistribution(VectorDistribution):
 		return self.evaluator(self, context)
 
 	def __str__(self):
-		deps = utils.argsToString(self.dependencies)
+		deps = argsToString(self.dependencies)
 		return f'{self.name}{deps}'
 
 class VectorOperatorDistribution(VectorDistribution):
@@ -65,7 +65,7 @@ class VectorOperatorDistribution(VectorDistribution):
 		return VectorOperatorDistribution(self.operator, obj, operands)
 
 	def __str__(self):
-		ops = utils.argsToString(self.operands)
+		ops = argsToString(self.operands)
 		return f'{self.object}.{self.operator}{ops}'
 
 class VectorMethodDistribution(VectorDistribution):
@@ -89,7 +89,7 @@ class VectorMethodDistribution(VectorDistribution):
 		return VectorMethodDistribution(self.method, obj, arguments, kwargs)
 
 	def __str__(self):
-		args = utils.argsToString(itertools.chain(self.arguments, self.kwargs.values()))
+		args = argsToString(itertools.chain(self.arguments, self.kwargs.values()))
 		return f'{self.object}.{self.method.__name__}{args}'
 
 def scalarOperator(method):
@@ -211,6 +211,12 @@ class Vector(Samplable, collections.abc.Sequence):
 	def norm(self) -> float:
 		return math.hypot(*self.coordinates)
 
+	@scalarOperator
+	def dot(self, other) -> float:
+		x, y = self.x, self.y
+		ox, oy = other.x, other.y
+		return (x * ox) + (y * oy)
+
 	@vectorOperator
 	def normalized(self) -> Vector:
 		l = math.hypot(*self.coordinates)
@@ -263,7 +269,7 @@ class Vector(Samplable, collections.abc.Sequence):
 	def __hash__(self):
 		return hash(self.coordinates)
 
-VectorDistribution.defaultValueType = Vector
+VectorDistribution._defaultValueType = Vector
 
 class OrientedVector(Vector):
 	def __init__(self, x, y, heading):
@@ -299,6 +305,9 @@ class VectorField:
 		value: function computing the heading at the given `Vector`.
 		minSteps (int): Minimum number of steps for `followFrom`; default 4.
 		defaultStepSize (float): Default step size for `followFrom`; default 5.
+			This is an upper bound: more steps will be taken as needed to ensure that no
+			single step is longer than this value, but if the distance to travel is small
+			then the steps may be smaller.
 	"""
 	def __init__(self, name, value, minSteps=4, defaultStepSize=5):
 		self.name = name

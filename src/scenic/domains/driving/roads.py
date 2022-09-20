@@ -187,7 +187,7 @@ class Maneuver(_ElementReferencer):
 
 ## Road networks
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class NetworkElement(_ElementReferencer, PolygonalRegion):
     """NetworkElement()
 
@@ -243,6 +243,14 @@ class NetworkElement(_ElementReferencer, PolygonalRegion):
         del state['network']    # do not pickle weak reference to parent network
         return state
 
+    def __eq__(self, other):
+        if not isinstance(other, NetworkElement):
+            return NotImplemented
+        return (self.network is other.network and self.uid == other.uid)
+
+    def __hash__(self):
+        return hash((self.network, self.uid))
+
     def __repr__(self):
         s = f'<{type(self).__name__} at {hex(id(self))}; '
         if self.name:
@@ -252,7 +260,7 @@ class NetworkElement(_ElementReferencer, PolygonalRegion):
         s += f'uid="{self.uid}">'
         return s
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class LinearElement(NetworkElement):
     """LinearElement()
 
@@ -341,7 +349,7 @@ class _ContainsCenterline:
         super().__attrs_post_init__()
         assert self.containsRegion(self.centerline, tolerance=0.5)
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class Road(LinearElement):
     """Road()
 
@@ -359,24 +367,48 @@ class Road(LinearElement):
     cause the `Road` to be partitioned into multiple road sections, within which
     the configuration of lanes is fixed.
     """
+    #: All lanes of this road, in either direction.
+    #:
+    #: The order of the lanes is arbitrary. To access lanes in order according to their
+    #: geometry, use `LaneGroup.lanes`.
     lanes: Tuple[Lane]
-    forwardLanes: Union[LaneGroup, None]    # lanes aligned with the direction of the road
+
+    #: Group of lanes aligned with the direction of the road, if any.
+    forwardLanes: Union[LaneGroup, None]
+    #: Group of lanes going in the opposite direction, if any.
     backwardLanes: Union[LaneGroup, None]   # lanes going the other direction
+
+    #: All LaneGroups of this road, with `forwardLanes` being first if it exists.
     laneGroups: Tuple[LaneGroup] = None
-    sections: Tuple[RoadSection]    # sections in order from start to end
+
+    #: All sections of this road, ordered from start to end.
+    sections: Tuple[RoadSection]
 
     signals: Tuple[Signal]
 
-    crossings: Tuple[PedestrianCrossing] = ()    # ordered from start to end
+    #: All crosswalks of this road, ordered from start to end.
+    crossings: Tuple[PedestrianCrossing] = ()
+
+    #: All sidewalks of this road, with the one adjacent to `forwardLanes` being first.
+    sidewalks: Tuple[Sidewalk] = None
+    #: Possibly-empty region consisting of all sidewalks of this road.
+    sidewalkRegion: PolygonalRegion = None
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
         lgs = []
+        sidewalks = []
         if self.forwardLanes:
             lgs.append(self.forwardLanes)
+            if self.forwardLanes._sidewalk:
+                sidewalks.append(self.forwardLanes._sidewalk)
         if self.backwardLanes:
             lgs.append(self.backwardLanes)
+            if self.backwardLanes._sidewalk:
+                sidewalks.append(self.backwardLanes._sidewalk)
         self.laneGroups = tuple(lgs)
+        self.sidewalks = tuple(sidewalks)
+        self.sidewalkRegion = PolygonalRegion.unionAll(sidewalks)
 
     def _defaultHeadingAt(self, point):
         point = _toVector(point)
@@ -421,7 +453,7 @@ class Road(LinearElement):
     def is1Way(self) -> bool:
         return self.forwardLanes is None or self.backwardLanes is None
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class LaneGroup(LinearElement):
     """LaneGroup()
 
@@ -473,7 +505,7 @@ class LaneGroup(LinearElement):
         """Get the `Lane` passing through a given point."""
         return self.network.findPointIn(point, self.lanes, reject)
 
-@attr.s(auto_attribs=True, kw_only=True, eq=False, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class Lane(_ContainsCenterline, LinearElement):
     """Lane()
 
@@ -493,10 +525,7 @@ class Lane(_ContainsCenterline, LinearElement):
         """Get the LaneSection passing through a given point."""
         return self.network.findPointIn(point, self.sections, reject)
 
-    # TODO remove hack; freeze all these classes
-    __hash__ = object.__hash__
-
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class RoadSection(LinearElement):
     """RoadSection()
 
@@ -551,7 +580,7 @@ class RoadSection(LinearElement):
         """Get the lane section passing through a given point."""
         return self.network.findPointIn(point, self.lane, reject)
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class LaneSection(_ContainsCenterline, LinearElement):
     """LaneSection()
 
@@ -622,7 +651,7 @@ class LaneSection(_ContainsCenterline, LinearElement):
                 return None
         return current
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class Sidewalk(_ContainsCenterline, LinearElement):
     """Sidewalk()
 
@@ -631,7 +660,7 @@ class Sidewalk(_ContainsCenterline, LinearElement):
     road: Road
     crossings: Tuple[PedestrianCrossing]
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class PedestrianCrossing(_ContainsCenterline, LinearElement):
     """PedestrianCrossing()
 
@@ -641,7 +670,7 @@ class PedestrianCrossing(_ContainsCenterline, LinearElement):
     startSidewalk: Sidewalk
     endSidewalk: Sidewalk
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class Shoulder(_ContainsCenterline, LinearElement):
     """Shoulder()
 
@@ -649,7 +678,7 @@ class Shoulder(_ContainsCenterline, LinearElement):
     """
     road: Road
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class Intersection(NetworkElement):
     """Intersection()
 
@@ -696,10 +725,14 @@ class Intersection(NetworkElement):
         maneuvers = self.maneuversAt(point)
         return [m.connectingLane.orientation[point] for m in maneuvers]
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class Signal:
-    """Traffic lights, stop signs, etc."""
-    # WARNING: Signal parsing is a work in progress and the API is likely to change in the future.
+    """Traffic lights, stop signs, etc.
+
+    .. warning::
+
+        Signal parsing is a work in progress and the API is likely to change in the future.
+    """
 
     uid: str = None
     #: ID number as in OpenDRIVE (unique ID of the signal within the database)
@@ -711,10 +744,10 @@ class Signal:
 
     @property
     def isTrafficLight(self) -> bool:
-        """bool: Whether or not this signal is a traffic light."""
+        """Whether or not this signal is a traffic light."""
         return self.type == "1000001"
 
-@attr.s(auto_attribs=True, kw_only=True, repr=False)
+@attr.s(auto_attribs=True, kw_only=True, repr=False, eq=False)
 class Network:
     """Network()
 
@@ -722,6 +755,8 @@ class Network:
 
     Networks are composed of roads, intersections, sidewalks, etc., which are all
     instances of `NetworkElement`.
+
+    Road networks can be loaded from standard formats using `Network.fromFile`.
     """
 
     #: All network elements, indexed by unique ID.
@@ -837,7 +872,7 @@ class Network:
 
         :meta private:
         """
-        return 16
+        return 19
 
     class DigestMismatchError(Exception):
         """Exception raised when loading a cached map not matching the original file."""
@@ -976,7 +1011,7 @@ class Network:
                 )
             with gzip.open(f) as gf:
                 try:
-                    network = pickle.load(gf)
+                    network = pickle.load(gf)   # invokes __setstate__ below
                 except pickle.UnpicklingError:
                     raise    # propagate unpickling errors
                 except Exception as e:
@@ -984,23 +1019,27 @@ class Network:
                     # standard exception
                     raise pickle.UnpicklingError('unpickling failed') from e
 
+        totalTime = time.time() - startTime
+        verbosePrint(f'Loaded cached network in {totalTime:.2f} seconds.')
+        return network
+
+    def __setstate__(self, state):
+        # Restore our attributes (default behavior when __setstate__ isn't defined)
+        self.__dict__.update(state)
+
         # Reconnect links between network elements
         def reconnect(thing):
             state = thing.__dict__
             for key, value in state.items():
                 if isinstance(value, _ElementPlaceholder):
-                    state[key] = network.elements[value.uid]
-        proxy = weakref.proxy(network)
-        for elem in network.elements.values():
+                    state[key] = self.elements[value.uid]
+        proxy = weakref.proxy(self)
+        for elem in self.elements.values():
             reconnect(elem)
             elem.network = proxy
-        for elem in itertools.chain(network.lanes, network.intersections):
+        for elem in itertools.chain(self.lanes, self.intersections):
             for maneuver in elem.maneuvers:
                 reconnect(maneuver)
-
-        totalTime = time.time() - startTime
-        verbosePrint(f'Loaded cached network in {totalTime:.2f} seconds.')
-        return network
 
     def dumpPickle(self, path, digest):
         path = pathlib.Path(path)
@@ -1124,7 +1163,7 @@ class Network:
         """Render a schematic of the road network for debugging.
 
         If you call this function directly, you'll need to subsequently call
-        ``matplotlib.pyplot.show()`` to actually display the diagram.
+        `matplotlib.pyplot.show` to actually display the diagram.
         """
         import matplotlib.pyplot as plt
         self.walkableRegion.show(plt, style='-', color='#00A0FF')

@@ -1,5 +1,17 @@
+"""Support for lazy evaluation of expressions and specifiers.
 
-"""Support for lazy evaluation of expressions and specifiers."""
+Lazy evaluation is necessary for expressions like :samp:`30 deg relative to roadDirection`
+where :samp:`roadDirection` is a vector field and so defines a different heading at
+different positions. Scenic defers evaluation of such expressions until they are used in
+the definition of an object, when the required context (here, a position) is available.
+This is implemented by representing lazy values as special objects which capture all
+operations applied to them (in a similar way to `Distribution` objects). The main class
+of such objects is `DelayedArgument`: in the above example, the :samp:`relative to`
+operator returns such an object. However, since lazy values can appear as arguments to
+distributions, `Distribution` objects can also require lazy evaluation (prior to
+sampling); therefore both of these classes derive from a common abstract class
+`LazilyEvaluable`.
+"""
 
 import itertools
 import types
@@ -12,6 +24,14 @@ class LazilyEvaluable:
 	If a LazilyEvaluable specifies any properties it depends on, then it cannot be evaluated to a
 	normal value except during the construction of an object which already has values for those
 	properties.
+
+	Args:
+		requiredProps: sequence of strings naming all properties which this value can
+			depend on (formally, which must exist in the object passed as the context to
+			`evaluateIn`).
+
+	Attributes:
+		_requiredProperties: set of strings as above.
 	"""
 	def __init__(self, requiredProps):
 		self._dependencies = ()		# TODO improve?
@@ -32,7 +52,10 @@ class LazilyEvaluable:
 		return value
 
 	def evaluateInner(self, context):
-		"""Actually evaluate in the given context, which provides all required properties."""
+		"""Actually evaluate in the given context, which provides all required properties.
+
+		Overridden by subclasses.
+		"""
 		return self
 
 	@staticmethod
@@ -43,10 +66,25 @@ class LazilyEvaluable:
 		return context
 
 class DelayedArgument(LazilyEvaluable):
-	"""Specifier arguments requiring other properties to be evaluated first.
+	"""DelayedArgument(requiredProps, value, _internal=False)
+
+	Specifier arguments requiring other properties to be evaluated first.
 
 	The value of a DelayedArgument is given by a function mapping the context (object under
 	construction) to a value.
+
+	.. note::
+
+		When called from a dynamic behavior, constructors for delayed arguments return
+		*actual evaluations*, not `DelayedArgument` objects. The agent running the
+		behavior is used as the evaluation context.
+
+	Args:
+		requiredProps: see `LazilyEvaluable`.
+		value: function taking a single argument (the context) and returning the
+			corresponding evaluation of this object.
+		_internal (bool): set to `True` for internal uses that need to suppress the
+			exceptional handling of calls from dynamic behaviors above.
 	"""
 	def __new__(cls, *args, _internal=False, **kwargs):
 		darg = super().__new__(cls)
@@ -73,8 +111,11 @@ class DelayedArgument(LazilyEvaluable):
 		return self.value(context)
 
 	def __getattr__(self, name):
+		if name.startswith('__') and name.endswith('__'):	# ignore special attributes
+			return object.__getattribute__(self, name)
 		return DelayedArgument(self._requiredProperties,
-			lambda context: getattr(self.evaluateIn(context), name))
+			lambda context: getattr(self.evaluateIn(context), name),
+			_internal=True)
 
 	def __call__(self, *args, **kwargs):
 		subprops = (requiredProperties(arg) for arg in itertools.chain(args, kwargs.values()))
@@ -83,7 +124,7 @@ class DelayedArgument(LazilyEvaluable):
 			subvalues = (valueInContext(arg, context) for arg in args)
 			kwsvs = { name: valueInContext(arg, context) for name, arg in kwargs.items() }
 			return self.evaluateIn(context)(*subvalues, **kwsvs)
-		return DelayedArgument(props, value)
+		return DelayedArgument(props, value, _internal=True)
 
 # Operators which can be applied to DelayedArguments
 allowedOperators = [
@@ -111,7 +152,7 @@ def makeDelayedOperatorHandler(op):
 		def value(context):
 			subvalues = (valueInContext(arg, context) for arg in args)
 			return getattr(self.evaluateIn(context), op)(*subvalues)
-		return DelayedArgument(props, value)
+		return DelayedArgument(props, value, _internal=True)
 	return handler
 for op in allowedOperators:
 	setattr(DelayedArgument, op, makeDelayedOperatorHandler(op))
@@ -124,20 +165,22 @@ def makeDelayedFunctionCall(func, args, kwargs):
 		subvalues = (valueInContext(arg, context) for arg in args)
 		kwsubvals = { name: valueInContext(arg, context) for name, arg in kwargs.items() }
 		return func(*subvalues, **kwsubvals)
-	return DelayedArgument(props, value)
+	return DelayedArgument(props, value, _internal=True)
 
 def valueInContext(value, context):
 	"""Evaluate something in the context of an object being constructed."""
-	if isinstance(value, LazilyEvaluable):
+	if needsLazyEvaluation(value):
 		return value.evaluateIn(context)
 	else:
 		return value
 
 def requiredProperties(thing):
+	"""Set of properties needed to evaluate the given value, if any."""
 	if isinstance(thing, LazilyEvaluable):
 		return thing._requiredProperties
 	else:
 		return set()
 
 def needsLazyEvaluation(thing):
+	"""Whether the given value requires lazy evaluation."""
 	return isinstance(thing, DelayedArgument) or requiredProperties(thing)

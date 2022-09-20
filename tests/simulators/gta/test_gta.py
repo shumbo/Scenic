@@ -1,7 +1,7 @@
 
 import pytest
 
-from tests.utils import compileScenic
+from tests.utils import compileScenic, sampleScene, pickle_test, tryPickling
 
 # Skip tests if Pillow or OpenCV not installed
 pytest.importorskip("PIL")
@@ -25,3 +25,10 @@ def test_mutate():
     )
     scene, _ = scenario.generate(maxIterations=50)
     assert tuple(scene.egoObject.color) != (0, 0, 1)
+
+@pickle_test
+def test_pickle(loadLocalScenario):
+    scenario = loadLocalScenario('basic.scenic')
+    unpickled = tryPickling(scenario)
+    scene = sampleScene(unpickled, maxIterations=1000)
+    tryPickling(scene)

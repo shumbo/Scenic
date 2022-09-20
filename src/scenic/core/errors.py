@@ -3,6 +3,7 @@
 import importlib
 import itertools
 import pathlib
+import pdb
 import traceback
 import types
 import sys
@@ -23,7 +24,12 @@ showInternalBacktrace = True
 #: Whether or not to do post-mortem debugging of uncaught exceptions.
 postMortemDebugging = False
 
+#: Whether or not to do "post-mortem" debugging of rejected scenes/simulations.
+postMortemRejections = False
+
 #: Folders elided from backtraces when :obj:`showInternalBacktrace` is false.
+#:
+#: :meta hide-value:
 hiddenFolders = [
     pathlib.Path(scenic.core.__file__).parent,      # scenic.core submodules
     pathlib.Path(scenic.syntax.__file__).parent,    # scenic.syntax submodules
@@ -106,6 +112,37 @@ class InconsistentScenarioError(InvalidScenarioError):
 ## Scenic backtraces
 
 def excepthook(ty, value, tb):
+    displayScenicException(value)
+
+    if postMortemDebugging:
+        print('Uncaught exception. Entering post-mortem debugging')
+        import pdb
+        pdb.post_mortem(tb)
+
+def displayScenicException(exc, seen=None):
+    """Print a Scenic exception, cleaning up the traceback if desired.
+
+    If ``showInternalBacktrace`` is False, this hides frames inside Scenic itself.
+    """
+    ty = type(exc)
+    tb = exc.__traceback__
+
+    # Recursively print the cause/context for this exception, if any.
+    # (This code is adapted from IDLE.)
+    if seen is None:
+        seen = set()
+    seen.add(id(exc))
+    cause = exc.__cause__
+    context = exc.__context__
+    if cause is not None and id(cause) not in seen:
+        displayScenicException(cause, seen)
+        print('\nThe above exception was the direct cause of the following exception:\n',
+              file=sys.stderr)
+    elif context is not None and not exc.__suppress_context__ and id(context) not in seen:
+        displayScenicException(context, seen)
+        print('\nDuring handling of the above exception, another exception occurred:\n',
+              file=sys.stderr)
+
     if showInternalBacktrace:
         strings = ['Traceback (most recent call last):\n']
     else:
@@ -132,8 +169,8 @@ def excepthook(ty, value, tb):
 
     if issubclass(ty, SyntaxError) or (pseudoSyntaxError and not showInternalBacktrace):
         pass    # no backtrace for these types of errors
-    elif issubclass(ty, RuntimeParseError) and value.loc and not showInternalBacktrace:
-        strings.extend(traceback.format_list([value.loc]))
+    elif issubclass(ty, RuntimeParseError) and exc.loc and not showInternalBacktrace:
+        strings.extend(traceback.format_list([exc.loc]))
     else:
         summary = traceback.extract_tb(tb)
         if showInternalBacktrace:
@@ -156,16 +193,11 @@ def excepthook(ty, value, tb):
             strings.append('  <Scenic internals>\n')
     # Note: we can't directly call traceback.format_exception_only any more,
     # since as of Python 3.10 it ignores the exception class passed in and
-    # uses type(value) instead, foiling our formatTy hack.
-    tbe = traceback.TracebackException(formatTy, value, None)
+    # uses type(exc) instead, foiling our formatTy hack.
+    tbe = traceback.TracebackException(formatTy, exc, None)
     strings.extend(tbe.format_exception_only())
     message = ''.join(strings)
     print(message, end='', file=sys.stderr)
-
-    if postMortemDebugging:
-        print('Uncaught exception. Entering post-mortem debugging')
-        import pdb
-        pdb.post_mortem(tb)
 
 def includeFrame(frame):
     if frame.filename in hiddenFolders:
@@ -194,6 +226,16 @@ def saveErrorLocation():
     return None
 
 ## Utilities
+
+def optionallyDebugRejection(exc=None):
+    if not postMortemRejections:
+        return
+    print('Scene/simulation rejected. Entering debugger...')
+    if exc:
+        pdb.post_mortem(exc.__traceback__)
+    else:
+        debugger = pdb.Pdb()
+        debugger.set_trace(sys._getframe().f_back)   # TODO more portable way to do this?
 
 def getText(filename, lineno, line='', offset=0, end_offset=None):
     """Attempt to recover the text of an error from the original Scenic file."""

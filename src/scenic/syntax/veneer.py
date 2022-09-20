@@ -8,9 +8,11 @@ global state such as the list of all created Scenic objects.
 
 __all__ = (
 	# Primitive statements and functions
-	'ego', 'require', 'resample', 'param', 'globalParameters', 'mutate', 'verbosePrint',
+	'ego', 'workspace',
+	'require', 'resample', 'param', 'globalParameters', 'mutate', 'verbosePrint',
 	'localPath', 'model', 'simulator', 'simulation', 'require_always', 'require_eventually',
 	'terminate_when', 'terminate_simulation_when', 'terminate_after', 'in_initial_scenario',
+	'override',
 	'record', 'record_initial', 'record_final',
 	'sin', 'cos', 'hypot', 'max', 'min',
 	'filter', 'str',
@@ -18,10 +20,10 @@ __all__ = (
 	'Visible', 'NotVisible',
 	'Front', 'Back', 'Left', 'Right',
 	'FrontLeft', 'FrontRight', 'BackLeft', 'BackRight',
+	'RelativeHeading', 'ApparentHeading', 'RelativePosition',
+	'DistanceFrom', 'DistancePast', 'AngleTo', 'AngleFrom', 'Follow',
 	# Infix operators
-	'FieldAt', 'RelativeTo', 'OffsetAlong', 'RelativePosition',
-	'RelativeHeading', 'ApparentHeading',
-	'DistanceFrom', 'AngleTo', 'AngleFrom', 'Follow', 'CanSee',
+	'FieldAt', 'RelativeTo', 'OffsetAlong', 'CanSee',
 	# Primitive types
 	'Vector', 'VectorField', 'PolygonalVectorField',
 	'Region', 'PointSetRegion', 'RectangularRegion', 'CircularRegion', 'SectorRegion',
@@ -34,7 +36,8 @@ __all__ = (
 	'Point', 'OrientedPoint', 'Object',
 	# Specifiers
 	'With',
-	'At', 'In', 'Beyond', 'VisibleFrom', 'VisibleSpec', 'OffsetBy', 'OffsetAlongSpec',
+	'At', 'In', 'Beyond', 'VisibleFrom', 'VisibleSpec', 'NotVisibleSpec',
+	'OffsetBy', 'OffsetAlongSpec',
 	'Facing', 'FacingToward', 'ApparentlyFacing',
 	'LeftSpec', 'RightSpec', 'Ahead', 'Behind',
 	'Following',
@@ -56,7 +59,7 @@ from scenic.core.regions import (Region, PointSetRegion, RectangularRegion,
 	everywhere, nowhere)
 from scenic.core.workspaces import Workspace
 from scenic.core.distributions import (Range, DiscreteRange, Options, Uniform, Normal,
-	TruncatedNormal)
+	TruncatedNormal, RandomControlFlowError)
 Discrete = Options
 from scenic.core.external_params import (VerifaiParameter, VerifaiRange, VerifaiDiscreteRange,
 										 VerifaiOptions)
@@ -83,7 +86,7 @@ from scenic.core.type_support import (isA, toType, toTypes, toScalar, toHeading,
 									  evaluateRequiringEqualTypes, underlyingType,
 									  canCoerce, coerce)
 from scenic.core.geometry import normalizeAngle, apparentHeadingAtPoint
-from scenic.core.object_types import _Constructible
+from scenic.core.object_types import Constructible
 from scenic.core.specifiers import Specifier
 from scenic.core.lazy_eval import DelayedArgument, needsLazyEvaluation
 from scenic.core.errors import RuntimeParseError, InvalidScenarioError
@@ -100,6 +103,7 @@ scenarioStack = []
 scenarios = []
 evaluatingRequirement = False
 _globalParameters = {}
+_workspace = None
 lockedParameters = set()
 lockedModel = None
 loadingModel = False
@@ -118,7 +122,8 @@ def isActive():
 	"""Are we in the middle of compiling a Scenic module?
 
 	The 'activity' global can be >1 when Scenic modules in turn import other
-	Scenic modules."""
+	Scenic modules.
+	"""
 	return activity > 0
 
 def activate(paramOverrides={}, modelOverride=None, filename=None, namespace=None):
@@ -141,7 +146,7 @@ def activate(paramOverrides={}, modelOverride=None, filename=None, namespace=Non
 
 def deactivate():
 	"""Deactivate the veneer after compiling a Scenic module."""
-	global activity, _globalParameters, lockedParameters, lockedModel
+	global activity, _globalParameters, _workspace, lockedParameters, lockedModel
 	global currentScenario, scenarios, scenarioStack, simulatorFactory
 	activity -= 1
 	assert activity >= 0
@@ -158,6 +163,7 @@ def deactivate():
 		currentScenario = None
 		simulatorFactory = None
 		_globalParameters = {}
+		_workspace = None
 	else:
 		currentScenario = scenarioStack[-1]
 
@@ -174,7 +180,7 @@ def registerObject(obj):
 		raise RuntimeParseError('tried to create an object inside a behavior')
 	elif activity > 0 or currentScenario:
 		assert not evaluatingRequirement
-		assert isinstance(obj, _Constructible)
+		assert isinstance(obj, Constructible)
 		currentScenario._registerObject(obj)
 		if currentSimulation:
 			currentSimulation.createObject(obj)
@@ -216,18 +222,19 @@ def instantiateSimulator(factory, params):
 
 def beginSimulation(sim):
 	global currentSimulation, currentScenario, inInitialScenario, runningScenarios
-	global _globalParameters
+	global _globalParameters, _workspace
 	if isActive():
 		raise RuntimeError('tried to start simulation during Scenic compilation!')
 	assert currentSimulation is None
 	assert currentScenario is None
 	assert not scenarioStack
 	currentSimulation = sim
-	inInitialScenario = True
 	currentScenario = sim.scene.dynamicScenario
 	runningScenarios = {currentScenario}
+	inInitialScenario = currentScenario._setup is None
 	currentScenario._bindTo(sim.scene)
 	_globalParameters = dict(sim.scene.params)
+	_workspace = sim.scene.workspace
 
 	# rebind globals that could be referenced by behaviors to their sampled values
 	for modName, (namespace, sampledNS, originalNS) in sim.scene.behaviorNamespaces.items():
@@ -236,12 +243,13 @@ def beginSimulation(sim):
 
 def endSimulation(sim):
 	global currentSimulation, currentScenario, currentBehavior, runningScenarios
-	global _globalParameters
+	global _globalParameters, _workspace
 	currentSimulation = None
 	currentScenario = None
 	runningScenarios = set()
 	currentBehavior = None
 	_globalParameters = {}
+	_workspace = None
 
 	for modName, (namespace, sampledNS, originalNS) in sim.scene.behaviorNamespaces.items():
 		namespace.clear()
@@ -255,6 +263,7 @@ def simulationInProgress():
 @contextmanager
 def executeInRequirement(scenario, boundEgo):
 	global evaluatingRequirement, currentScenario
+	assert activity == 0
 	assert not evaluatingRequirement
 	evaluatingRequirement = True
 	if currentScenario is None:
@@ -268,6 +277,10 @@ def executeInRequirement(scenario, boundEgo):
 		currentScenario._ego = boundEgo
 	try:
 		yield
+	except RandomControlFlowError as e:
+		# Such errors should not be possible inside a requirement, since all values
+		# should have already been sampled: something's gone wrong with our rebinding.
+		raise RuntimeError('internal error: requirement dependency not sampled') from e
 	finally:
 		evaluatingRequirement = False
 		currentScenario._ego = oldEgo
@@ -288,6 +301,16 @@ def executeInScenario(scenario, inheritEgo=False):
 	currentScenario = scenario
 	try:
 		yield
+	except AttributeError as e:
+		# Convert confusing AttributeErrors from trying to access nonexistent scenario
+		# variables into NameErrors, which is what the user would expect. The information
+		# needed to do this was made available in Python 3.10, but unfortunately could be
+		# wrong until 3.10.3: see bpo-46940.
+		if sys.version_info >= (3, 10, 3) and isinstance(e.obj, DynamicScenario):
+			newExc = NameError(f"name '{e.name}' is not defined", name=e.name)
+			raise newExc.with_traceback(e.__traceback__)
+		else:
+			raise
 	finally:
 		currentScenario = oldScenario
 
@@ -302,9 +325,10 @@ def finishScenarioSetup(scenario):
 def startScenario(scenario):
 	runningScenarios.add(scenario)
 
-def endScenario(scenario, reason):
+def endScenario(scenario, reason, quiet=False):
 	runningScenarios.remove(scenario)
-	verbosePrint(f'Stopping scenario {scenario} because of: {reason}', level=3)
+	if not quiet:
+		verbosePrint(f'Stopping scenario {scenario} because: {reason}', level=3)
 
 # Dynamic behaviors
 
@@ -315,6 +339,13 @@ def executeInBehavior(behavior):
 	currentBehavior = behavior
 	try:
 		yield
+	except AttributeError as e:
+		# See comment for corresponding code in executeInScenario
+		if sys.version_info >= (3, 10, 3) and isinstance(e.obj, Behavior):
+			newExc = NameError(f"name '{e.name}' is not defined", name=e.name)
+			raise newExc.with_traceback(e.__traceback__)
+		else:
+			raise
 	finally:
 		currentBehavior = oldBehavior
 
@@ -355,6 +386,26 @@ def ego(obj=None):
 			if scenario._ego is None:
 				scenario._ego = obj
 	return egoObject
+
+def workspace(workspace=None):
+	"""Function implementing loads and stores to the 'workspace' pseudo-variable.
+
+	See `ego`.
+	"""
+	global _workspace
+	if workspace is None:
+		if _workspace is None:
+			raise RuntimeParseError('referred to workspace not yet assigned')
+	elif not isinstance(workspace, Workspace):
+		raise RuntimeParseError(f'workspace {workspace} is not a Workspace')
+	elif needsSampling(workspace):
+		raise InvalidScenarioError('workspace must be a fixed region')
+	elif needsLazyEvaluation(workspace):
+		raise InvalidScenarioError('workspace uses value undefined '
+		                           'outside of object definition')
+	else:
+		_workspace = workspace
+	return _workspace
 
 def require(reqID, req, line, name, prob=1):
 	"""Function implementing the require statement."""
@@ -435,27 +486,57 @@ def terminate_after(timeLimit, terminator=None):
 
 def resample(dist):
 	"""The built-in resample function."""
-	return dist.clone() if isinstance(dist, Distribution) else dist
+	if not isinstance(dist, Distribution):
+		return dist
+	try:
+		return dist.clone()
+	except NotImplementedError:
+		raise RuntimeParseError('cannot resample non-primitive distribution') from None
 
-def verbosePrint(msg, file=sys.stdout, level=1):
-	"""Built-in function printing a message when the verbosity is >0.
+def verbosePrint(*objects, level=1, indent=True,
+                 sep=' ', end='\n', file=sys.stdout, flush=False):
+	"""Built-in function printing a message only in verbose mode.
 
-	(Or when the verbosity exceeds the specified level.)
+	Scenic's verbosity may be set using the :option:`-v` command-line option.
+	The simplest way to use this function is with code like
+	``verbosePrint('hello world!')`` or ``verbosePrint('details here', level=3)``;
+	the other keyword arguments are probably only useful when replacing more complex uses
+	of the Python `print` function.
+
+	Args:
+		objects: Object(s) to print (`str` will be called to make them strings).
+		level (int): Minimum verbosity level at which to print. Default is 1.
+		indent (bool): Whether to indent the message to align with messages generated by
+			Scenic (default true).
+		sep, end, file, flush: As in `print`.
 	"""
 	import scenic.syntax.translator as translator
 	if translator.verbosity >= level:
-		if currentSimulation:
-			indent = '      ' if translator.verbosity >= 3 else '  '
-		else:
-			indent = '  ' * activity if translator.verbosity >= 2 else '  '
-		print(indent + msg, file=file)
+		if indent:
+			if currentSimulation:
+				indent = '      ' if translator.verbosity >= 3 else '  '
+			else:
+				indent = '  ' * activity if translator.verbosity >= 2 else '  '
+			print(indent, end='', file=file)
+		print(*objects, sep=sep, end=end, file=file, flush=flush)
 
 def localPath(relpath):
+	"""Convert a path relative to the calling Scenic file into an absolute path.
+
+	For example, ``localPath('resource.dat')`` evaluates to the absolute path
+	of a file called ``resource.dat`` located in the same directory as the
+	Scenic file where this expression appears.
+	"""
 	filename = traceback.extract_stack(limit=2)[0].filename
 	base = os.path.dirname(filename)
 	return os.path.join(base, relpath)
 
 def simulation():
+	"""Get the currently-running `Simulation`.
+
+	May only be called from code that runs at simulation time, e.g. inside
+	:term:`dynamic behaviors` and :keyword:`compose` blocks of scenarios.
+	"""
 	if isActive():
 		raise RuntimeParseError('used simulation() outside a behavior')
 	assert currentSimulation is not None
@@ -468,10 +549,25 @@ def simulator(sim):
 def in_initial_scenario():
 	return inInitialScenario
 
+def override(*args):
+	if len(args) < 1:
+		raise RuntimeParseError('"override" missing an object')
+	elif len(args) < 2:
+		raise RuntimeParseError('"override" missing a list of specifiers')
+	obj = args[0]
+	if not isinstance(obj, Object):
+		raise RuntimeParseError(f'"override" passed non-Object {obj}')
+	specs = args[1:]
+	for spec in specs:
+		if not isinstance(spec, Specifier):
+			raise RuntimeParseError(f'"override" passed non-specifier {spec}')
+
+	currentScenario._override(obj, specs)
+
 def model(namespace, modelName):
 	global loadingModel
 	if loadingModel:
-		raise RuntimeParseError(f'Scenic world model itself uses the "model" statement')
+		raise RuntimeParseError('Scenic world model itself uses the "model" statement')
 	if lockedModel is not None:
 		modelName = lockedModel
 	try:
@@ -535,12 +631,16 @@ def mutate(*objects):		# TODO update syntax
 	"""Function implementing the mutate statement."""
 	if evaluatingRequirement:
 		raise RuntimeParseError('used mutate statement inside a requirement')
+	scale = 1
+	if objects and isinstance(objects[-1], (float, int)):
+		scale = objects[-1]
+		objects = objects[:-1]
 	if len(objects) == 0:
 		objects = currentScenario._objects
 	for obj in objects:
 		if not isinstance(obj, Object):
 			raise RuntimeParseError('"mutate X" with X not an object')
-		obj.mutationEnabled = True
+		obj.mutationScale = scale
 
 ### Prefix operators
 
@@ -684,6 +784,17 @@ def DistanceFrom(X, Y=None):
 	Y = toTypes(Y, (Vector, Region), '"distance from X to Y" with Y neither a vector nor region')
 	return X.distanceTo(Y)
 
+def DistancePast(X, Y=None):
+	"""The :samp:`distance past {vector} of {OP}` operator.
+
+	If the :samp:`of {OP}` is omitted, the ego object is used.
+	"""
+	X = toVector(X, '"distance past X" with X not a vector')
+	if Y is None:
+		Y = ego()
+	Y = toType(Y, OrientedPoint, '"distance past X of Y" with Y not an OrientedPoint')
+	return Y.distancePast(X)
+
 def AngleTo(X):
 	"""The 'angle to <vector>' operator (using the position of ego as the reference)."""
 	X = toVector(X, '"angle to X" with X not a vector')
@@ -740,7 +851,7 @@ def In(region):
 	"""The 'in/on <region>' specifier.
 
 	Specifies 'position', with no dependencies. Optionally specifies 'heading'
-	if the given Region has a preferred orientation.
+	if the given Region has a :term:`preferred orientation`.
 	"""
 	region = toType(region, Region, 'specifier "in/on R" with R not a Region')
 	extras = {'heading'} if alwaysProvidesOrientation(region) else {}
@@ -801,6 +912,31 @@ def VisibleSpec():
 	Specifies 'position', with no dependencies.
 	"""
 	return VisibleFrom(ego())
+
+def NotVisibleFrom(base):
+	"""The 'not visible from <Point>' specifier.
+
+	Specifies 'position', depending on 'regionContainedIn'.
+
+	See `VisibleFrom`.
+	"""
+	if not isinstance(base, Point):
+		raise RuntimeParseError('specifier "not visible from O" with O not a Point')
+	def helper(self):
+		region = self.regionContainedIn
+		if region is None:
+			if _workspace is None:
+				raise RuntimeParseError('"not visible" specifier with no workspace defined')
+			region = _workspace.region
+		return Region.uniformPointIn(region.difference(base.visibleRegion))
+	return Specifier('position', DelayedArgument({'regionContainedIn'}, helper))
+
+def NotVisibleSpec():
+	"""The 'not visible' specifier (equivalent to 'not visible from ego').
+
+	Specifies 'position', depending on 'regionContainedIn'.
+	"""
+	return NotVisibleFrom(ego())
 
 def OffsetBy(offset):
 	"""The 'offset by <vector>' specifier.

@@ -2,6 +2,7 @@
 
 import random
 import time
+import sys
 
 from scenic.core.distributions import (Samplable, ConstantSamplable, RejectionException,
                                        needsSampling)
@@ -10,12 +11,72 @@ from scenic.core.external_params import ExternalSampler
 from scenic.core.regions import EmptyRegion
 from scenic.core.workspaces import Workspace
 from scenic.core.vectors import Vector
-from scenic.core.utils import areEquivalent
-from scenic.core.errors import InvalidScenarioError
+from scenic.core.errors import InvalidScenarioError, optionallyDebugRejection
 from scenic.core.dynamics import Behavior
 from scenic.core.requirements import BoundRequirement
+from scenic.core.serialization import dumpAsScenicCode
 
-class Scene:
+# Pickling support
+
+class _ScenarioPickleMixin:
+	def __getstate__(self):
+		# Start the pickle with an object storing our global parameters and activating
+		# the veneer with them; this will ensure they are available during import of
+		# any needed Scenic modules (which might have been purged earlier, and in any
+		# case won't already exist during unpickling). Similarly, tack a dummy object
+		# on the end of the pickle which will deactivate the veneer and clean up.
+		oldModules = []
+		return (_Activator(self.params, oldModules), self.__dict__, _Deactivator(oldModules))
+
+	def __setstate__(self, state):
+		self.__dict__.update(state[1])
+
+class _Activator:
+	def __init__(self, params, oldModules):
+		self.params = params
+		# Save all modules already imported prior to pickling
+		oldModules.extend(sys.modules.keys())
+
+	def activate(self):
+		import scenic.syntax.veneer as veneer
+		assert not veneer.isActive()
+		veneer.activate(paramOverrides=self.params)
+
+	def __getstate__(self):
+		# Step 1 (during pickling)
+		self.activate()
+		return self.__dict__
+
+	def __setstate__(self, state):
+		# Step 3 (during unpickling)
+		self.__dict__.update(state)
+		self.activate()
+
+class _Deactivator:
+	def __init__(self, oldModules):
+		self.oldModules = oldModules
+
+	def deactivate(self):
+		import scenic.syntax.veneer as veneer
+		veneer.deactivate()
+		assert not veneer.isActive(), 'nested pickle of Scene/Scenario'
+		# Purge Scenic modules imported during pickling
+		from scenic.syntax.translator import purgeModulesUnsafeToCache
+		purgeModulesUnsafeToCache(self.oldModules)
+
+	def __getstate__(self):
+		# Step 2 (during pickling)
+		self.deactivate()
+		return self.__dict__
+
+	def __setstate__(self, state):
+		# Step 4 (during unpickling)
+		self.__dict__.update(state)
+		self.deactivate()
+
+# Scenes and scenarios
+
+class Scene(_ScenarioPickleMixin):
 	"""Scene()
 
 	A scene generated from a Scenic scenario.
@@ -50,6 +111,28 @@ class Scene:
 		self.behaviorNamespaces = behaviorNamespaces
 		self.dynamicScenario = dynamicScenario
 
+	def dumpAsScenicCode(self, stream=sys.stdout):
+		"""Dump Scenic code reproducing this scene to the given stream.
+
+		.. note::
+
+			This function does not currently reproduce parts of the original Scenic
+			program defining behaviors, functions, etc. used in the scene. Also, if
+			the scene involves any user-defined types, they must provide a suitable
+			:obj:`~object.__repr__` for this function to print them properly.
+
+		Args:
+			stream (:term:`text file`): Where to print the code (default `sys.stdout`).
+		"""
+		for name, value in self.params.items():
+			stream.write(f'param "{name}" = ')
+			dumpAsScenicCode(value, stream)
+			stream.write('\n')
+		stream.write('ego = ')
+		for obj in self.objects:
+			dumpAsScenicCode(obj, stream)
+			stream.write('\n')
+
 	def show(self, zoom=None, block=True):
 		"""Render a schematic of the scene for debugging."""
 		import matplotlib.pyplot as plt
@@ -60,11 +143,11 @@ class Scene:
 		for obj in self.objects:
 			obj.show(self.workspace, plt, highlight=(obj is self.egoObject))
 		# zoom in if requested
-		if zoom != None:
+		if zoom:
 			self.workspace.zoomAround(plt, self.objects, expansion=zoom)
 		plt.show(block=block)
 
-class Scenario:
+class Scenario(_ScenarioPickleMixin):
 	"""Scenario()
 
 	A compiled Scenic scenario, from which scenes can be sampled.
@@ -114,16 +197,6 @@ class Scenario:
 		self.dependencies = self.objects + paramDeps + tuple(requirementDeps) + tuple(behaviorDeps)
 
 		self.validate()
-
-	def isEquivalentTo(self, other):
-		if type(other) is not Scenario:
-			return False
-		return (areEquivalent(other.workspace, self.workspace)
-			and areEquivalent(other.objects, self.objects)
-			and areEquivalent(other.params, self.params)
-			and areEquivalent(other.externalParams, self.externalParams)
-			and areEquivalent(other.requirements, self.requirements)
-			and other.externalSampler == self.externalSampler)
 
 	def containerOfObject(self, obj):
 		if hasattr(obj, 'regionContainedIn') and obj.regionContainedIn is not None:
@@ -175,6 +248,8 @@ class Scenario:
 	def generate(self, maxIterations=2000, verbosity=0, feedback=None):
 		"""Sample a `Scene` from this scenario.
 
+		For a description of how scene generation is done, see `scene generation`.
+
 		Args:
 			maxIterations (int): Maximum number of rejection sampling iterations.
 			verbosity (int): Verbosity level.
@@ -209,6 +284,7 @@ class Scenario:
 					self.externalSampler.sample(feedback)
 				sample = Samplable.sampleAll(self.dependencies)
 			except RejectionException as e:
+				optionallyDebugRejection(e)
 				rejection = e
 				continue
 			rejection = None
@@ -248,6 +324,7 @@ class Scenario:
 				if rejection is not None:
 					break
 			if rejection is not None:
+				optionallyDebugRejection()
 				continue
 			# Check user-specified requirements
 			for req in activeReqs:
@@ -292,6 +369,29 @@ class Scenario:
 		self.externalSampler = ExternalSampler.forParameters(self.externalParams, self.params)
 
 	def conditionOn(self, scene=None, objects=(), params={}):
+		"""Condition the scenario on particular values for some objects or parameters.
+
+		This method changes the distribution of the scenario and should be used with
+		care: it does not attempt to check that the new distribution is equivalent to the
+		old one or that it has nonzero probability of satisfying the scenario's
+		requirements.
+
+		For example, to sample object #5 in the scenario once and then leave it fixed in
+		all subsequent samples::
+
+			sceneA, _ = scenario.generate()
+			scenario.conditionOn(scene=sceneA, objects=(5,))
+			sceneB, _ = scenario.generate()		# will have the same object 5 as sceneA
+
+		Args:
+			scene (Scene): Scene from which to take values for the given **objects**,
+				if any.
+			objects: Sequence of indices specifying which objects in this scenario should
+				be conditioned on the corresponding objects in **scene** (i.e. those with
+				the same index in the list of objects).
+			params (dict): Dictionary of global parameters to condition and their new
+				values (which may be constants or distributions).
+		"""
 		assert objects or params
 		assert bool(scene) == bool(objects)
 		if scene:
