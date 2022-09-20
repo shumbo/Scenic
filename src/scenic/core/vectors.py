@@ -405,7 +405,6 @@ class Vector(Samplable, collections.abc.Sequence):
 	def fromSpherical(cls, vector):
 		# Assuming (rho, theta, phi) and the Physics convention
 		rho, theta, phi = vector
-		print("V", vector)
 		x = rho * cos(phi) * sin(theta)
 		y = rho * sin(phi) * sin(theta)
 		z = rho * cos(theta)

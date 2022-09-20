@@ -281,6 +281,10 @@ class _Constructible(Samplable):
 		elif prop in ('yaw', 'pitch', 'roll'):
 			value = toScalar(value, f'"{prop}" of {self} not a scalar')
 
+		# Check if this property is already an attribute
+		if hasattr(self, prop) and prop not in self.properties:
+			raise RuntimeParseError(f"Property {prop} would overwrite an attribute with the same name.")
+
 		self.properties.add(prop)
 		object.__setattr__(self, prop, value)
 
@@ -402,11 +406,15 @@ class Point(_Constructible):
 	width: 0
 	length: 0
 	visibleDistance: 50
+	# Density of rays per degree in one dimension. Number of rays sent will be
+	# this value squared per 1 degree x 1 degree portion of the visible region
+	rayDensity: 30
 
 	mutationEnabled: False
 	mutator: PropertyDefault({'positionStdDev'}, {'additive'},
 							 lambda self: PositionMutator(self.positionStdDev))
 	positionStdDev: 1
+
 
 	@cached_property
 	def visibleRegion(self):
@@ -420,15 +428,10 @@ class Point(_Constructible):
 	def toVector(self) -> Vector:
 		return self.position
 
-	def canSee(self, other) -> bool:
-		if isinstance(other, (Point, OrientedPoint)):
-			return self.visibleRegion.containsPoint(other.position)
-		if isinstance(other, (Object)):
-			return self.visibleRegion.intersects(other.region)
-		if isinstance(other, (Region)):
-			return self.visibleRegion.intersects(other)
-
-		raise NotImplementedError("Cannot check if " + str(other) + " of type " + type(other) + " can be seen.")
+	def canSee(self, other, occludingObjects=list()) -> bool:
+		return canSee(position=self.position, orientation=None, visibleDistance=self.visibleDistance, \
+			viewAngle=(math.tau, math.tau), viewRays=self.viewRays, visibleRegion=self.visibleRegion, \
+			target=other, occludingObjects=occludingObjects)
 
 	def sampleGiven(self, value):
 		sample = super().sampleGiven(value)
@@ -479,6 +482,7 @@ class OrientedPoint(Point):
 	heading: PropertyDefault({'orientation'}, {'final'},
 	    lambda self: self.yaw if alwaysGlobalOrientation(self.parentOrientation) else self.orientation.yaw)
 
+	# The view angle in the horizontal and vertical direction
 	viewAngle: (math.tau, math.tau)
 
 	mutator: PropertyDefault({'headingStdDev'}, {'additive'},
@@ -487,10 +491,6 @@ class OrientedPoint(Point):
 
 	@cached_property
 	def visibleRegion(self):
-		if self.viewAngle == (math.tau, math.tau):
-			dimensions = (self.visibleDistance, self.visibleDistance, self.visibleDistance)
-			return SpheroidRegion(position=self.position, dimensions=dimensions)
-
 		return DefaultViewRegion(visibleDistance=self.visibleDistance, viewAngle=self.viewAngle,\
 			position=self.position, rotation=self.orientation)
 
@@ -503,6 +503,11 @@ class OrientedPoint(Point):
 
 	def toHeading(self) -> float:
 		return self.heading
+
+	def canSee(self, other, occludingObjects=list()) -> bool:
+		return canSee(position=self.position, orientation=self.orientation, visibleDistance=self.visibleDistance,
+			viewAngle=(math.tau, math.tau), viewRays=self.viewRays, visibleRegion=self.visibleRegion, \
+			target=other, occludingObjects=occludingObjects)
 
 ## Object
 
@@ -544,14 +549,16 @@ class Object(OrientedPoint, _RotatedRectangle):
 	height: PropertyDefault(('shape',), {}, lambda self: self.shape.dimensions[2])
 
 	allowCollisions: False
-	requireVisible: True
+	requireVisible: False
 	regionContainedIn: None
 	cameraOffset: Vector(0, 0, 0)
+	# Whether or not this object can occlude other objects
+	occluding: True
 
 	shape: BoxShape()
 
-	centerOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
-	contactTolerance: 0.0000001
+	baseOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
+	contactTolerance: 0.00001
 
 	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
 	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))
@@ -565,11 +572,11 @@ class Object(OrientedPoint, _RotatedRectangle):
 			dimensions=(self.width, self.length, self.height), \
 			position=self.position, rotation=self.orientation))
 
+	boundingBox: PropertyDefault(('occupiedSpace',), {'final'},  \
+		lambda self: lazyBoundingBox(self.occupiedSpace))
+
 	topSurface: PropertyDefault(('occupiedSpace', 'min_top_z'), \
 		{}, lambda self: defaultTopSurface(self.occupiedSpace, self.min_top_z))
-
-	emptySpace: PropertyDefault(('occupiedSpace',), \
-		{}, lambda self: defaultEmptySpace(self.occupiedSpace))
 
 	behavior: None
 	lastActions: None
@@ -588,7 +595,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 		self.hl = hl = self.length / 2
 		self.hh = hh = self.height / 2
 		self.radius = hypot(hw, hl, hh)	# circumcircle; for collision detection
-		self.inradius = 0 #min(hw, hl, hh)	# incircle; for collision detection
+		self.inradius = lazyInradius(self.occupiedSpace, self.position)	# incircle; for collision detection
 
 		self._relations = []
 
@@ -696,10 +703,15 @@ class Object(OrientedPoint, _RotatedRectangle):
 
 	@cached_property
 	def visibleRegion(self):
-		visible_region = DefaultViewRegion(visibleDistance=self.visibleDistance, viewAngle=self.viewAngle,\
-			cameraOffset=self.cameraOffset, position=self.position, rotation=self.orientation)
+		true_position = self.position.offsetRotated(self.orientation, toVector(self.cameraOffset))
+		return DefaultViewRegion(visibleDistance=self.visibleDistance, viewAngle=self.viewAngle,\
+			position=true_position, rotation=self.orientation)
 
-		return visible_region
+	def canSee(self, other, occludingObjects=list()) -> bool:
+		true_position = self.position.offsetRotated(self.orientation, toVector(self.cameraOffset))
+		return canSee(position=true_position, orientation=self.orientation, visibleDistance=self.visibleDistance, \
+			viewAngle=self.viewAngle, viewRays=self.viewRays, visibleRegion=self.visibleRegion, \
+			target=other, occludingObjects=occludingObjects)
 
 	@cached_property
 	def corners(self):
@@ -770,6 +782,20 @@ class Object(OrientedPoint, _RotatedRectangle):
 		plt.plot(x + (x[0],), y + (y[0],), color="k", linewidth=1)
 
 @distributionFunction
+def lazyBoundingBox(occupiedSpace):
+	return MeshVolumeRegion(occupiedSpace.mesh.bounding_box, center_mesh=False)
+
+@distributionFunction
+def lazyInradius(occupiedSpace, position):
+	if not occupiedSpace.containsPoint(position):
+		return 0
+
+	pq = trimesh.proximity.ProximityQuery(occupiedSpace.mesh)
+	dist = abs(pq.signed_distance([position])[0])
+
+	return dist
+
+@distributionFunction
 def defaultTopSurface(occupiedSpace, min_top_z):
 	# Extract mesh from object
 	obj_mesh = occupiedSpace.mesh.copy()
@@ -803,6 +829,92 @@ def defaultEmptySpace(occupiedSpace):
 		return empty_space_region
 	else:
 		return EmptyRegion(name="EmptyEmptySpace")
+
+def canSee(position, orientation, visibleDistance, viewAngle, viewRays, \
+		visibleRegion, target, occludingObjects):
+	# First check if the target is visible even without occlusion.
+	if not visibleRegion.intersects(target.occupiedSpace):
+		return False
+
+	# Now generate candidate rays to check for actual visibility
+	if isinstance(target, (Region, Object)):
+		# First extract the target region from the object or region.
+		if isinstance(target, Region):
+			target_region = target
+		elif isinstance(target, (Object)):
+			target_region = target.occupiedSpace
+
+		# Generate candidate rays
+		h_range = (-viewAngle[0]/2, viewAngle[0]/2)
+		v_range = (-viewAngle[1]/2, viewAngle[1]/2)
+
+		h_angles = np.linspace(h_range[0],h_range[1],math.ceil(viewRays[0]))
+		v_angles = np.linspace(v_range[0],v_range[1],math.ceil(viewRays[1]))
+
+		angle_matrix = np.transpose([np.tile(h_angles, len(v_angles)), np.repeat(v_angles, len(h_angles))])
+
+		ray_vectors = np.zeros((len(angle_matrix[:,0]), 3))
+
+		ray_vectors[:,0] = np.cos(-angle_matrix[:,0]+math.pi/2)*np.sin(-angle_matrix[:,1]+math.pi/2)
+		ray_vectors[:,1] = np.sin(-angle_matrix[:,0]+math.pi/2)*np.sin(-angle_matrix[:,1]+math.pi/2)
+		ray_vectors[:,2] = np.cos(-angle_matrix[:,1]+math.pi/2)
+
+		ray_vectors = orientation.getRotation().apply(ray_vectors)
+
+		# Check if candidate rays hit target
+		raw_target_hit_info = target_region.mesh.ray.intersects_location(
+			ray_origins=[position.coordinates for ray in ray_vectors],
+			ray_directions=ray_vectors)
+
+		# Extract rays that are within visibleDistance, mapping the vector
+		# to the distance at which they hit the target
+		feasible_vectors = {}
+
+		for hit_iter in range(len(raw_target_hit_info[0])):
+			hit_vector = Vector(*raw_target_hit_info[0][hit_iter])
+			hit_distance = position.distanceTo(hit_vector)
+
+			if hit_distance <= visibleDistance:
+				feasible_vectors[tuple(ray_vectors[raw_target_hit_info[1][hit_iter],:])] = hit_distance
+
+		if len(feasible_vectors) > 0:
+			naively_visible = True
+		else:
+			naively_visible = False
+
+		# vertices = [vec for vec in ray_vectors]
+		# vertices = [position.coordinates] + vertices
+		# lines = [trimesh.path.entities.Line([0,v]) for v in range(1,len(vertices))]
+		# colors =[(255,0,0,255) for line in lines]
+
+		# render_scene = trimesh.scene.Scene()
+		# render_scene.add_geometry(trimesh.path.Path3D(entities=lines, vertices=vertices, process=False, colors=colors))
+		# render_scene.add_geometry(list(occludingObjects)[0].occupiedSpace.mesh)
+		# render_scene.show()
+
+		# assert False
+
+	elif isinstance(target, (Point, OrientedPoint)):
+		raise NotImplementedError()
+	else:
+		raise NotImplementedError("Cannot check if " + str(target) + " of type " + type(target) + " can be seen.")
+
+	if not naively_visible:
+		return False
+	else:
+		return True
+
+	# Now check if occluded objects block sight to target
+	for occ_obj in occludingObjects:
+		candidate_vectors = np.array(list(feasible_vectors.keys()))
+
+		object_hit_info = occ_obj.occupiedSpace.mesh.ray.intersects_location(
+			ray_origins=[position.coordinates for ray in candidate_vectors],
+			ray_directions=candidate_vectors)
+
+		print(object_hit_info)
+
+	return len(feasible_vectors) > 0
 
 def enableDynamicProxyFor(obj):
 	object.__setattr__(obj, '_dynamicProxy', obj.copyWith())

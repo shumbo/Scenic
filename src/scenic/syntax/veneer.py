@@ -786,7 +786,7 @@ def On(thing):
 
 		values = {}
 
-		contactOffset = Vector(0,0,context.contactTolerance) - context.centerOffset
+		contactOffset = Vector(0,0,context.contactTolerance) - context.baseOffset
 
 		if 'parentOrientation' in props:
 			values['parentOrientation'] = region.orientation[pos]
@@ -796,7 +796,7 @@ def On(thing):
 
 		return values
 
-	return ModifyingSpecifier(props, DelayedArgument({'centerOffset', 'contactTolerance'}, helper), modifiable_props={'position'})
+	return ModifyingSpecifier(props, DelayedArgument({'baseOffset', 'contactTolerance'}, helper), modifiable_props={'position'})
 
 @distributionFunction
 def findOnHelper(region, pos):

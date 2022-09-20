@@ -241,9 +241,13 @@ class Scenario:
 					rejection = 'object containment'
 					break
 				# Require object to be visible from the ego object
-				if vi.requireVisible and vi is not ego and not ego.canSee(vi):
-					rejection = 'object visibility'
-					break
+				if vi.requireVisible and vi is not ego:
+					occluding_objects = {sample[obj] for obj in objects if obj is not self.egoObject \
+										 and obj is not vi and obj.occluding}
+
+					if not ego.canSee(vi, occludingObjects=occluding_objects):
+						rejection = 'object visibility'
+						break
 				# Require object to not intersect another object
 				if not vi.allowCollisions:
 					for j in range(i):

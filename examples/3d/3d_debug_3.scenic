@@ -1,5 +1,9 @@
 import trimesh
 
+import numpy as np
+import random
+np.random.seed(random.getrandbits(32))
+
 # Pick a workspace
 workspace_region = RectangularRegion(0 @ 0, 0, 40.1, 40.1)
 workspace = Workspace(workspace_region)
@@ -51,7 +55,7 @@ ego = chair
 Object on chair
 
 # Place a small cube in the empty space of the large chair
-Object in chair.emptySpace, on floor
+Object in chair.boundingBox, on floor
 
 # Create large chair object fallen on the floor on a random side
 fall_orientation = Uniform((0, -90 deg, 0), (0, 90 deg, 0), (0, 0, -90 deg), (0, 0, 90 deg))
@@ -64,4 +68,4 @@ fallen_chair = Object on floor,
 Object on fallen_chair
 
 # Place a small cube in the empty space of the large chair
-Object in fallen_chair.emptySpace, on floor
+Object in fallen_chair.boundingBox, on floor

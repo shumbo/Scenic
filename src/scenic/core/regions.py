@@ -14,6 +14,8 @@ import shapely.prepared
 import trimesh
 from trimesh.transformations import translation_matrix, quaternion_matrix, concatenate_matrices
 
+from subprocess import CalledProcessError
+
 from scenic.core.distributions import (Samplable, RejectionException, needsSampling,
 									   distributionMethod, toDistribution)
 from scenic.core.lazy_eval import valueInContext
@@ -386,7 +388,7 @@ class _MeshRegion(Region):
 	:param additional_deps: Any additional sampling dependencies this region relies on.
 	"""
 	def __init__(self, mesh, name=None, dimensions=None, position=None, rotation=None, orientation=None, \
-	  	tolerance=1e-8, center_mesh=True, additional_deps=[]):
+	  	tolerance=1e-8, center_mesh=True, engine="blender", additional_deps=[]):
 		# Copy the mesh and parameters
 		self._mesh = mesh.copy()
 		self.dimensions = toDistribution(dimensions)
@@ -395,6 +397,7 @@ class _MeshRegion(Region):
 		self.orientation = orientation
 		self.tolerance = tolerance
 		self.center_mesh = center_mesh
+		self.engine = engine
 
 		# Initialize superclass with samplables
 		super().__init__(name, self.dimensions, self.position, self.rotation, orientation=orientation, *additional_deps)
@@ -452,15 +455,18 @@ class _MeshRegion(Region):
 			# We can extract the mesh to perform boolean operations on it
 			other_mesh = other.mesh
 
-			# Compute intersection using Trimesh
-			new_mesh = self.mesh.intersection(other_mesh)
+			# Compute intersection using Trimesh (CalledProcessError usually means empty intersection)
+			try:
+				new_mesh = self.mesh.intersection(other_mesh, engine=self.engine)
+			except CalledProcessError:
+				return EmptyRegion("EmptyMesh")
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
 			elif new_mesh.is_volume:
-				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
 			else:
-				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
 
 		elif toPolygon(other) is not None:
 			# Other region is a polygon.
@@ -479,15 +485,19 @@ class _MeshRegion(Region):
 			polygon_z_pos = (vertical_bounds[1] + vertical_bounds[0])/2
 			polygon_mesh.vertices[:,2] += polygon_z_pos - polygon_mesh.bounding_box.center_mass[2]
 
-			# Compute intersection using Trimesh
-			new_mesh = self.mesh.intersection(polygon_mesh)
+			# Compute intersection using Trimesh (CalledProcessError usually means empty intersection)
+			try:
+				new_mesh = self.mesh.intersection(polygon_mesh, engine=self.engine)
+			except CalledProcessError:
+				return EmptyRegion("EmptyMesh")
+
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
 			elif new_mesh.is_volume:
-				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
+				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
 			else:
-				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
+				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
 
 		# Don't know how to compute this intersection, fall back to default behavior.
 		return super().intersect(other, triedReversed)
@@ -507,16 +517,15 @@ class _MeshRegion(Region):
 		if isinstance(other, (_MeshRegion)):
 			other_mesh = other.mesh
 
-
 			# Compute union using Trimesh
-			new_mesh = self.mesh.union(other_mesh)
+			new_mesh = self.mesh.union(other_mesh, engine=self.engine)
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
 			elif new_mesh.is_volume:
-				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
 			else:
-				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
 		# TODO Look into union between mesh and polygon.
 		# If mesh projection onto plane contained by polygon then the union is the polygon.
 
@@ -538,15 +547,18 @@ class _MeshRegion(Region):
 		if isinstance(other, (_MeshRegion)):
 			other_mesh = other.mesh
 
-			# Compute difference using Trimesh
-			new_mesh = self.mesh.difference(other_mesh)
+			# Compute difference using Trimesh (CalledProcessError usually means empty intersection)
+			try:
+				new_mesh = self.mesh.difference(other_mesh, engine=self.engine)
+			except CalledProcessError:
+				return EmptyRegion("EmptyMesh")
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
 			elif new_mesh.is_volume:
-				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
 			else:
-				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False)
+				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
 		elif toPolygon(other) is not None:
 			# Other region is a polygon.
 			# We can extrude it to cover the entire mesh vertically
@@ -564,15 +576,18 @@ class _MeshRegion(Region):
 			polygon_z_pos = (vertical_bounds[1] + vertical_bounds[0])/2
 			polygon_mesh.vertices[:,2] += polygon_z_pos - polygon_mesh.bounding_box.center_mass[2]
 
-			# Compute intersection using Trimesh
-			new_mesh = self.mesh.difference(polygon_mesh)
+			# Compute difference using Trimesh (CalledProcessError usually means empty intersection)
+			try:
+				new_mesh = self.mesh.difference(polygon_mesh, engine=self.engine)
+			except CalledProcessError:
+				return EmptyRegion("EmptyMesh")
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
 			elif new_mesh.is_volume:
-				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
+				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
 			else:
-				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False)
+				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
 
 		# Don't know how to compute this difference, fall back to default behavior.
 		return super().difference(other)
@@ -616,10 +631,10 @@ class MeshVolumeRegion(_MeshRegion):
 		# of success when rejection sampling volume.
 		p_volume = self._mesh.volume/self._mesh.bounding_box.volume
 
-		if p_volume == 1:
+		if p_volume > 0.99:
 			self.num_samples = 1
 		else:
-			self.num_samples = math.ceil(math.log(0.01, p_volume))
+			self.num_samples = min(1e6, max(1, math.ceil(math.log(0.01, 1 - p_volume))))
 
 	# Property testing methods #
 	def intersects(self, other, triedReversed=False):
@@ -633,7 +648,7 @@ class MeshVolumeRegion(_MeshRegion):
 		if needsSampling(self):
 			return super().intersects(other)
 
-		elif isinstance(other, (MeshVolumeRegion, MeshSurfaceRegion)):
+		elif isinstance(other, MeshVolumeRegion):
 			# PASS 1
 			# Check if bounding boxes intersect. If not, volumes cannot intersect.
 			# For bounding boxes to intersect there must be overlap of the bounds
@@ -647,14 +662,11 @@ class MeshVolumeRegion(_MeshRegion):
 				return False
 
 			# PASS 2
-			# If any of the vertices of the other region are contained in this region,
-			# or vice-versa, they intersect.
-			# TODO: Make only volumes
-			other_vertices_contained = self.mesh.contains(other.mesh.vertices)
-			self_vertices_contained = other.mesh.contains(self.mesh.vertices)
-
-			if any(other_vertices_contained) or any(self_vertices_contained):
-				return True
+			# Compute inradius and circumradius for a variety of candidate points,
+			# and use the point with the largest inradius (in_point) and the point with the
+			# smallest circumradius (circ_point). Any mesh who's closest distance to in_point 
+			# is less than the inradius must intersect. Any mesh who's closest distance to
+			# circ_point is greater than circumradius cannot intersect.
 
 			# PASS 3
 			# Use Trimesh's collision manager to check for intersection.
@@ -673,7 +685,38 @@ class MeshVolumeRegion(_MeshRegion):
 			# PASS 4
 			# Compute intersection and check if it's empty. Expensive but guaranteed
 			# to give the right answer.
-			# TODO: @Eric Can this case ever occur?
+			return not isinstance(self.intersect(other), EmptyRegion)
+
+		elif isinstance(other, MeshSurfaceRegion):
+			# PASS 1
+			# Check if bounding boxes intersect. If not, volumes cannot intersect.
+			# For bounding boxes to intersect there must be overlap of the bounds
+			# in all 3 dimensions.
+			range_overlaps = [(self.mesh.bounds[0,dim] <= other.mesh.bounds[1,dim]) and \
+							  (other.mesh.bounds[0,dim] <= self.mesh.bounds[1,dim]) \
+							  for dim in range(3)]
+			bb_overlap = all(range_overlaps)
+
+			if not bb_overlap:
+				return False
+
+			# PASS 2
+			# Use Trimesh's collision manager to check for intersection.
+			# If the surfaces collide, that implies a collision of the volumes.
+			# Cheaper than computing volumes immediately.
+			collision_manager = trimesh.collision.CollisionManager()
+
+			collision_manager.add_object("SelfRegion", self.mesh)
+			collision_manager.add_object("OtherRegion", other.mesh)
+
+			surface_collision = collision_manager.in_collision_internal()
+
+			if surface_collision:
+				return True
+
+			# PASS 3
+			# Compute intersection and check if it's empty. Expensive but guaranteed
+			# to give the right answer.
 			return not isinstance(self.intersect(other), EmptyRegion)
 
 		elif not triedReversed:
@@ -728,7 +771,7 @@ class MeshVolumeRegion(_MeshRegion):
 	def sampleGiven(self, value):
 		return MeshVolumeRegion(mesh=self._mesh, name=self.name, \
 			dimensions=value[self.dimensions], position=value[self.position], rotation=value[self.rotation], \
-			orientation=self.orientation, tolerance=self.tolerance, center_mesh=self.center_mesh)
+			orientation=self.orientation, tolerance=self.tolerance, center_mesh=self.center_mesh, engine=self.engine)
 
 	## Utility Methods ##
 	def getSurfaceRegion(self):
@@ -821,7 +864,7 @@ class MeshSurfaceRegion(_MeshRegion):
 	def sampleGiven(self, value):
 		return MeshSurfaceRegion(mesh=self._mesh, name=self.name, \
 			dimensions=value[self.dimensions], position=value[self.position], rotation=value[self.rotation], \
-			orientation=self.orientation, tolerance=self.tolerance, center_mesh=self.center_mesh)
+			orientation=self.orientation, tolerance=self.tolerance, center_mesh=self.center_mesh, engine=self.engine)
 
 	## Utility Methods ##
 	def getVolumeRegion(self):
@@ -843,9 +886,10 @@ class BoxRegion(MeshVolumeRegion):
 		the region.
 	:param tolerance: Tolerance for collision computations.
 	"""
-	def __init__(self, name=None, position=None, rotation=None, dimensions=None, orientation=None, tolerance=1e-8):
+	def __init__(self, name=None, position=None, rotation=None, dimensions=None, orientation=None, tolerance=1e-8, engine="blender"):
 		box_mesh = trimesh.creation.box((1, 1, 1))
-		super().__init__(mesh=box_mesh, name=name, position=position, rotation=rotation, dimensions=dimensions, orientation=orientation, tolerance=tolerance)
+		super().__init__(mesh=box_mesh, name=name, position=position, rotation=rotation, dimensions=dimensions,\
+		orientation=orientation, tolerance=tolerance, engine=engine)
 
 class SpheroidRegion(MeshVolumeRegion):
 	"""Region in the shape of a spheroid. By default the unit sphere centered at the origin
@@ -859,10 +903,10 @@ class SpheroidRegion(MeshVolumeRegion):
 		the region.
 	:param tolerance: Tolerance for collision computations.
 	"""
-	def __init__(self, name=None, position=None, rotation=None, dimensions=None, orientation=None, tolerance=1e-8):
+	def __init__(self, name=None, position=None, rotation=None, dimensions=None, orientation=None, tolerance=1e-8, engine="blender"):
 		sphere_mesh = trimesh.creation.icosphere(radius=1)
-		super().__init__(mesh=sphere_mesh, name=name, position=position, rotation=rotation, dimensions=dimensions, orientation=orientation, \
-			tolerance=tolerance)
+		super().__init__(mesh=sphere_mesh, name=name, position=position, rotation=rotation, dimensions=dimensions, \
+			orientation=orientation, tolerance=tolerance, engine=engine)
 
 class PyramidViewRegion(MeshVolumeRegion):
 	""" A rectangular sector of a sphere.
@@ -915,16 +959,13 @@ class DefaultViewRegion(MeshVolumeRegion):
 		the region.
 	:param tolerance: Tolerance for collision computations.
 	"""
-	def __init__(self, visibleDistance, viewAngle, name=None, position=Vector(0,0,0), cameraOffset=Vector(0,0,0), rotation=None,\
+	def __init__(self, visibleDistance, viewAngle, name=None, position=Vector(0,0,0), rotation=None,\
 		orientation=None, tolerance=1e-8):
 		# Bound viewAngle from either side.
 		viewAngle = tuple([min(angle, math.tau) for angle in viewAngle])
 
 		if min(viewAngle) <= 0:
 			raise ValueError("viewAngle cannot have a component less than or equal to 0")
-
-		# Compute true position
-		true_pos = position.offsetRotated(rotation, cameraOffset)
 
 		# Cases in view region computation
 		# Case 1: 		One view angle = 360 degrees
@@ -940,7 +981,7 @@ class DefaultViewRegion(MeshVolumeRegion):
 
 		view_region = None
 		diameter = 2*visibleDistance
-		base_sphere = SpheroidRegion(dimensions=(diameter, diameter, diameter))
+		base_sphere = SpheroidRegion(dimensions=(diameter, diameter, diameter), engine="scad")
 
 		if (math.tau-0.01 <= viewAngle[0] <= math.tau+0.01) or (math.tau-0.01 <= viewAngle[1] <= math.tau+0.01):
 			# Case 1
@@ -988,9 +1029,6 @@ class DefaultViewRegion(MeshVolumeRegion):
 				# Case 2.b
 				padded_diameter = 1.1*diameter
 				view_region = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
-			else:
-				# Case 2.c
-				raise NotImplementedError()
 		elif viewAngle[0] < math.pi and viewAngle[1] < math.pi:
 			# Case 3
 			view_region = base_sphere.intersect(PyramidViewRegion(visibleDistance, viewAngle))
@@ -1005,13 +1043,11 @@ class DefaultViewRegion(MeshVolumeRegion):
 		elif viewAngle[0] > math.pi and viewAngle[1] < math.pi:
 			# Case 6
 			raise NotImplementedError()
-		else:
-			assert False
 
 		assert view_region is not None
 
 		# Initialize volume region
-		super().__init__(mesh=view_region.mesh, name=name, position=true_pos, rotation=rotation, orientation=orientation, \
+		super().__init__(mesh=view_region.mesh, name=name, position=position, rotation=rotation, orientation=orientation, \
 			tolerance=tolerance, center_mesh=False)
 
 ###################################################################################################

@@ -557,7 +557,7 @@ def test_contained_in_3d():
 # On
 def test_on_3d():
     scenario = compileScenic(
-        'region = BoxRegion(dimensions=(10,20,30))\n'
+        'region = RectangularRegion(0@0, 0, 10, 20)\n'
         'ego = Object on region'
     )
     for i in range(30):
@@ -565,13 +565,13 @@ def test_on_3d():
         pos = scene.egoObject.position
         assert -5 <= pos.x <= 5
         assert -10 <= pos.y <= 10
-        assert -15 <= pos.z <= 15
+        assert pos.z = 0.5
         assert scene.egoObject.orientation == Orientation.fromEuler(0,0,0)
 
 def test_on_3d_heading():
     scenario = compileScenic(
         'vf = VectorField("TestVF", lambda pos: (0.5, 0.6, 0.7))\n'
-        'region = BoxRegion(dimensions=(10,20,30), orientation=vf)\n'
+        'region = RectangularRegion(0@0, 0, 10, 20, orientation=vf)\n'
         'ego = Object on region'
     )
     for i in range(30):
@@ -579,7 +579,7 @@ def test_on_3d_heading():
         pos = scene.egoObject.position
         assert -5 <= pos.x <= 5
         assert -10 <= pos.y <= 10
-        assert -15 <= pos.z <= 15
+        assert pos.z = 0.5
         assert scene.egoObject.orientation.eulerAngles == pytest.approx(0.5,0.6,0.7)
 
 def test_on_modifying():
