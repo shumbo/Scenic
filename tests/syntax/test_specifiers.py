@@ -449,6 +449,19 @@ def test_visible_from_oriented_point_3d():
         assert pos.x <= base.x
         assert pos.y >= base.y
         assert pos.z >= base.z
+def test_not_visible():
+    scenario = compileScenic("""
+        workspace = Workspace(RectangularRegion(100@205, 0, 20, 12))
+        ego = Object at 100 @ 200, facing -45 deg,
+                     with visibleDistance 10, with viewAngle 90 deg
+        ego = Object not visible
+    """)
+    base = Vector(100, 200)
+    for i in range(30):
+        pos = sampleEgo(scenario, maxIterations=50).position
+        assert pos.x < 100 or pos.y < 200 or pos.distanceTo(base) > 10
+
+## Position specifiers optionally specifying heading
 
 # In
 def test_in():

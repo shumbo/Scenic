@@ -8,6 +8,7 @@ as well as in the interfaces to GTA and Webots.
 import random
 import colorsys
 from collections import namedtuple
+import random
 
 from scenic.core.distributions import Distribution, Range, Normal, Options, toDistribution
 from scenic.core.lazy_eval import valueInContext
@@ -96,8 +97,9 @@ class NoisyColorDistribution(Distribution):
 class ColorMutator(Mutator):
 	"""Mutator that adds Gaussian HSL noise to the ``color`` property."""
 	def appliedTo(self, obj):
-		hueNoise = random.gauss(0, 0.05)
-		satNoise = random.gauss(0, 0.05)
-		lightNoise = random.gauss(0, 0.05)
+		stddev = 0.05 * obj.mutationScale
+		hueNoise = random.gauss(0, stddev)
+		satNoise = random.gauss(0, stddev)
+		lightNoise = random.gauss(0, stddev)
 		color = NoisyColorDistribution.addNoiseTo(obj.color, hueNoise, lightNoise, satNoise)
-		return tuple([obj.copyWith(color=color), True])		# allow further mutation
+		return (obj._copyWith(color=color), True)		# allow further mutation

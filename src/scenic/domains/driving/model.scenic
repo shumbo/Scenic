@@ -28,10 +28,12 @@ user uses the :option:`--param` command-line option to specify the map.
     details.
 """
 
-from abc import ABC, abstractmethod
+from typing import Optional
 
 from scenic.domains.driving.workspace import DrivingWorkspace
-from scenic.domains.driving.roads import ManeuverType, Network
+from scenic.domains.driving.roads import (ManeuverType, Network, Road, Lane, LaneSection,
+                                          LaneGroup, Intersection, PedestrianCrossing,
+                                          NetworkElement)
 from scenic.domains.driving.actions import *
 from scenic.domains.driving.behaviors import *
 
@@ -103,23 +105,34 @@ class DrivingObject:
 
     requireVisible: False
 
+    # Semantic category properties
+
+    @property
+    def isVehicle(self):
+        return False
+
+    @property
+    def isCar(self):
+        return False
+
     # Convenience properties
 
     @property
-    def lane(self):
+    def lane(self) -> Lane:
         """The `Lane` at the object's current position.
 
         The simulation is rejected if the object is not in a lane.
+        (Use `DrivingObject._lane` to get `None` instead.)
         """
         return network.laneAt(self, reject='object is not in a lane')
 
     @property
-    def _lane(self):
+    def _lane(self) -> Optional[Lane]:
         """The `Lane` at the object's current position, if any."""
         return network.laneAt(self)
 
     @property
-    def laneSection(self):
+    def laneSection(self) -> LaneSection:
         """The `LaneSection` at the object's current position.
 
         The simulation is rejected if the object is not in a lane.
@@ -127,12 +140,12 @@ class DrivingObject:
         return network.laneSectionAt(self, reject='object is not in a lane')
 
     @property
-    def _laneSection(self):
+    def _laneSection(self) -> Optional[LaneSection]:
         """The `LaneSection` at the object's current position, if any."""
         return network.laneSectionAt(self)
 
     @property
-    def laneGroup(self):
+    def laneGroup(self) -> LaneGroup:
         """The `LaneGroup` at the object's current position.
 
         The simulation is rejected if the object is not in a lane.
@@ -140,12 +153,12 @@ class DrivingObject:
         return network.laneGroupAt(self, reject='object is not in a lane')
 
     @property
-    def _laneGroup(self):
+    def _laneGroup(self) -> Optional[LaneGroup]:
         """The `LaneGroup` at the object's current position, if any."""
         return network.laneGroupAt(self)
 
     @property
-    def oppositeLaneGroup(self):
+    def oppositeLaneGroup(self) -> LaneGroup:
         """The `LaneGroup` on the other side of the road from the object.
 
         The simulation is rejected if the object is not on a two-way road.
@@ -153,7 +166,7 @@ class DrivingObject:
         return self.laneGroup.opposite
 
     @property
-    def road(self):
+    def road(self) -> Road:
         """The `Road` at the object's current position.
 
         The simulation is rejected if the object is not on a road.
@@ -161,12 +174,12 @@ class DrivingObject:
         return network.roadAt(self, reject='object is not on a road')
 
     @property
-    def _road(self):
+    def _road(self) -> Optional[Road]:
         """The `Road` at the object's current position, if any."""
         return network.roadAt(self)
 
     @property
-    def intersection(self):
+    def intersection(self) -> Intersection:
         """The `Intersection` at the object's current position.
 
         The simulation is rejected if the object is not in an intersection.
@@ -174,12 +187,12 @@ class DrivingObject:
         return network.intersectionAt(self, reject='object is not in an intersection')
 
     @property
-    def _intersection(self):
+    def _intersection(self) -> Optional[Intersection]:
         """The `Intersection` at the object's current position, if any."""
         return network.intersectionAt(self)
 
     @property
-    def crossing(self):
+    def crossing(self) -> PedestrianCrossing:
         """The `PedestrianCrossing` at the object's current position.
 
         The simulation is rejected if the object is not in a crosswalk.
@@ -187,12 +200,12 @@ class DrivingObject:
         return network.crossingAt(self, reject='object is not in a crossing')
 
     @property
-    def _crossing(self):
+    def _crossing(self) -> Optional[PedestrianCrossing]:
         """The `PedestrianCrossing` at the object's current position, if any."""
         return network.crossingAt(self)
 
     @property
-    def element(self):
+    def element(self) -> NetworkElement:
         """The highest-level `NetworkElement` at the object's current position.
 
         See `Network.elementAt` for the details of how this is determined.
@@ -201,16 +214,16 @@ class DrivingObject:
         return network.elementAt(self, reject='object is not on any network element')
 
     @property
-    def _element(self):
+    def _element(self) -> Optional[NetworkElement]:
         """The highest-level `NetworkElement` at the object's current position, if any."""
         return network.elementAt(self)
 
     # Utility functions
 
-    def distanceToClosest(self, type):
+    def distanceToClosest(self, type: type) -> Object:
         """Compute the distance to the closest object of the given type.
 
-        For example, one could write ``self.distanceToClosest(Car)`` in a behavior.
+        For example, one could write :samp:`self.distanceToClosest(Car)` in a behavior.
         """
         objects = simulation().objects
         minDist = float('inf')
@@ -239,7 +252,7 @@ class Vehicle(DrivingObject):
             given by **roadDeviation**.
         roadDeviation (float): Relative heading with respect to the road direction at
             the `Vehicle`'s position. Used by the default value for **heading**.
-        regionContainedIn: The default container is `roadOrShoulder`.
+        regionContainedIn: The default container is :obj:`roadOrShoulder`.
         viewAngle: The default view angle is 90 degrees.
         width: The default width is 2 meters.
         length: The default length is 4.5 meters.
@@ -257,9 +270,15 @@ class Vehicle(DrivingObject):
     length: 4.5
     color: Color.defaultCarColor()
 
+    @property
+    def isVehicle(self):
+        return True
+
 class Car(Vehicle):
     """A car."""
-    pass
+    @property
+    def isCar(self):
+        return True
 
 class NPCCar(Car):
     """Car for which accurate physics is not required."""
@@ -287,40 +306,33 @@ class Pedestrian(DrivingObject):
 
 # Mixin classes indicating support for various types of actions
 
-class Steers(ABC):
+class Steers:
     """Mixin protocol for agents which can steer.
 
     Specifically, agents must support throttling, braking, steering, setting the hand
     brake, and going into reverse.
     """
-    @abstractmethod
-    def setThrottle(self, throttle): pass
+    def setThrottle(self, throttle): raise NotImplementedError
 
-    @abstractmethod
-    def setSteering(self, steering): pass
+    def setSteering(self, steering): raise NotImplementedError
 
-    @abstractmethod
-    def setBraking(self, braking): pass
+    def setBraking(self, braking): raise NotImplementedError
 
-    @abstractmethod
-    def setHandbrake(self, handbrake): pass
+    def setHandbrake(self, handbrake): raise NotImplementedError
 
-    @abstractmethod
-    def setReverse(self, reverse): pass
+    def setReverse(self, reverse): raise NotImplementedError
 
-class Walks(ABC):
+class Walks:
     """Mixin protocol for agents which can walk with a given direction and speed.
 
     We provide a simplistic implementation which directly sets the velocity of the agent.
     This implementation needs to be explicitly opted-into, since simulators may provide a
     more sophisticated API that properly animates pedestrians.
     """
-    @abstractmethod
     def setWalkingDirection(self, heading):
         velocity = Vector(0, self.speed).rotatedBy(heading)
         self.setVelocity(velocity)
 
-    @abstractmethod
     def setWalkingSpeed(self, speed):
         velocity = speed * self.velocity.normalized()
         self.setVelocity(velocity)

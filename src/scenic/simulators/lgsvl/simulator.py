@@ -1,9 +1,10 @@
-"""Simulator interface for LGSVL."""
+"""Dynamic simulator interface for LGSVL."""
 
 import math
 import warnings
 
 import lgsvl
+import time
 
 import scenic.core.simulators as simulators
 import scenic.simulators.lgsvl.utils as utils
@@ -11,12 +12,25 @@ from scenic.syntax.veneer import verbosePrint
 from scenic.core.vectors import Vector
 
 class LGSVLSimulator(simulators.Simulator):
-    def __init__(self, lgsvl_scene, address='localhost', port=8181, alwaysReload=False):
+    """A connection to an instance of LGSVL.
+
+    See the `SVL documentation`_ for details on how to set the parameters below.
+
+    Args:
+        sceneID (str): Identifier for the map ("scene") to load in SVL.
+        address (str): Address where SVL is running.
+        port (int): Port on which to connect to SVL.
+        alwaysReload (bool): Whether to force reloading the map upon connecting,
+            even if the simulator already has the desired map loaded.
+
+    .. _SVL documentation: https://www.svlsimulator.com/docs/python-api/python-api
+    """
+    def __init__(self, sceneID, address='localhost', port=8181, alwaysReload=False):
         super().__init__()
         verbosePrint('Connecting to LGSVL Simulator...')
         self.client = lgsvl.Simulator(address=address, port=port)
         if alwaysReload or self.client.current_scene != lgsvl_scene:
-            self.client.load(scene=lgsvl_scene)
+            self.client.load(scene=sceneID)
         verbosePrint('Map loaded in simulator.')
 
     def createSimulation(self, scene, verbosity=0):
@@ -24,6 +38,7 @@ class LGSVLSimulator(simulators.Simulator):
 
 
 class LGSVLSimulation(simulators.Simulation):
+    """Subclass of `Simulation` for LGSVL."""
     def __init__(self, scene, client, verbosity=0):
         timestep = scene.params.get('time_step', 1.0/10)
         super().__init__(scene, timestep=timestep, verbosity=verbosity)
@@ -101,44 +116,12 @@ class LGSVLSimulation(simulators.Simulation):
         lgsvlObj.connect_bridge(obj.bridgeHost, obj.bridgePort)
 
         # set up connection and map/vehicle configuration
-        import dreamview
+        from lgsvl import dreamview
         dv = dreamview.Connection(self.client, lgsvlObj)
         obj.dreamview = dv
-        waitToStabilize = False
         hdMap = self.scene.params['apolloHDMap']
-        if dv.getCurrentMap() != hdMap:
-            dv.setHDMap(hdMap)
-            waitToStabilize = True
-        if dv.getCurrentVehicle() != obj.apolloVehicle:
-            dv.setVehicle(obj.apolloVehicle)
-            waitToStabilize = True
-        
-        verbosePrint('Initializing Apollo...')
-
-        # stop the car to cancel buffered speed from previous simulations
-        cntrl = lgsvl.VehicleControl()
-        cntrl.throttle = 0.0
-        lgsvlObj.apply_control(cntrl, True)
-        # start modules
-        dv.disableModule('Control')
-        ready = dv.getModuleStatus()
-        for module in obj.apolloModules:
-            if not ready[module]:
-                dv.enableModule(module)
-                verbosePrint(f'Module {module} is not ready...')
-                waitToStabilize = True
-        while True:
-            ready = dv.getModuleStatus()
-            if all(ready[module] for module in obj.apolloModules):
-                break
-
-        # wait for Apollo to stabilize, if needed
-        if waitToStabilize:
-            verbosePrint('Waiting for Apollo to stabilize...')
-            self.client.run(25)
-        dv.enableModule('Control')
-        self.client.run(15)
-        verbosePrint('Initialized Apollo.')
+        dv.set_hd_map(hdMap)
+        dv.set_vehicle(obj.apolloVehicle)
 
     def executeActions(self, allActions):
         super().executeActions(allActions)

@@ -1,106 +1,175 @@
+"""Interface to Webots for dynamic simulations.
 
-import pickle
+This interface is intended to be instantiated from inside the controller script
+of a Webots `Robot node`_ with the ``supervisor`` field set to true. Such a
+script can create a `WebotsSimulator` (passing in a reference to the supervisor
+node) and then call its `simulate` method as usual to run a simulation. For an
+example, see :file:`examples/webots/generic/controllers/scenic_supervisor.py`.
 
-import scenic.simulators as simulators
-import scenic.simulators.webots.utils as utils
+Scenarios written for this interface should use our generic Webots world model
+:doc:`scenic.simulators.webots.model` or a model derived from it. Objects which
+are instances of `WebotsObject` will be matched to Webots nodes; see the model
+documentation for details.
+
+.. _Robot node: https://www.cyberbotics.com/doc/reference/robot
+"""
+
+from collections import defaultdict
+import math
+
+from scenic.core.simulators import Simulator, Simulation, Action
 from scenic.core.vectors import Vector
+from scenic.simulators.webots.utils import WebotsCoordinateSystem, ENU
 
-class WebotsSimulator(simulators.Simulator):
+class WebotsSimulator(Simulator):
+    """`Simulator` object for Webots.
+
+    Args:
+        supervisor: Supervisor node handle from the Webots Python API.
+    """
     def __init__(self, supervisor):
         super().__init__()
         self.supervisor = supervisor
+        topLevelNodes = supervisor.getRoot().getField('children')
+        worldInfo = None
+        for i in range(topLevelNodes.getCount()):
+            child = topLevelNodes.getMFNode(i)
+            if child.getTypeName() == 'WorldInfo':
+                worldInfo = child
+                break
+        if not worldInfo:
+            raise RuntimeError('Webots world does not contain a WorldInfo node')
+        system = worldInfo.getField('coordinateSystem').getSFString()
+        self.coordinateSystem = WebotsCoordinateSystem(system)
 
-    def createSimulation(self, scene):
-        return WebotsSimulation(scene, self.supervisor)
+    def createSimulation(self, scene, verbosity=0):
+        return WebotsSimulation(scene, self.supervisor,
+                                coordinateSystem=self.coordinateSystem)
 
-class WebotsSimulation(simulators.Simulation):
-    def __init__(self, scene, supervisor):
-        super().__init__(scene)
+class WebotsSimulation(Simulation):
+    """`Simulation` object for Webots.
+
+    Attributes:
+        supervisor: Webots supervisor node used for the simulation. This is
+            exposed for the use of scenarios which need to call Webots APIs
+            directly; e.g. :samp:`simulation().supervisor.setLabel({...})`.
+    """
+    def __init__(self, scene, supervisor, verbosity=0, coordinateSystem=ENU):
+        timestep = supervisor.getBasicTimeStep() / 1000
+        super().__init__(scene, timestep=timestep, verbosity=verbosity)
         self.supervisor = supervisor
-        self.timeStep = int(supervisor.getBasicTimeStep())
+        self.coordinateSystem = coordinateSystem
         self.objects = scene.objects
 
         # Find Webots objects corresponding to Scenic objects
         self.webotsObjects = {}
+        usedNames = defaultdict(lambda: 0)
         for obj in self.objects:
             if not hasattr(obj, 'webotsName'):
-                raise RuntimeError(f'object {obj} does not have a webotsName property')
-            name = obj.webotsName
+                continue    # not a Webots object
+            if obj.webotsName:
+                name = obj.webotsName
+            else:
+                ty = obj.webotsType
+                if not ty:
+                    raise RuntimeError(f'object {obj} has no webotsName or webotsType')
+                nextID = usedNames[ty]
+                usedNames[ty] += 1
+                if nextID == 0 and supervisor.getFromDef(ty):
+                    name = ty
+                else:
+                    name = f'{ty}_{nextID}'
             webotsObj = supervisor.getFromDef(name)
             if webotsObj is None:
                 raise RuntimeError(f'Webots object {name} does not exist in world')
             self.webotsObjects[obj] = webotsObj
             obj.webotsObject = webotsObj
+            obj.webotsName = name
 
             # get starting elevation
-            pos = webotsObj.getField('translation').getSFVec3f()
-            obj.elevation = pos[1]
+            if obj.elevation is None:
+                pos = webotsObj.getField('translation').getSFVec3f()
+                spos = self.coordinateSystem.positionToScenic(pos)
+                obj.elevation = spos[2]
 
-        # Reset Webots and object controllers
+        # Reset Webots simulation
         supervisor.simulationResetPhysics()
-        for webotsObj in self.webotsObjects.values():
-            webotsObj.restartController()
 
-        # Set initial positions and orientations of Webots objects
+        # Set initial properties of Webots objects
         self.writePropertiesToWebots()
 
     def writePropertiesToWebots(self):
-        for obj in self.objects:
-            webotsObj = self.webotsObjects[obj]
+        for obj, webotsObj in self.webotsObjects.items():
             # position
-            pos = utils.scenicToWebotsPosition(obj.position, y=obj.elevation)
+            pos = self.coordinateSystem.positionFromScenic(
+                obj.position + obj.positionOffset,
+                elevation=obj.elevation
+            )
             webotsObj.getField('translation').setSFVec3f(pos)
             # heading
-            rot = utils.scenicToWebotsRotation(obj.heading)
+            rot = self.coordinateSystem.rotationFromScenic(
+                obj.heading + obj.rotationOffset
+            )
             webotsObj.getField('rotation').setSFRotation(rot)
+            # battery
+            battery = getattr(obj, 'battery', None)
+            if battery:
+                if not isinstance(battery, (tuple, list)) or len(battery) != 3:
+                    raise RuntimeError(f'"battery" of {obj.webotsName} does not'
+                                       ' have 3 components')
+                field = webotsObj.getField('battery')
+                field.setMFFloat(0, battery[0])
+                field.setMFFloat(1, battery[1])
+                field.setMFFloat(2, battery[2])
+            # customData
+            customData = getattr(obj, 'customData', None)
+            if customData:
+                if not isinstance(customData, str):
+                    raise RuntimeError(f'"customData" of {obj.webotsName} is not a string')
+                webotsObj.getField('customData').setSFString(customData)
+            # controller
+            if obj.controller:
+                controllerField = webotsObj.getField('controller')
+                curCont = controllerField.getSFString()
+                if obj.controller != curCont:
+                    # the following operation also causes the controller to be restarted
+                    controllerField.setSFString(obj.controller)
+                elif obj.resetController:
+                    webotsObj.restartController()
 
-    def readPropertiesFromWebots(self):
-        for obj in self.objects:
-            webotsObj = self.webotsObjects[obj]
-            # webotsObject
-            obj.webotsObject = webotsObj
-            # position
-            pos = webotsObj.getField('translation').getSFVec3f()
-            x, y = utils.webotsToScenicPosition(pos)
-            obj.position = Vector(x, y)
-            # heading
-            rot = webotsObj.getField('rotation').getSFRotation()
-            heading = utils.webotsToScenicRotation(rot, tolerance2D=100)
-            if heading is None:
-                raise RuntimeError(f'{webotsObj} has non-planar orientation!')
-            obj.heading = heading
+    def createObjectInSimulator(self, obj):
+        raise RuntimeError('the Webots interface does not support dynamic object creation')
 
-    def currentState(self):
-        return tuple(obj.position for obj in self.objects)
+    def step(self):
+        ms = round(1000 * self.timestep)
+        self.supervisor.step(ms)
 
-    def initialState(self):
-        return self.currentState()
+    def getProperties(self, obj, properties):
+        webotsObj = self.webotsObjects.get(obj)
+        if not webotsObj:   # static object with no Webots counterpart
+            return { prop: getattr(obj, prop) for prop in properties }
 
-    def step(self, actions):
-        # execute actions
-        for agent, action in actions.items():
-            if action is not None:
-                action.applyTo(agent, self.webotsObjects[agent])
-        # run simulation for one time step
-        self.supervisor.step(self.timeStep)
-        # read back the results of the simulation
-        self.readPropertiesFromWebots()
-        return self.currentState()
+        pos = webotsObj.getField('translation').getSFVec3f()
+        x, y, elevation = self.coordinateSystem.positionToScenic(pos)
+        rot = webotsObj.getField('rotation').getSFRotation()
+        heading = self.coordinateSystem.rotationToScenic(rot)
+        lx, ly, lz, ax, ay, az = webotsObj.getVelocity()
+        vx, vy, vz = self.coordinateSystem.positionToScenic((lx, ly, lz))
+        velocity = (vx, vy)
+        speed = math.hypot(*velocity)
 
-class MoveAction(simulators.Action):
-    def __init__(self, offset):
-        self.offset = offset
+        values = dict(
+            position=Vector(x, y),
+            elevation=elevation,
+            heading=heading,
+            velocity=velocity,
+            speed=speed,
+            angularSpeed=ay,
+        )
 
-    def applyTo(self, obj, webotsObj):
-        pos = obj.position.offsetRotated(obj.heading, self.offset)
-        pos = utils.scenicToWebotsPosition(pos, y=obj.elevation)
-        webotsObj.getField('translation').setSFVec3f(pos)
+        if hasattr(obj, 'battery'):
+            field = webotsObj.getField('battery')
+            val = (field.getMFFloat(0), obj.battery[1], obj.battery[2])
+            values['battery'] = val
 
-class WriteFileAction(simulators.Action):
-    def __init__(self, path, data):
-        self.path = path
-        self.data = data
-
-    def applyTo(self, obj, webotsObj):
-        with open(self.path, 'wb') as outFile:
-            pickle.dump(self.data, outFile)
+        return values

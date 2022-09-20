@@ -25,6 +25,24 @@ def test_soft_requirement():
     count = sum(x >= 0 for x in xs)
     assert 255 <= count < 350
 
+def test_named_requirement():
+    scenario = compileScenic("""
+        ego = Object at Range(0, 10) @ 0
+        require ego.position.x >= 5 as posReq
+    """)
+    xs = [sampleEgo(scenario, maxIterations=60).position.x for i in range(60)]
+    assert all(5 <= x <= 10 for x in xs)
+
+@pytest.mark.slow
+def test_named_soft_requirement():
+    scenario = compileScenic("""
+        ego = Object at Range(0, 10) @ 0
+        require[0.9] ego.position.x >= 5 as posReq
+    """)
+    xs = [sampleEgo(scenario, maxIterations=60).position.x for i in range(350)]
+    count = sum(x >= 5 for x in xs)
+    assert 255 <= count < 350
+
 ## Forbidden operations inside requirements
 
 def test_object_in_requirement():
@@ -33,7 +51,7 @@ def test_object_in_requirement():
         ego = Object
     """)
     with pytest.raises(ScenicSyntaxError):
-        sampleScene(scenario, maxIterations=1)
+        sampleScene(scenario)
 
 def test_param_in_requirement():
     with pytest.raises(ScenicSyntaxError):
@@ -42,12 +60,14 @@ def test_param_in_requirement():
             ego = Object
         """)
 
+@pytest.mark.xfail(reason='looser keyword policy now allows this', strict=True)
 def test_mutate_in_requirement():
+    scenario = compileScenic("""
+        require mutate
+        ego = Object
+    """)
     with pytest.raises(ScenicSyntaxError):
-        compileScenic("""
-            require mutate
-            ego = Object
-        """)
+        sampleScene(scenario)
 
 def test_require_in_requirement():
     with pytest.raises(ScenicSyntaxError):
@@ -64,7 +84,7 @@ def test_runtime_parse_error_in_requirement():
         ego = Object
     """)
     with pytest.raises(ScenicSyntaxError):
-        sampleScene(scenario, maxIterations=1)
+        sampleScene(scenario)
 
 ## Enforcement of built-in requirements
 
@@ -72,6 +92,14 @@ def test_containment_requirement():
     scenario = compileScenic("""
         foo = RectangularRegion(0@0, 0, 10, 10)
         ego = Object at Range(0, 10) @ 0, with regionContainedIn foo
+    """)
+    xs = [sampleEgo(scenario, maxIterations=60).position.x for i in range(60)]
+    assert all(0 <= x <= 5 for x in xs)
+
+def test_containment_workspace():
+    scenario = compileScenic("""
+        workspace = Workspace(RectangularRegion(0@0, 0, 10, 10))
+        ego = Object at Range(0, 10) @ 0
     """)
     xs = [sampleEgo(scenario, maxIterations=60).position.x for i in range(60)]
     assert all(0 <= x <= 5 for x in xs)
@@ -123,6 +151,13 @@ def test_static_containment_violation():
         compileScenic("""
             foo = RectangularRegion(0@0, 0, 5, 5)
             ego = Object at 10@10, with regionContainedIn foo
+        """)
+
+def test_static_containment_workspace():
+    with pytest.raises(InvalidScenarioError):
+        compileScenic("""
+            workspace = Workspace(RectangularRegion(0@0, 0, 5, 5))
+            ego = Object at 10@10
         """)
 
 def test_static_empty_container():

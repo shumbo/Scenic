@@ -1,4 +1,9 @@
-"""Implementations of the built-in Scenic classes."""
+"""Implementations of the built-in Scenic classes.
+
+Defines the 3 Scenic classes `Point`, `OrientedPoint`, and `Object`, and associated
+helper code (notably their base class `Constructible`, which implements the handling of
+property definitions and :ref:`specifier resolution`).
+"""
 
 import collections
 import math
@@ -16,14 +21,15 @@ from scenic.core.regions import (Region, CircularRegion, SectorRegion, MeshVolum
 								  BoxRegion, SpheroidRegion, DefaultViewRegion, EmptyRegion)
 from scenic.core.type_support import toVector, toHeading, toType, toScalar
 from scenic.core.lazy_eval import needsLazyEvaluation
-from scenic.core.utils import DefaultIdentityDict, areEquivalent, cached_property
+from scenic.core.serialization import dumpAsScenicCode
+from scenic.core.utils import DefaultIdentityDict, cached_property
 from scenic.core.errors import RuntimeParseError
 from scenic.core.shapes import Shape, BoxShape, MeshShape
 from scenic.core.regions import IntersectionRegion
 
 ## Abstract base class
 
-class _Constructible(Samplable):
+class Constructible(Samplable):
 	"""Abstract base class for Scenic objects.
 
 	Scenic objects, which are constructed using specifiers, are implemented
@@ -31,6 +37,11 @@ class _Constructible(Samplable):
 	implements the procedure to resolve specifiers and determine values for
 	the properties of an object, as well as several common methods supported
 	by objects.
+
+	.. warning::
+
+		This class is an implementation detail, and none of its methods should be
+		called directly from a Scenic program.
 	"""
 
 	def __init_subclass__(cls):
@@ -38,7 +49,7 @@ class _Constructible(Samplable):
 		# find all defaults provided by the class or its superclasses
 		allDefs = collections.defaultdict(list)
 		for sc in cls.__mro__:
-			if issubclass(sc, _Constructible) and hasattr(sc, '__annotations__'):
+			if issubclass(sc, Constructible) and hasattr(sc, '__annotations__'):
 				for prop, value in sc.__annotations__.items():
 					allDefs[prop].append(PropertyDefault.forValue(value))
 
@@ -56,16 +67,16 @@ class _Constructible(Samplable):
 			if primary.isFinal:
 				finals.append(prop)
 		cls._defaults = resolvedDefs
-		cls._dynamicProperties = tuple(dyns)
+		cls._dynamicProperties = frozenset(dyns)
 		cls._finalProperties = tuple(finals)
 
 	@classmethod
-	def withProperties(cls, props):
+	def _withProperties(cls, props, constProps=frozenset()):
 		assert all(reqProp in props for reqProp in cls._defaults)
 		assert all(not needsLazyEvaluation(val) for val in props.values())
-		return cls(_internal=True, **props)
+		return cls(_internal=True, _constProps=constProps, **props)
 
-	def __init__(self, *args, _internal=False, **kwargs):
+	def __init__(self, *args, _internal=False, _constProps=frozenset(), **kwargs):
 		if _internal:	# Object is being constructed internally; use fast path
 			assert not args
 			for prop, value in kwargs.items():
@@ -73,10 +84,10 @@ class _Constructible(Samplable):
 				object.__setattr__(self, prop, value)
 			super().__init__(kwargs.values())
 			self.properties = set(kwargs.keys())
+			self._constProps = _constProps
 			return
 
-		# Validate specifiers
-		name = self.__class__.__name__
+		# Resolve and apply specifiers
 		specifiers = list(args)
 		for prop, val in kwargs.items():	# kwargs supported for internal use
 			specifiers.append(Specifier({prop: 1}, val, internal=True))
@@ -177,10 +188,12 @@ class _Constructible(Samplable):
 					deprecate.append(prop)
 
 		# Add any default specifiers needed
+		_defaultedProperties = set()
 		for prop, default_spec in defs.items():
 			if prop not in priorities:
 				specifiers.append(default_spec)
 				properties[prop] = default_spec
+				_defaultedProperties.add(prop)
 
 		# Create the actual_props dictionary, which maps each specifier to a set of properties
 		# it is actually specifying or modifying.
@@ -247,6 +260,10 @@ class _Constructible(Samplable):
 		for spec in order:
 			spec.applyTo(self, actual_props[spec])
 		del self._evaluated
+		self._constProps = frozenset({
+			prop for prop in _defaultedProperties
+			if not needsSampling(getattr(self, prop))
+		})
 
 		# Check that all modifications have been applied and then delete tracker
 		assert all(self._mod_tracker)
@@ -276,9 +293,12 @@ class _Constructible(Samplable):
 				self._mod_tracker[prop] = False
 
 		# Normalize types of some built-in properties
-		if prop == 'position':
-			value = toVector(value, f'"position" of {self} not a vector')
+		if prop in ('position', 'velocity', 'cameraOffset'):
+			value = toVector(value, f'"{prop}" of {self} not a vector')
 		elif prop in ('yaw', 'pitch', 'roll'):
+			value = toHeading(value, f'"{prop}" of {self} not a heading')
+		elif prop in ('width', 'length', 'visibleDistance', 'positionStdDev',
+		              'viewAngle', 'headingStdDev', 'speed', 'angularSpeed'):
 			value = toScalar(value, f'"{prop}" of {self} not a scalar')
 
 		# Check if this property is already an attribute
@@ -291,24 +311,60 @@ class _Constructible(Samplable):
 	def _register(self):
 		pass	# do nothing by default; may be overridden by subclasses
 
+	def _override(self, specifiers):
+		assert not needsSampling(self)
+		oldVals = {}
+		for spec in specifiers:
+			prop = spec.property
+			if prop in self._dynamicProperties:
+				raise RuntimeParseError(f'cannot override dynamic property "{prop}"')
+			if prop not in self.properties:
+				raise RuntimeParseError(f'object has no property "{prop}" to override')
+			oldVals[prop] = getattr(self, prop)
+		defs = { prop: Specifier(prop, getattr(self, prop)) for prop in self.properties }
+		self._applySpecifiers(specifiers, defs=defs)
+		return oldVals
+
+	def _revert(self, oldVals):
+		for prop, val in oldVals.items():
+			object.__setattr__(self, prop, val)
+
 	def sampleGiven(self, value):
 		if not needsSampling(self):
 			return self
-		return self.withProperties({ prop: value[getattr(self, prop)]
-								   for prop in self.properties })
+		return self._withProperties({ prop: value[getattr(self, prop)]
+								    for prop in self.properties },
+								    constProps=self._constProps)
 
-	def allProperties(self):
+	def _allProperties(self):
 		return { prop: getattr(self, prop) for prop in self.properties }
 
-	def copyWith(self, **overrides):
-		props = self.allProperties()
+	def _copyWith(self, **overrides):
+		"""Copy this object, possibly overriding some of its properties."""
+		props = self._allProperties()
 		props.update(overrides)
-		return self.withProperties(props)
+		constProps = self._constProps.difference(overrides)
+		return self._withProperties(props, constProps=constProps)
 
-	def isEquivalentTo(self, other):
-		if type(other) is not type(self):
-			return False
-		return areEquivalent(self.allProperties(), other.allProperties())
+	def dumpAsScenicCode(self, stream, skipConstProperties=True):
+		stream.write(self.__class__.__name__)
+		first = True
+		for prop in sorted(self.properties):
+			if skipConstProperties and prop in self._constProps:
+				continue
+			if prop == 'position':
+				spec = 'at'
+			elif prop == 'heading':
+				spec = 'facing'
+			else:
+				spec = f'with {prop}'
+			if first:
+				stream.write(' ')
+				first = False
+			else:
+				stream.write(',\n    ')
+			stream.write(f'{spec} ')
+			dumpAsScenicCode(getattr(self, prop), stream)
 
 	def __str__(self):
 		if hasattr(self, 'properties') and 'name' in self.properties:
@@ -326,16 +382,26 @@ class _Constructible(Samplable):
 ## Mutators
 
 class Mutator:
-	"""An object controlling how the ``mutate`` statement affects an `Object`.
+	"""An object controlling how the :keyword:`mutate` statement affects an `Object`.
 
 	A `Mutator` can be assigned to the ``mutator`` property of an `Object` to
-	control the effect of the ``mutate`` statement. When mutation is enabled
+	control the effect of the :keyword:`mutate` statement. When mutation is enabled
 	for such an object using that statement, the mutator's `appliedTo` method
-	is called to compute a mutated version.
+	is called to compute a mutated version. The `appliedTo` method can also decide
+	whether to apply mutators inherited from superclasses.
 	"""
 
 	def appliedTo(self, obj):
-		"""Return a mutated copy of the object. Implemented by subclasses."""
+		"""Return a mutated copy of the given object. Implemented by subclasses.
+
+		The mutator may inspect the ``mutationScale`` attribute of the given object
+		to scale its effect according to the scale given in ``mutate O by S``.
+
+		Returns:
+			A pair consisting of the mutated copy of the object (which is most easily
+			created using `_copyWith`) together with a Boolean indicating whether the
+			mutator inherited from the superclass (if any) should also be applied.
+		"""
 		raise NotImplementedError
 
 class PositionMutator(Mutator):
@@ -348,9 +414,10 @@ class PositionMutator(Mutator):
 		self.stddev = stddev
 
 	def appliedTo(self, obj):
-		noise = Vector(random.gauss(0, self.stddev), random.gauss(0, self.stddev))
+		stddev = self.stddev * obj.mutationScale
+		noise = Vector(random.gauss(0, stddev), random.gauss(0, stddev))
 		pos = obj.position + noise
-		return (obj.copyWith(position=pos), True)		# allow further mutation
+		return (obj._copyWith(position=pos), True)		# allow further mutation
 
 	def __eq__(self, other):
 		if type(other) is not type(self):
@@ -370,9 +437,9 @@ class HeadingMutator(Mutator):
 		self.stddev = stddev
 
 	def appliedTo(self, obj):
-		noise = random.gauss(0, self.stddev)
+		noise = random.gauss(0, obj.mutationScale * self.stddev)
 		h = obj.heading + noise
-		return (obj.copyWith(heading=h), True)		# allow further mutation
+		return (obj._copyWith(heading=h), True)		# allow further mutation
 
 	def __eq__(self, other):
 		if type(other) is not type(self):
@@ -384,8 +451,8 @@ class HeadingMutator(Mutator):
 
 ## Point
 
-class Point(_Constructible):
-	"""Implementation of the Scenic base class ``Point``.
+class Point(Constructible):
+	"""The Scenic base class ``Point``.
 
 	The default mutator for `Point` adds Gaussian noise to ``position`` with
 	a standard deviation given by the ``positionStdDev`` property.
@@ -396,11 +463,10 @@ class Point(_Constructible):
 		width (float): Default value zero (only provided for compatibility with
 		  operators that expect an `Object`).
 		length (float): Default value zero.
-
-	.. note::
-
-		If you're looking into Scenic's internals, note that `Point` is actually a
-		subclass of the internal Python class `_Constructible`.
+		mutationScale (float): Overall scale of mutations, as set by the
+		  :keyword:`mutate` statement. Default value zero (mutations disabled).
+		positionStdDev (float): Standard deviation of Gaussian noise to add to this
+		  object's ``position`` when mutation is enabled with scale 1. Default value 1.
 	"""
 	position: PropertyDefault((), {'dynamic'}, lambda self: Vector(0, 0, 0))
 	width: 0
@@ -410,14 +476,22 @@ class Point(_Constructible):
 	# this value squared per 1 degree x 1 degree portion of the visible region
 	rayDensity: 30
 
-	mutationEnabled: False
+	mutationScale: 0
 	mutator: PropertyDefault({'positionStdDev'}, {'additive'},
 							 lambda self: PositionMutator(self.positionStdDev))
 	positionStdDev: 1
 
+	# This property is defined in Object, but we provide a default empty value
+	# for Points for implementation convenience.
+	regionContainedIn: None
 
 	@cached_property
 	def visibleRegion(self):
+		"""The :term:`visible region` of this object.
+
+		The visible region of a `Point` is a sphere centered at its ``position`` with
+		radius ``visibleDistance``.
+		"""
 		dimensions = (self.visibleDistance, self.visibleDistance, self.visibleDistance)
 		return SpheroidRegion(position=self.position, dimensions=dimensions)
 
@@ -435,7 +509,7 @@ class Point(_Constructible):
 
 	def sampleGiven(self, value):
 		sample = super().sampleGiven(value)
-		if self.mutationEnabled:
+		if self.mutationScale != 0:
 			for mutator in self.mutator:
 				if mutator is None:
 					continue
@@ -454,7 +528,7 @@ class Point(_Constructible):
 ## OrientedPoint
 
 class OrientedPoint(Point):
-	"""Implementation of the Scenic class ``OrientedPoint``.
+	"""The Scenic class ``OrientedPoint``.
 
 	The default mutator for `OrientedPoint` adds Gaussian noise to ``heading``
 	with a standard deviation given by the ``headingStdDev`` property, then
@@ -464,7 +538,9 @@ class OrientedPoint(Point):
 		heading (float; dynamic): Heading of the `OrientedPoint`. Default value 0
 			(North).
 		viewAngle (float): View cone angle for ``can see`` operator. Default
-		  value :math:`2\\pi`.
+		  value 2π.
+		headingStdDev (float): Standard deviation of Gaussian noise to add to this
+		  object's ``heading`` when mutation is enabled with scale 1. Default value 5°.
 	"""
 	# primitive orientation properties
 	yaw: PropertyDefault((), {'dynamic'}, lambda self: 0)
@@ -501,6 +577,11 @@ class OrientedPoint(Point):
 	def relativePosition(self, vec):
 		return self.position.offsetRotated(self.orientation, vec)
 
+	def distancePast(self, vec):
+		"""Distance past a given point, assuming we've been moving in a straight line."""
+		diff = self.position - vec
+		return diff.rotatedBy(-self.heading).y
+
 	def toHeading(self) -> float:
 		return self.heading
 
@@ -512,7 +593,7 @@ class OrientedPoint(Point):
 ## Object
 
 class Object(OrientedPoint, _RotatedRectangle):
-	"""Implementation of the Scenic class ``Object``.
+	"""The Scenic class ``Object``.
 
 	This is the default base class for Scenic classes.
 
@@ -533,7 +614,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 		shape: A Shape object to be used internally to handle collision detection,
 		  amongst other boolean operators for geometry.
 		cameraOffset (`Vector`): Position of the camera for the ``can see``
-		  operator, relative to the object's ``position``. Default ``0 @ 0``.
+		  operator, relative to the object's ``position``. Default ``(0, 0)``.
 
 		speed (float; dynamic): Speed in dynamic simulations. Default value 0.
 		velocity (`Vector`; *dynamic*): Velocity in dynamic simulations. Default value is
@@ -622,6 +703,14 @@ class Object(OrientedPoint, _RotatedRectangle):
 	def __delattr__(self, name):
 		proxy = object.__getattribute__(self, '_dynamicProxy')
 		object.__delattr__(proxy, name)
+
+	def startDynamicSimulation(self):
+		"""Hook called at the beginning of each dynamic simulation.
+
+		Does nothing by default; provided for objects to do simulator-specific
+		initialization as needed.
+		"""
+		pass
 
 	def containsPoint(self, point):
 		return self.occupiedSpace.containsPoint(point)
@@ -917,7 +1006,7 @@ def canSee(position, orientation, visibleDistance, viewAngle, viewRays, \
 	return len(feasible_vectors) > 0
 
 def enableDynamicProxyFor(obj):
-	object.__setattr__(obj, '_dynamicProxy', obj.copyWith())
+	object.__setattr__(obj, '_dynamicProxy', obj._copyWith())
 
 def setDynamicProxyFor(obj, proxy):
 	object.__setattr__(obj, '_dynamicProxy', proxy)

@@ -14,7 +14,7 @@ class Specifier:
 
 	Any optionally-specified properties are evaluated as attributes of the primary value.
 	"""
-	def __init__(self, priorities, value, deps=None, internal=False):
+	def __init__(self, priorities, value, deps=None):
 		if not isinstance(priorities, dict):
 			priorities = {priorities: -1}
 		self.priorities = priorities

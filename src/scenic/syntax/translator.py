@@ -12,13 +12,27 @@ See the documentation for `Scenario` for details.
 When imported, this module hooks the Python import system so that Scenic
 modules can be imported using the ``import`` statement. This is primarily for the
 translator's own use, but you could import Scenic modules from Python to
-inspect them. Because Scenic uses Python's import system, the latter's rules
-for finding modules apply, including the handling of packages.
+inspect them. [#import]_ Because Scenic uses Python's import system, the latter's
+rules for finding modules apply, including the handling of packages.
 
 Scenic is compiled in two main steps: translating the code into Python, and
 executing the resulting Python module to generate a Scenario object encoding
 the objects, distributions, etc. in the scenario. For details, see the function
 `compileStream` below.
+
+.. rubric:: Footnotes
+
+.. [#import] Note however that care must be taken when importing Scenic modules
+	which will later be used when compiling multiple Scenic scenarios. Because
+	Python caches modules, there is the possibility of one version of a Scenic
+	module persisting even when it should be recompiled during the compilation
+	of another module that imports it.
+	Scenic handles the most common case, that of Scenic modules which refer to
+	other Scenic modules at the top level; but it is not practical to catch all
+	possible cases. In particular, importing a Python package which contains
+	Scenic modules as submodules and then later compiling those modules more
+	than once within the same Python process may lead to errors or unexpected
+	behavior. See the **cacheImports** argument of `scenarioFromFile`.
 """
 
 import sys
@@ -33,8 +47,7 @@ import importlib
 import importlib.abc
 import importlib.util
 import itertools
-import pathlib
-from collections import namedtuple, defaultdict
+from collections import namedtuple, defaultdict, deque
 from contextlib import contextmanager
 
 import tokenize
@@ -42,7 +55,7 @@ from tokenize import NAME, NL, NEWLINE, ENDMARKER, OP, NUMBER, COLON, COMMENT, E
 from tokenize import LPAR, RPAR, LSQB, RSQB, RBRACE, COMMA, DOUBLESLASH, DOUBLESLASHEQUAL
 from tokenize import AT, LEFTSHIFT, RIGHTSHIFT, VBAR, AMPER, TILDE, CIRCUMFLEX, STAR
 from tokenize import LEFTSHIFTEQUAL, RIGHTSHIFTEQUAL, VBAREQUAL, AMPEREQUAL, CIRCUMFLEXEQUAL
-from tokenize import INDENT, DEDENT, STRING, SEMI
+from tokenize import INDENT, DEDENT, STRING, SEMI, DOT
 
 import ast
 from ast import parse, dump, NodeVisitor, NodeTransformer, copy_location, fix_missing_locations
@@ -50,11 +63,11 @@ from ast import Load, Store, Del, Name, Call, Tuple, BinOp, MatMult, BitAnd, Bit
 from ast import RShift, Starred, Lambda, AnnAssign, Set, Str, Subscript, Index, IfExp
 from ast import Num, Yield, YieldFrom, FunctionDef, Attribute, Constant, Assign, Expr
 from ast import Return, Raise, If, UnaryOp, Not, ClassDef, Nonlocal, Global, Compare, Is, Try
-from ast import Break, Continue, AsyncFunctionDef, Pass, While
+from ast import Break, Continue, AsyncFunctionDef, Pass, While, List
 
-from scenic.core.distributions import Samplable, needsSampling, toDistribution
+from scenic.core.distributions import Samplable, RejectionException, needsSampling, toDistribution
 from scenic.core.lazy_eval import needsLazyEvaluation
-from scenic.core.object_types import _Constructible
+from scenic.core.object_types import Constructible
 import scenic.core.errors as errors
 from scenic.core.errors import (TokenParseError, PythonParseError, ASTParseError,
 								InvalidScenarioError)
@@ -68,7 +81,9 @@ def scenarioFromString(string, params={}, model=None, scenario=None,
 					   filename='<string>', cacheImports=False):
 	"""Compile a string of Scenic code into a `Scenario`.
 
-	The optional **filename** is used for error messages."""
+	The optional **filename** is used for error messages.
+	Other arguments are as in `scenarioFromFile`.
+	"""
 	stream = io.BytesIO(string.encode())
 	return scenarioFromStream(stream, params=params, model=model, scenario=scenario,
 							  filename=filename, cacheImports=cacheImports)
@@ -77,17 +92,20 @@ def scenarioFromFile(path, params={}, model=None, scenario=None, cacheImports=Fa
 	"""Compile a Scenic file into a `Scenario`.
 
 	Args:
-		path (str): path to a Scenic file
-		params (dict): global parameters to override
-		model (str): Scenic module to use as world model
-		scenario (str): if there are multiple scenarios in the file, which one
-		  to use
+		path (str): Path to a Scenic file.
+		params (dict): Global parameters to override, as a dictionary mapping
+		  parameter names to their desired values.
+		model (str): Scenic module to use as :term:`world model`.
+		scenario (str): If there are multiple :term:`modular scenarios` in the
+		  file, which one to compile; if not specified, a scenario called 'Main'
+		  is used if it exists.
 		cacheImports (bool): Whether to cache any imported Scenic modules.
 		  The default behavior is to not do this, so that subsequent attempts
 		  to import such modules will cause them to be recompiled. If it is
 		  safe to cache Scenic modules across multiple compilations, set this
 		  argument to True. Then importing a Scenic module will have the same
-		  behavior as importing a Python module.
+		  behavior as importing a Python module. See `purgeModulesUnsafeToCache`
+		  for a more detailed discussion of the internals behind this.
 
 	Returns:
 		A `Scenario` object representing the Scenic scenario.
@@ -116,18 +134,7 @@ def scenarioFromStream(stream, params={}, model=None, scenario=None,
 			compileStream(stream, namespace, params=params, model=model, filename=filename)
 	finally:
 		if not cacheImports:
-			toRemove = []
-			for name, module in sys.modules.items():
-				if name not in oldModules and getattr(module, '_isScenicModule', False):
-					toRemove.append(name)
-				elif (name.startswith(('scenic.domains.', 'scenic.simulators.'))
-				      and any(getattr(val, '_isScenicModule', False)
-				              for val in module.__dict__.values())):
-					# TODO improve this heuristic? not safe in general to keep any modules
-					# with references to Scenic modules, but detecting such references is hard.
-					toRemove.append(name)
-			for name in toRemove:
-				del sys.modules[name]
+			purgeModulesUnsafeToCache(oldModules)
 	# Construct a Scenario from the resulting namespace
 	return constructScenarioFrom(namespace, scenario)
 
@@ -148,7 +155,65 @@ def topLevelNamespace(path=None):
 	try:
 		yield namespace
 	finally:
-		del sys.path[0]
+		# Remove directory from sys.path, being a little careful in case the
+		# Scenic program modified it (unlikely but possible).
+		try:
+			sys.path.remove(directory)
+		except ValueError:
+			pass
+
+def purgeModulesUnsafeToCache(oldModules):
+	"""Uncache loaded modules which should not be kept after compilation.
+
+	Keeping Scenic modules in `sys.modules` after compilation will cause
+	subsequent attempts at compiling the same module to reuse the compiled
+	scenario: this is usually not what is desired, since compilation can depend
+	on external state (in particular overridden global parameters, used e.g. to
+	specify the map for driving domain scenarios).
+
+	Args:
+		oldModules: List of names of modules loaded before compilation. These
+			will be skipped.
+	"""
+	toRemove = []
+	# copy sys.modules in case it mutates during iteration (actually happens!)
+	for name, module in sys.modules.copy().items():
+		if isinstance(module, ScenicModule) and name not in oldModules:
+			toRemove.append(name)
+	for name in toRemove:
+		parent, _, child = name.rpartition('.')
+		parent = sys.modules.get(parent)
+		if parent:
+			# Remove reference to purged module from parent module. This is necessary
+			# so that future imports of the purged module will properly refer to the
+			# newly-loaded version of it. See below for a long disquisition on this.
+			del parent.__dict__[child]
+
+			# Here are details on why the above line is necessary and the sorry history
+			# of my attempts to fix this type of bug (hopefully this note will prevent
+			# further self-sabotage). Suppose we have a Python package 'package'
+			# with a Scenic submodule 'submodule'. A Scenic program with the line
+			#	from package import submodule
+			# will import 2 packages, namely package and package.submodule, when first
+			# compiled. We will then purge package.submodule from sys.modules, but not
+			# package, since it is an ordinary module. So if the program is compiled a
+			# second time, the line above will NOT import package.submodule, but simply
+			# access the attribute 'submodule' of the existing package 'package'. So the
+			# reference to the old version of package.submodule will leak out.
+			# (An alternative approach, which I used to use, would be to purge all
+			# modules containing even indirect references to Scenic modules, but this
+			# opens a can of worms: the implementation of
+			#	import parent.child
+			# does not set the 'child' attribute of 'parent' if 'parent.child' is already
+			# in sys.modules, violating an invariant that Python expects [see
+			# https://docs.python.org/3/reference/import.html#submodules] and leading to
+			# confusing errors. So if parent is purged because it has some child which is
+			# a Scenic module, *all* of its children must then be purged. Since the
+			# scenic module itself can contain indirect references to Scenic modules (the
+			# world models), this means we have to purge the entire scenic package. But
+			# then whoever did 'import scenic' at the top level will be left with a
+			# reference to the old version of the Scenic module.)
+		del sys.modules[name]
 
 def compileStream(stream, namespace, params={}, model=None, filename='<stream>'):
 	"""Compile a stream of Scenic code and execute it in a namespace.
@@ -263,7 +328,7 @@ monitorClass = 'Monitor'
 createTerminationAction = 'makeTerminationAction'
 internalFunctions = {
 	createDefault, scenarioClass,
-	behaviorClass, createTerminationAction,
+	behaviorClass, monitorClass, createTerminationAction,
 }
 
 # sanity check: these functions actually exist
@@ -288,6 +353,14 @@ builtinNames = { globalParametersName }
 for name in builtinNames:
 	assert name in api, name
 
+## Specially-assigned names (accessing one of which calls a function)
+
+trackedNames = { 'ego', 'workspace' }
+
+# sanity check: getter/setter for each name exists
+for name in trackedNames:
+	assert name in api, name
+
 ## Simple statements
 
 paramStatement = 'param'
@@ -296,15 +369,22 @@ mutateStatement = 'mutate'
 requireStatement = 'require'
 softRequirement = 'require_soft'	# not actually a statement, but a marker for the parser
 requireAlwaysStatement = ('require', 'always')
+requireEventuallyStatement = ('require', 'eventually')
 terminateWhenStatement = ('terminate', 'when')
 terminateSimulationWhenStatement = ('terminate', 'simulation', 'when')
 terminateAfterStatement = ('terminate', 'after')
+recordStatement = 'record'
+recordInitialStatement = ('record', 'initial')
+recordFinalStatement = ('record', 'final')
 
 actionStatement = 'take'			# statement invoking a primitive action
 waitStatement = 'wait'				# statement invoking a no-op action
 terminateStatement = 'terminate'	# statement ending the simulation
 abortStatement = 'abort'			# statement ending a try-interrupt statement
 invokeStatement = 'do'				# statement invoking a behavior or scenario
+invocationSchedules = ('choose', 'shuffle')
+invokeVariants = { (invokeStatement, sched) for sched in invocationSchedules }
+overrideStatement = 'override'		# statement overriding an object in a sub-scenario
 
 modelStatement = 'model'
 namespaceReference = '_Scenic_module_namespace'		# used in the implementation of 'model'
@@ -314,10 +394,14 @@ simulatorStatement = 'simulator'
 oneWordStatements = {	# TODO clean up
 	paramStatement, mutateStatement, requireStatement,
 	actionStatement, waitStatement, terminateStatement,
-	abortStatement, invokeStatement, simulatorStatement
+	abortStatement, invokeStatement, simulatorStatement,
+	recordStatement,
 }
 twoWordStatements = {
-	requireAlwaysStatement, terminateWhenStatement, terminateAfterStatement,
+	requireAlwaysStatement, requireEventuallyStatement,
+	terminateWhenStatement, terminateAfterStatement,
+	recordInitialStatement, recordFinalStatement,
+	*invokeVariants
 }
 threeWordStatements = { terminateSimulationWhenStatement }
 
@@ -329,10 +413,13 @@ for incipit, last in threeWordIncipits.items():
 # statements implemented by functions
 functionStatements = {
 	requireStatement, paramStatement, mutateStatement,
-	modelStatement, simulatorStatement
+	modelStatement, simulatorStatement, overrideStatement,
+	recordStatement,
 }
 twoWordFunctionStatements = {
-	requireAlwaysStatement, terminateWhenStatement, terminateAfterStatement,
+	requireAlwaysStatement, requireEventuallyStatement,
+	terminateWhenStatement, terminateAfterStatement,
+	recordInitialStatement, recordFinalStatement,
 }
 threeWordFunctionStatements = { terminateSimulationWhenStatement }
 def functionForStatement(tokens):
@@ -360,22 +447,30 @@ for tokens in threeWordFunctionStatements:
 # statements allowed inside behaviors
 behavioralStatements = {
 	requireStatement, actionStatement, waitStatement,
-	terminateStatement, abortStatement, invokeStatement,
+	terminateStatement, abortStatement, invokeStatement, *invokeVariants,
 }
 behavioralImps = { functionForStatement(s) for s in behavioralStatements }
 
 # statements allowed inside scenario composition blocks
 compositionalStatements = {
 	requireStatement, waitStatement, terminateStatement, abortStatement,
-	invokeStatement,
+	invokeStatement, *invokeVariants, overrideStatement,
 }
 compositionalImps = { functionForStatement(s) for s in compositionalStatements }
 
-# statements encoding requirements which need special handling
-requirementStatements = (
+recordStatements = (
+    recordStatement, functionForStatement(recordInitialStatement),
+    functionForStatement(recordFinalStatement),
+)
+
+# statements encoding requirements, etc. which need special handling
+# to wrap their argument in a closure
+requirementStatements = recordStatements + (
 	requireStatement, softRequirement,
 	functionForStatement(requireAlwaysStatement),
+	functionForStatement(requireEventuallyStatement),
 	functionForStatement(terminateWhenStatement),
+	functionForStatement(terminateSimulationWhenStatement),
 )
 
 statementRaiseMarker = '_Scenic_statement_'
@@ -389,7 +484,7 @@ interruptExceptMarker = '_Scenic_interrupt_'
 ## Constructors and specifiers
 
 # statement defining a new constructor (Scenic class);
-# we still recognize 'constructor' for backwards-compatibility
+# we still recognize 'constructor' for backwards-compatibility 	# TODO drop this keyword?
 constructorStatements = ('class', 'constructor')
 
 Constructor = namedtuple('Constructor', ('name', 'bases'))
@@ -397,6 +492,7 @@ Constructor = namedtuple('Constructor', ('name', 'bases'))
 builtinSpecifiers = {
 	# position
 	('visible', 'from'): 'VisibleFrom',
+	('not', 'visible'): 'NotVisibleSpec',
 	('offset', 'by'): 'OffsetBy',
 	('offset', 'along'): 'OffsetAlongSpec',
 	('at',): 'At',
@@ -454,9 +550,9 @@ prefixOperators = {
 	('apparent', 'heading'): 'ApparentHeading',
 	('distance', 'from'): 'DistanceFrom',
 	('distance', 'to'): 'DistanceFrom',
+	('distance', 'past'): 'DistancePast',
 	('angle', 'from'): 'AngleFrom',
 	('angle', 'to'): 'AngleTo',
-	('ego', '='): 'ego',
 	('front', 'left'): 'FrontLeft',
 	('front', 'right'): 'FrontRight',
 	('back', 'left'): 'BackLeft',
@@ -538,6 +634,8 @@ infixOperators = (
 	InfixOp('from', None, 2, (COMMA, ','), None),
 	InfixOp('for', None, 2, (COMMA, ','), None, ('Follow', 'Following')),
 	InfixOp('to', None, 2, (COMMA, ','), None),
+	InfixOp('as', None, 2, (COMMA, ','), None, requirementStatements),
+	InfixOp('of', None, 2, (COMMA, ','), None, ('DistancePast')),
 	InfixOp('by', None, 2, packageToken, None)
 )
 
@@ -566,14 +664,17 @@ for op in infixOperators:
 			assert imp == oldName, (op, oldName)
 		else:
 			infixImplementations[node] = (op.arity, imp)
-generalInfixOps = { tokens: op.token for tokens, op in infixTokens.items() if not op.contexts }
+# infix operators which do not need to occur inside function calls
+generalInfixOps = {
+	tokens: op.token for tokens, op in infixTokens.items()
+	if (op.implementation or op.token == packageToken) and not op.contexts
+}
 
 ## Direct syntax replacements
 
 replacements = {	# TODO police the usage of these? could yield bizarre error messages
 	'of': tuple(),
 	'deg': ((STAR, '*'), (NUMBER, '0.01745329252')),
-	'ego': ((NAME, 'ego'), (LPAR, '('), (RPAR, ')')),
 	'globalParameters': ((NAME, 'globalParameters'), (LPAR, '('), (RPAR, ')')),
 }
 
@@ -600,7 +701,6 @@ illegalConstructs = {
 
 keywords = (
 	set(constructorStatements)
-	| (oneWordStatements - {simulatorStatement})
 	| internalFunctions
 	| replacements.keys()
 )
@@ -609,7 +709,7 @@ keywords = (
 
 ## Meta path finder and loader for Scenic files
 
-scenicExtensions = ('sc', 'scenic')
+scenicExtensions = ('scenic', 'sc')
 
 class ScenicMetaFinder(importlib.abc.MetaPathFinder):
 	def find_spec(self, name, paths, target=None):
@@ -635,7 +735,7 @@ class ScenicLoader(importlib.abc.InspectLoader):
 		self.filename = filename
 
 	def create_module(self, spec):
-		return None
+		return ScenicModule(spec.name)
 
 	def exec_module(self, module):
 		# Read source file and compile it
@@ -643,8 +743,6 @@ class ScenicLoader(importlib.abc.InspectLoader):
 			source = stream.read()
 		with open(self.filepath, 'rb') as stream:
 			code, pythonSource = compileStream(stream, module.__dict__, filename=self.filepath)
-		# Mark as a Scenic module
-		module._isScenicModule = True
 		# Save code, source, and translated source for later inspection
 		module._code = code
 		module._source = source
@@ -660,13 +758,25 @@ class ScenicLoader(importlib.abc.InspectLoader):
 
 	def get_code(self, fullname):
 		module = importlib.import_module(fullname)
-		assert module._isScenicModule, module
+		assert isinstance(module, ScenicModule), module
 		return module._code
 
 	def get_source(self, fullname):
 		module = importlib.import_module(fullname)
-		assert module._isScenicModule, module
+		assert isinstance(module, ScenicModule), module
 		return module._pythonSource
+
+class ScenicModule(types.ModuleType):
+	def __getstate__(self):
+		state = self.__dict__.copy()
+		del state['__builtins__']
+		return (self.__name__, state)
+
+	def __setstate__(self, state):
+		name, state = state
+		self.__init__(name)		# needed to create __dict__
+		self.__dict__.update(state)
+		self.__builtins__ = builtins.__dict__
 
 # register the meta path finder
 sys.meta_path.insert(0, ScenicMetaFinder())
@@ -731,12 +841,12 @@ def findConstructorsIn(namespace):
 	"""Find all constructors (Scenic classes) defined in a namespace."""
 	constructors = []
 	for name, value in namespace.items():
-		if inspect.isclass(value) and issubclass(value, _Constructible):
+		if inspect.isclass(value) and issubclass(value, Constructible):
 			if name in builtinConstructors:
 				continue
 			parents = []
 			for base in value.__bases__:
-				if issubclass(base, _Constructible):
+				if issubclass(base, Constructible):
 					parents.append(base.__name__)
 			constructors.append(Constructor(name, parents))
 	return constructors
@@ -746,26 +856,31 @@ def findConstructorsIn(namespace):
 class Peekable:
 	"""Utility class to allow iterator lookahead."""
 	def __init__(self, gen):
-		self.gen = iter(gen)
-		self.current = next(self.gen, None)
-		self.index = 0
+		self._gen = iter(gen)
+		self._cache = deque()
 
 	def __iter__(self):
 		return self
 
 	def __next__(self):
-		cur = self.current
+		self._lookahead(1)
+		cur = self._cache.popleft()
 		if cur is None:
 			raise StopIteration
-		self.current = next(self.gen, None)
-		self.index += 1
 		return cur
 
-	def peek(self):
-		return self.current
+	def _lookahead(self, n):
+		needed = n - len(self._cache)
+		while needed > 0:
+			self._cache.append(next(self._gen, None))
+			needed -= 1
 
-def peek(thing):
-	return thing.peek()
+	def peek(self, n=1):
+		self._lookahead(n)
+		return self._cache[n-1]
+
+def peek(thing, n=1):
+	return thing.peek(n)
 
 class TokenTranslator:
 	"""Translates a Scenic token stream into valid Python syntax.
@@ -783,6 +898,9 @@ class TokenTranslator:
 
 	def parseError(self, tokenOrLine, message):
 		raise TokenParseError(tokenOrLine, self.filename, message)
+
+	def isConstructorContext(self, name):
+		return name in self.constructors or name == overrideStatement
 
 	def createConstructor(self, name, parents):
 		parents = tuple(parents)
@@ -900,7 +1018,7 @@ class TokenTranslator:
 			inConstructorContext = False
 			context, startLevel = functionStack[-1] if functionStack else (None, None)
 			if parenLevel == startLevel:
-				if context in constructors:
+				if self.isConstructorContext(context):
 					inConstructorContext = True
 					allowedPrefixOps = self.specifiersForConstructor(context)
 				else:
@@ -1041,16 +1159,17 @@ class TokenTranslator:
 						advance()	# consume second word
 						matched = True
 					elif startOfStatement and twoWords in threeWordIncipits:	# 3-word statement
-						advance()	# consume second word
-						endToken = advance()	# consume third word
-						thirdWord = endToken.tstring
+						endToken = peek(tokens, 2)
+						thirdWord = endToken.string
 						expected = threeWordIncipits[twoWords]
-						if thirdWord != expected:
+						if thirdWord != expected:	# TODO do proper 3-word lookahead?
 							self.parseError(endToken,
 							                f'expected "{expected}", got "{thirdWord}"')
 						wrapStatementCall()
 						function = functionForStatement(twoWords + (thirdWord,))
 						callFunction(function)
+						advance()	# consume second word
+						advance()	# consume third word
 						matched = True
 					elif startOfStatement and twoWords in twoWordStatements:	# 2-word statement
 						wrapStatementCall()
@@ -1101,7 +1220,6 @@ class TokenTranslator:
 						injectToken((COMMA, ','))
 						callFunction(tstring, argument=(STRING, f'"{tstring}"'),
 									 implementation='Modifier')
-						skip = True
 					elif not startOfStatement and tstring in allowedTerminators:
 						injectToken((COMMA, ','))
 						injectToken((STRING, f'"{tstring}"'))
@@ -1121,9 +1239,15 @@ class TokenTranslator:
 							self.parseError(token, 'model statement is missing module name')
 						components.append("'")
 						literal = "'" + ''.join(components)
+						wrapStatementCall()
 						callFunction(modelStatement, argument=(NAME, namespaceReference))
 						injectToken((STRING, literal))
-						skip = True
+					elif startOfStatement and tstring == overrideStatement:		# override statement
+						nextToken = next(tokens)
+						if nextToken.exact_type != NAME:
+							self.parseError(nextToken, 'object to override must be an identifier')
+						wrapStatementCall()
+						callFunction(tstring, argument=nextToken)
 					elif startOfLine and tstring in scenarioBlocks:		# named block of scenario
 						if peek(tokens).exact_type != COLON:
 							self.parseError(peek(tokens), f'malformed "{tstring}" block')
@@ -1134,7 +1258,7 @@ class TokenTranslator:
 						injectToken((RPAR, ')'))
 						skip = True
 					elif (tstring in self.constructors
-						  and peek(tokens).exact_type not in (RPAR, RSQB, RBRACE, COMMA)):
+						  and peek(tokens).exact_type not in (RPAR, RSQB, RBRACE, COMMA, DOT, COLON)):
 						# instance definition
 						callFunction(tstring)
 					elif tstring in replacements:	# direct replacement
@@ -1156,9 +1280,9 @@ class TokenTranslator:
 				context, startLevel = functionStack[-1]
 				while parenLevel < startLevel:		# we've closed all parens for the current function
 					popFunction()
-				inConstructor = any(context in constructors for context, sl in functionStack)
+				inConstructor = any(self.isConstructorContext(context) for context, sl in functionStack)
 				if inConstructor and parenLevel == startLevel and ttype == COMMA:		# starting a new specifier
-					while functionStack and context not in constructors:
+					while functionStack and not self.isConstructorContext(context):
 						popFunction()
 					# allow the next specifier to be on the next line, if indented
 					injectToken(token)		# emit comma immediately
@@ -1203,7 +1327,7 @@ class TokenTranslator:
 			else:
 				moveBeyond(endToken)
 			startOfLine = (ttype in (ENCODING, NEWLINE, NL, INDENT, DEDENT))
-			startOfStatement = startOfLine or (ttype == SEMI)
+			startOfStatement = (startOfLine or (ttype == SEMI)) and not functionStack
 
 		rewrittenSource = tokenize.untokenize(newTokens)
 		if not isinstance(rewrittenSource, str):	# TODO improve?
@@ -1223,7 +1347,8 @@ def parseTranslatedSource(source, filename):
 
 temporaryName = '_Scenic_temporary_name'
 behaviorArgName = '_Scenic_current_behavior'
-checkInvariantsName = '_Scenic_check_invariants'
+checkPreconditionsName = 'checkPreconditions'
+checkInvariantsName = 'checkInvariants'
 interruptPrefix = '_Scenic_interrupt'
 
 abortFlag = Attribute(Name('BlockConclusion', Load()), 'ABORT', Load())
@@ -1354,6 +1479,7 @@ class ASTSurgeon(NodeTransformer):
 		self.usedBreak = False
 		self.usedContinue = False
 		self.callDepth = 0
+		self.behaviorLocals = set()
 
 	def parseError(self, node, message):
 		raise ASTParseError(node, message, self.filename)
@@ -1390,7 +1516,33 @@ class ASTSurgeon(NodeTransformer):
 		if node.id in builtinNames:
 			if not isinstance(node.ctx, Load):
 				self.parseError(node, f'unexpected keyword "{node.id}"')
+		elif node.id in trackedNames:
+			assert isinstance(node.ctx, Load)
+			return copy_location(Call(Name(node.id, Load()), [], []), node)
+		elif node.id in self.behaviorLocals:
+			lookup = Attribute(Name(behaviorArgName, Load()), node.id, node.ctx)
+			return copy_location(lookup, node)
 		return node
+
+	def visit_Assign(self, node):
+		def assignsTrackable(targets):
+			for target in targets:
+				if isinstance(target, Name):
+					if target.id in trackedNames:
+						return target.id
+				elif isinstance(target, (Tuple, List)):
+					trackable = assignsTrackable(target.elts)
+					if trackable:
+						return trackable
+			return False
+
+		trackable = assignsTrackable(node.targets)
+		if trackable:
+			if len(node.targets) > 1 or not isinstance(node.targets[0], Name):
+				self.parseError(node, f'only simple assignments to "{trackable}" are allowed')
+			call = Call(Name(trackable, Load()), [self.visit(node.value)], [])
+			return copy_location(Expr(call), node)
+		return self.generic_visit(node)
 
 	def visit_BinOp(self, node):
 		"""Convert infix operators to calls to the corresponding Scenic internal functions."""
@@ -1432,18 +1584,35 @@ class ASTSurgeon(NodeTransformer):
 			statement = statementForImp[func.id]
 			self.parseError(node, f'"{statement}" cannot be used in a behavior')
 		if func.id in requirementStatements:		# require, terminate when, etc.
-			if func.id == softRequirement:
+			recording = func.id in recordStatements
+			checkedArgs = node.args
+			if func.id == softRequirement:	# extract probability as first arg for soft reqs
 				func.id = requireStatement
-				numArgs = 2
-				if len(node.args) != 2:
-					self.parseError(node, f'"require" takes exactly 1 argument')
+				prob = node.args[0]
+				assert isinstance(prob, (Constant, Num))
+				if isinstance(prob, Constant):
+					assert isinstance(prob.value, (float, int))
+				checkedArgs = node.args[1:]
 			else:
-				numArgs = 1
-			self.validateSimpleCall(node, numArgs)
-			cond = node.args[-1]
+				prob = None
+			self.validateSimpleCall(node, (1, 2), args=checkedArgs)
+			value = checkedArgs[0]
+			if len(checkedArgs) > 1:
+				name = checkedArgs[1]
+				if isinstance(name, Name):
+					name = Constant(name.id)
+				elif isinstance(name, Str):
+					pass
+				elif isinstance(name, Constant):
+					name = Constant(str(name.value))
+				else:
+					self.parseError(name, f'malformed name for "{func.id}" statement')
+			else:
+				name = Constant(None)
+
 			assert not self.inRequire
 			self.inRequire = True
-			req = self.visit(cond)
+			req = self.visit(value)
 			self.inRequire = False
 			reqID = Constant(len(self.requirements))	# save ID number
 			self.requirements.append(req)		# save condition for later inspection when pruning
@@ -1451,12 +1620,8 @@ class ASTSurgeon(NodeTransformer):
 			lineNum = Constant(node.lineno)			# save line number for error messages
 			copy_location(closure, req)
 			copy_location(lineNum, req)
-			newArgs = [reqID, closure, lineNum]
-			if numArgs == 2:		# get probability for soft requirements
-				prob = node.args[0]
-				assert isinstance(prob, (Constant, Num))
-				if isinstance(prob, Constant):
-					assert isinstance(prob.value, (float, int))
+			newArgs = [reqID, closure, lineNum, name]
+			if prob:
 				newArgs.append(prob)
 			return copy_location(Expr(Call(func, newArgs, [])), node)
 		elif func.id == simulatorStatement:
@@ -1464,7 +1629,17 @@ class ASTSurgeon(NodeTransformer):
 			sim = self.visit(node.args[0])
 			closure = copy_location(Lambda(noArgs, sim), sim)
 			return copy_location(Expr(Call(func, [closure], [])), node)
-		elif func.id == invokeStatement:		# Sub-behavior or sub-scenario statement
+		elif (func.id == invokeStatement
+		      or func.id.startswith(invokeStatement + '_')):
+			# Sub-behavior or sub-scenario statement
+			if func.id.startswith(invokeStatement + '_'):
+				stmt = statementForImp[func.id]
+				schedule = func.id[len(invokeStatement)+1:]
+				assert '_' not in schedule
+				keywords = [ast.keyword('schedule', Constant(schedule))]
+			else:
+				stmt = func.id
+				keywords = []
 			seenModifier = False
 			invoked = []
 			args = []
@@ -1473,7 +1648,7 @@ class ASTSurgeon(NodeTransformer):
 					and arg.func.id == 'Modifier'):
 					if seenModifier:
 						self.parseError(arg,
-							f'incompatible qualifiers for "{invokeStatement}" statement')
+							f'incompatible qualifiers for "{stmt}" statement')
 					seenModifier = True
 					assert len(arg.args) >= 2
 					mod = arg.args[0]
@@ -1483,14 +1658,14 @@ class ASTSurgeon(NodeTransformer):
 						arg.args[1] = Lambda(noArgs, arg.args[1])
 					args.append(self.visit(arg))
 				elif seenModifier:
-					self.parseError(arg, f'malformed "{invokeStatement}" statement')
+					self.parseError(arg, f'malformed "{stmt}" statement')
 				else:
 					invoked.append(self.visit(arg))
 			maxInvoked = 1 if self.inBehavior and not self.inCompose else None
 			self.validateSimpleCall(node, (1, maxInvoked), onlyInBehaviors=True, args=invoked)
 			subHandler = Attribute(Name(behaviorArgName, Load()), '_invokeSubBehavior', Load())
 			subArgs = [Name('self', Load()), Tuple(invoked, Load())] + args
-			subRunner = Call(subHandler, subArgs, [])
+			subRunner = Call(subHandler, subArgs, keywords)
 			return self.generateInvocation(node, subRunner, invoker=YieldFrom)
 		elif func.id == actionStatement:		# Action statement
 			if self.inCompose:
@@ -1540,7 +1715,10 @@ class ASTSurgeon(NodeTransformer):
 	def generateInvocation(self, node, actionlike, invoker=Yield):
 		"""Generate an invocation of an action, behavior, or scenario."""
 		invokeAction = Expr(invoker(actionlike))
-		checkInvariants = Expr(Call(Name(checkInvariantsName, Load()), [], []))
+		checker = Attribute(Name(behaviorArgName, Load()), checkInvariantsName, Load())
+		args = Starred(Attribute(Name(behaviorArgName, Load()), '_args', Load()), Load())
+		kwargs = ast.keyword(None, Attribute(Name(behaviorArgName, Load()), '_kwargs', Load()))
+		checkInvariants = Expr(Call(checker, [Name('self', Load()), args], [kwargs]))
 		return [copy_location(invokeAction, node), copy_location(checkInvariants, node)]
 
 	def visit_Try(self, node):
@@ -1560,14 +1738,9 @@ class ASTSurgeon(NodeTransformer):
 		if not interrupts:		# an ordinary try-except block
 			return self.generic_visit(node)
 
-		# Add dead copy of all interrupts to ensure all local variables defined inside
-		# the body and handlers are also defined as locals in the top-level function
 		statements = []
 		oldInTryInterrupt = self.inTryInterrupt
-		if not self.inTryInterrupt:
-			deadcopy = If(Constant(False), [node], [])
-			statements.append(deadcopy)
-			self.inTryInterrupt = True
+		self.inTryInterrupt = True
 
 		# Construct body
 		oldInInterruptBlock, oldInLoop = self.inInterruptBlock, self.inLoop
@@ -1743,7 +1916,7 @@ class ASTSurgeon(NodeTransformer):
 		if self.inBehavior:
 			self.parseError(node, 'cannot define a scenario inside a behavior')
 
-		# Set up arguments for setup block (also inherited by compose block)
+		# Set up arguments for setup and compose blocks
 		args = node.args
 		args.args = initialBehaviorArgs + args.args
 		args = self.visit(args)
@@ -1788,52 +1961,52 @@ class ASTSurgeon(NodeTransformer):
 			if preconditions or invariants:
 				self.parseError(node, f'simple scenario cannot have preconditions/invariants')
 
+		# Find all locals of the scenario, which will be shared amongst the various blocks
+		allLocals = set()
+		if compose:
+			allLocals.update(LocalFinder.findIn(compose.body))
+		if setup:
+			allLocals.update(LocalFinder.findIn(setup.body))
+		oldBL = self.behaviorLocals
+		self.behaviorLocals = allLocals
+
 		# Construct compose block
+		self.inCompose = self.inBehavior = True
+		guardCheckers = self.makeGuardCheckers(args, preconditions, invariants)
 		if compose or preconditions or invariants:
-			self.inCompose = self.inBehavior = True
-			preamble = self.makeBehaviorPreamble(preconditions, invariants)
 			if compose:
 				body = self.visit(compose.body)
-				if setup:
-					# make all locals in compose block actually use scope of setup block
-					# (the compose definition will be placed inside the setup function)
-					setupLocals = LocalFinder.findIn(setup.body)
-					composeLocals = LocalFinder.findIn(body)
-					commonLocals = setupLocals & composeLocals
-					if commonLocals:
-						body.insert(0, Nonlocal(list(commonLocals)))
 			else:
 				# generate no-op compose block to ensure invariants are checked
 				wait = self.generateInvocation(node, Constant(()))
 				body = [While(Constant(True), wait, [])]
 				compose = node 	# for copy_location below
-			newBody = preamble + body
-			newDef = FunctionDef('_compose', noArgs, newBody, [], None)
-			self.inCompose = self.inBehavior = False
+			newDef = FunctionDef('_compose', args, body, [], None)
 			compose = copy_location(newDef, compose)
 		else:
 			compose = Assign([Name('_compose', Store())], Constant(None))
+		self.inCompose = self.inBehavior = False
 
 		# Construct setup block
-		if setup:
-			oldBody = setup.body
-			oldLoc = setup
-		elif simple:
-			oldBody = node.body
-			oldLoc = node
+		if setup or simple:
+			if setup:
+				oldBody = setup.body
+				oldLoc = setup
+			else:
+				oldBody = node.body
+				oldLoc = node
+			newBody = self.visit(oldBody)
+			newDef = FunctionDef('_setup', args, newBody, [], None)
+			setup = copy_location(newDef, oldLoc)
 		else:
-			oldBody = []
-			oldLoc = node
-		getLocals = Call(Name('locals', Load()), [], [])
-		returnStmt = Return(getLocals)
-		newBody = self.visit(oldBody) + [compose, returnStmt]
-		newDef = FunctionDef('_setup', args, newBody,
-							 [Name(id='staticmethod', ctx=Load())], None)
-		setup = copy_location(newDef, oldLoc)
+			setup = Assign([Name('_setup', Store())], Constant(None))
+
+		self.behaviorLocals = oldBL
 
 		# Assemble scenario definition
 		name = node.name[len(scenarioMarker):]
-		body = [setup]
+		saveLocals = Assign([Name('_locals', Store())], Constant(frozenset(allLocals)))
+		body = guardCheckers + [saveLocals, setup, compose]
 		newDef = ClassDef(name, [Name(scenarioClass, Load())], [], body, [])
 		return copy_location(newDef, node)
 
@@ -1843,8 +2016,24 @@ class ASTSurgeon(NodeTransformer):
 		if self.inBehavior:
 			self.parseError(node, 'cannot define a behavior inside a behavior')
 
+		# copy arguments to the behavior object's namespace
+		args = node.args
+		copyArgs = []
+		allArgs = itertools.chain(args.args, args.kwonlyargs)
+		if sys.version_info >= (3, 8):
+			allArgs = itertools.chain(args.posonlyargs, allArgs)
+		for arg in allArgs:
+			dest = Attribute(Name(behaviorArgName, Load()), arg.arg, Store())
+			copyArgs.append(copy_location(Assign([dest], Name(arg.arg, Load())), arg))
+
+		# add private current behavior argument and implicit 'self' argument
+		newArgs = self.visit(node.args)
+		newArgs.args = initialBehaviorArgs + newArgs.args
+
 		# process body
 		self.inBehavior = True
+		oldBL = self.behaviorLocals
+		self.behaviorLocals = allLocals = LocalFinder.findIn(node.body)
 		oldInLoop = self.inLoop
 		self.inLoop = False
 		preconditions = []
@@ -1860,19 +2049,18 @@ class ASTSurgeon(NodeTransformer):
 			oldStatements = node.body
 		# find precondition and invariant definitions
 		for statement in oldStatements:
-			if (isinstance(statement, AnnAssign)
-				and isinstance(statement.target, Name)
-				and statement.value is None
-				and statement.simple):
+			if isinstance(statement, AsyncFunctionDef):
 				group = None
-				if statement.target.id == 'precondition':
+				if statement.name == 'precondition':
 					group = preconditions
-				elif statement.target.id == 'invariant':
+				elif statement.name == 'invariant':
 					group = invariants
 				else:
 					self.parseError(statement, 'unknown type of behavior attribute')
+				if len(statement.body) != 1 or not isinstance(statement.body[0], Expr):
+					self.parseError(statement.body, f'malformed behavior {statement.name}')
 				self.inGuard = True
-				test = self.visit(statement.annotation)
+				test = self.visit(statement.body[0].value)
 				self.inGuard = False
 				assert isinstance(test, ast.AST)
 				group.append(test)
@@ -1882,19 +2070,17 @@ class ASTSurgeon(NodeTransformer):
 					newStatements.append(newStatement)
 				else:
 					newStatements.extend(newStatement)
-
-		newBody = self.makeBehaviorPreamble(preconditions, invariants) + newStatements
+		guardCheckers = self.makeGuardCheckers(newArgs, preconditions, invariants)
+		newBody = copyArgs + newStatements
 		self.inBehavior = False
+		self.behaviorLocals = oldBL
 		self.inLoop = oldInLoop
 
-		# add private current behavior argument and implicit 'self' argument
-		newArgs = self.visit(node.args)
-		newArgs.args = initialBehaviorArgs + newArgs.args
-
 		# convert to class definition
+		saveLocals = Assign([Name('_locals', Store())], Constant(frozenset(allLocals)))
 		decorators = [self.visit(decorator) for decorator in node.decorator_list]
 		genDefn = FunctionDef('makeGenerator', newArgs, newBody, decorators, node.returns)
-		classBody = docstring + [genDefn]
+		classBody = docstring + guardCheckers + [saveLocals, genDefn]
 		name = node.name
 		if dynamics.isAMonitorName(name):
 			superclass = monitorClass
@@ -1905,8 +2091,8 @@ class ASTSurgeon(NodeTransformer):
 
 		return copy_location(newDefn, node)
 
-	def makeBehaviorPreamble(self, preconditions, invariants):
-		# generate precondition checks
+	def makeGuardCheckers(self, args, preconditions, invariants):
+		# generate precondition checker
 		precondChecks = []
 		for precondition in preconditions:
 			call = Call(Name('PreconditionViolation', Load()),
@@ -1915,6 +2101,8 @@ class ASTSurgeon(NodeTransformer):
 			throw = Raise(exc=call, cause=None)
 			check = If(test=UnaryOp(Not(), precondition), body=[throw], orelse=[])
 			precondChecks.append(copy_location(check, precondition))
+		definePChecker = FunctionDef(checkPreconditionsName, args,
+		                             precondChecks + [ast.Pass()], [], None)
 		# generate invariant checker
 		invChecks = []
 		for invariant in invariants:
@@ -1924,13 +2112,13 @@ class ASTSurgeon(NodeTransformer):
 			throw = Raise(exc=call, cause=None)
 			check = If(test=UnaryOp(Not(), invariant), body=[throw], orelse=[])
 			invChecks.append(copy_location(check, invariant))
-		defineChecker = FunctionDef(checkInvariantsName, tempArg,
-									invChecks + [Return(Name(temporaryName, Load()))], [], None)
-		spot = Attribute(Name(behaviorArgName, Load()), 'checkInvariants', Store())
-		saveChecker = Assign([spot], Name(checkInvariantsName, Load()))
-		callChecker = Expr(Call(Name(checkInvariantsName, Load()), [], []))
+		defineIChecker = FunctionDef(checkInvariantsName, args,
+		                             invChecks + [ast.Pass()], [], None)
 		# assemble function body preamble
-		preamble = precondChecks + [defineChecker, saveChecker, callChecker]
+		preamble = [
+			definePChecker,
+			defineIChecker,
+		]
 		return preamble
 
 	def visit_Yield(self, node):
@@ -2031,7 +2219,15 @@ def compileTranslatedTree(tree, filename):
 
 def executeCodeIn(code, namespace):
 	"""Execute the final translated Python code in the given namespace."""
-	exec(code, namespace)
+	try:
+		exec(code, namespace)
+	except RejectionException as e:
+		# Determined statically that the scenario has probability zero.
+		errors.optionallyDebugRejection(e)
+		if errors.showInternalBacktrace:
+			raise InvalidScenarioError(e.args[0]) from e
+		else:
+			raise InvalidScenarioError(e.args[0]).with_traceback(e.__traceback__) from None
 
 ### TRANSLATION PHASE SEVEN: scenario construction
 
@@ -2067,6 +2263,9 @@ def storeScenarioStateIn(namespace, requirementSyntax):
 		scenario._bindGlobals(veneer._globalParameters)
 	moduleScenario._bindGlobals(veneer._globalParameters)
 
+	# Save workspace
+	namespace['_workspace'] = veneer._workspace
+
 	namespace['_scenario'] = moduleScenario
 
 def gatherBehaviorNamespacesFrom(behaviors):
@@ -2076,14 +2275,18 @@ def gatherBehaviorNamespacesFrom(behaviors):
 	"""
 	behaviorNamespaces = {}
 	def registerNamespace(modName, ns):
-		if modName not in behaviorNamespaces:
-			behaviorNamespaces[modName] = ns
-		else:
-			assert behaviorNamespaces[modName] is ns
+		oldNS = behaviorNamespaces.get(modName)
+		if oldNS:
+			# Already registered; just do a consistency check to avoid bizarre
+			# bugs from having multiple versions of the same module around.
+			if oldNS is not ns:
+				raise RuntimeError(
+				    f'scenario refers to multiple versions of module {modName}; '
+				    'perhaps you imported it before you started compilation?')
 			return
+		behaviorNamespaces[modName] = ns
 		for name, value in ns.items():
-			if (isinstance(value, types.ModuleType)
-				and getattr(value, '_isScenicModule', False)):
+			if isinstance(value, ScenicModule):
 				registerNamespace(value.__name__, value.__dict__)
 			else:
 				# Convert values requiring sampling to Distributions
@@ -2099,9 +2302,13 @@ def gatherBehaviorNamespacesFrom(behaviors):
 def constructScenarioFrom(namespace, scenarioName=None):
 	"""Build a Scenario object from an executed Scenic module."""
 	modularScenarios = namespace['_scenarios']
+	def isModularScenario(thing):
+		return isinstance(thing, type) and issubclass(thing, dynamics.DynamicScenario)
+	if not scenarioName and isModularScenario(namespace.get('Main', None)):
+		scenarioName = 'Main'
 	if scenarioName:
 		ty = namespace.get(scenarioName, None)
-		if not (isinstance(ty, type) and issubclass(ty, dynamics.DynamicScenario)):
+		if not isModularScenario(ty):
 			raise RuntimeError(f'no scenario "{scenarioName}" found')
 		if ty._requiresArguments():
 			raise RuntimeError(f'cannot instantiate scenario "{scenarioName}"'
@@ -2119,7 +2326,7 @@ def constructScenarioFrom(namespace, scenarioName=None):
 	if not dynScenario._prepared:	# true for all except top-level scenarios
 		# Execute setup block (if any) to create objects and requirements;
 		# extract any requirements and scan for relations used for pruning
-		dynScenario._prepare()
+		dynScenario._prepare(delayPreconditionCheck=True)
 	scenario = dynScenario._toScenario(namespace)
 
 	# Prune infeasible parts of the space
