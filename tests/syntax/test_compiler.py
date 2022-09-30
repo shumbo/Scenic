@@ -32,7 +32,8 @@ class TestCompiler:
                 ],
                 orelse=[],
                 finalbody=[],
-            )
+            ),
+            inBehavior=True,
         )
         match node:
             case Try(
@@ -378,6 +379,10 @@ class TestCompiler:
                 assert True
             case _:
                 assert False
+
+    def test_model_in_setup(self):
+        with pytest.raises(SyntaxError):
+            compileScenicAST(Model("model"), inSetup=True)
 
     def test_mutate_basic(self):
         node, _ = compileScenicAST(Mutate([Name("x", Load())]))
@@ -755,15 +760,21 @@ class TestCompiler:
                 assert False
 
     def test_abort(self):
-        node, _ = compileScenicAST(Abort())
+        node, _ = compileScenicAST(Abort(), inInterruptBlock=True)
         match node:
             case Return(Attribute(Name("BlockConclusion"), "ABORT")):
                 assert True
             case _:
                 assert False
 
+    def test_abort_outside_interrupt(self):
+        with pytest.raises(SyntaxError):
+            compileScenicAST(Abort(), inInterruptBlock=False)
+
     def test_take(self):
-        node, _ = compileScenicAST(Take([Constant(1), Constant(2), Constant(3)]))
+        node, _ = compileScenicAST(
+            Take([Constant(1), Constant(2), Constant(3)]), inBehavior=True
+        )
         match node:
             case [
                 Expr(value=Yield(value=Tuple([Constant(1), Constant(2), Constant(3)]))),
@@ -774,7 +785,7 @@ class TestCompiler:
                 assert False
 
     def test_wait(self):
-        node, _ = compileScenicAST(Wait())
+        node, _ = compileScenicAST(Wait(), inMonitor=True)
         match node:
             case [
                 Expr(value=Yield(value=Constant(value=()))),
@@ -785,7 +796,7 @@ class TestCompiler:
                 assert False
 
     def test_terminate(self):
-        node, _ = compileScenicAST(Terminate(lineno=1))
+        node, _ = compileScenicAST(Terminate(lineno=1), inBehavior=True)
         match node:
             case [
                 Expr(
@@ -804,7 +815,7 @@ class TestCompiler:
                 assert False
 
     def test_do(self):
-        node, _ = compileScenicAST(Do([Constant(1)]))
+        node, _ = compileScenicAST(Do([Constant(1)]), inBehavior=True)
         match node:
             case [
                 Expr(
@@ -833,7 +844,9 @@ class TestCompiler:
                 assert False
 
     def test_do_for_seconds(self):
-        node, _ = compileScenicAST(DoFor([Constant("foo")], Seconds(Constant(1))))
+        node, _ = compileScenicAST(
+            DoFor([Constant("foo")], Seconds(Constant(1))), inBehavior=True
+        )
         match node:
             case [
                 Expr(
@@ -871,7 +884,9 @@ class TestCompiler:
                 assert False
 
     def test_do_for_steps(self):
-        node, _ = compileScenicAST(DoFor([Constant("foo")], Steps(Constant(3))))
+        node, _ = compileScenicAST(
+            DoFor([Constant("foo")], Steps(Constant(3))), inBehavior=True
+        )
         match node:
             case [
                 Expr(
@@ -909,7 +924,9 @@ class TestCompiler:
                 assert False
 
     def test_do_until(self):
-        node, _ = compileScenicAST(DoUntil([Constant("foo")], Name("condition")))
+        node, _ = compileScenicAST(
+            DoUntil([Constant("foo")], Name("condition")), inBehavior=True
+        )
         match node:
             case [
                 Expr(
