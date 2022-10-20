@@ -17,7 +17,7 @@ air_cube = Object in air_region,
     with width 5,
     with length 5,
     with height 5,
-    with viewAngle (90 deg, 45 deg),
+    with viewAngles (90 deg, 45 deg),
     with visibleDistance 10
 
 # Place a small cone on the air_cube, which should automatically
@@ -25,7 +25,7 @@ air_cube = Object in air_region,
 # flush with the face.
 small_air_cone = Object on air_cube,
     with shape MeshShape(trimesh.creation.cone(radius=0.5, height=1)),
-    with viewAngle (60 deg, 30 deg),
+    with viewAngles (60 deg, 30 deg),
     with visibleDistance 5
 
 # Create floor region

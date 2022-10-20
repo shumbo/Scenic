@@ -564,7 +564,7 @@ class _MeshRegion(Region):
 		# Don't know how to compute this union, fall back to default behavior.
 		return super().union(other, triedReversed)
 
-	def difference(self, other):
+	def difference(self, other, debug=False):
 		""" Get a `Region` representing the difference of this region's
 		volume with another region. If the resulting mesh is watertight,
 		the resulting region will be a MeshVolumeRegion. Otherwise returns
@@ -581,7 +581,7 @@ class _MeshRegion(Region):
 
 			# Compute difference using Trimesh (CalledProcessError usually means empty intersection)
 			try:
-				new_mesh = self.mesh.difference(other_mesh, engine=self.engine)
+				new_mesh = self.mesh.difference(other_mesh, engine=self.engine, debug=debug)
 			except CalledProcessError:
 				return EmptyRegion("EmptyMesh")
 
@@ -946,12 +946,12 @@ class PyramidViewRegion(MeshVolumeRegion):
 	:param viewAngles: The view angles for this region.
 	:param rotation: An optional Orientation object which determines the rotation of the object in space.
 	"""
-	def __init__(self, visibleDistance, viewAngle, rotation=None):
-		if min(viewAngle) <= 0 or max(viewAngle) >= math.pi:
-			raise ValueError("viewAngle members must be between 0 and Pi.")
+	def __init__(self, visibleDistance, viewAngles, rotation=None):
+		if min(viewAngles) <= 0 or max(viewAngles) >= math.pi:
+			raise ValueError("viewAngles members must be between 0 and Pi.")
 
-		x_dim = 2*visibleDistance*math.tan(viewAngle[0]/2)
-		z_dim = 2*visibleDistance*math.tan(viewAngle[1]/2)
+		x_dim = 2*visibleDistance*math.tan(viewAngles[0]/2)
+		z_dim = 2*visibleDistance*math.tan(viewAngles[1]/2)
 
 		dimensions = (x_dim, visibleDistance*1.01, z_dim)
 
@@ -991,13 +991,13 @@ class DefaultViewRegion(MeshVolumeRegion):
 		the region.
 	:param tolerance: Tolerance for collision computations.
 	"""
-	def __init__(self, visibleDistance, viewAngle, name=None, position=Vector(0,0,0), rotation=None,\
+	def __init__(self, visibleDistance, viewAngles, name=None, position=Vector(0,0,0), rotation=None,\
 		orientation=None, tolerance=1e-8):
-		# Bound viewAngle from either side.
-		viewAngle = tuple([min(angle, math.tau) for angle in viewAngle])
+		# Bound viewAngles from either side.
+		viewAngles = tuple([min(angle, math.tau) for angle in viewAngles])
 
-		if min(viewAngle) <= 0:
-			raise ValueError("viewAngle cannot have a component less than or equal to 0")
+		if min(viewAngles) <= 0:
+			raise ValueError("viewAngles cannot have a component less than or equal to 0")
 
 		# Cases in view region computation
 		# Case 1: 		One view angle = 360 degrees
@@ -1015,22 +1015,22 @@ class DefaultViewRegion(MeshVolumeRegion):
 		diameter = 2*visibleDistance
 		base_sphere = SpheroidRegion(dimensions=(diameter, diameter, diameter), engine="scad")
 
-		if (math.tau-0.01 <= viewAngle[0] <= math.tau+0.01) or (math.tau-0.01 <= viewAngle[1] <= math.tau+0.01):
+		if (math.tau-0.01 <= viewAngles[0] <= math.tau+0.01) or (math.tau-0.01 <= viewAngles[1] <= math.tau+0.01):
 			# Case 1
-			if min(viewAngle) > math.pi-0.01:
+			if min(viewAngles) > math.pi-0.01:
 				#Case 1.a
 				view_region = base_sphere
 			else:
 				# Case 1.b
 				# Find cone_direction. 0 indicates on the pitch axis. 1 indicates on the yaw axis.
-				if viewAngle[0] < viewAngle[1]:
+				if viewAngles[0] < viewAngles[1]:
 					cone_direction = 0
 				else:
 					cone_direction = 1
 
 				# Create cone with yaw oriented around (0,0,-1)
 				padded_height = visibleDistance * 2
-				radius = 2*padded_height*math.tan((math.pi-viewAngle[cone_direction])/2)
+				radius = padded_height*math.tan((math.pi-viewAngles[cone_direction])/2)
 
 				cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
 
@@ -1052,29 +1052,49 @@ class DefaultViewRegion(MeshVolumeRegion):
 
 				view_region = base_sphere.difference(cone_1).difference(cone_2)
 
-		elif (math.pi-0.01 <= viewAngle[0] <= math.pi+0.01) or (math.pi-0.01 <= viewAngle[1] <= math.pi+0.01):
+		elif (math.pi-0.01 <= viewAngles[0] <= math.pi+0.01) or (math.pi-0.01 <= viewAngles[1] <= math.pi+0.01):
 			# Case 2
-			if min(viewAngle) > math.pi+0.01:
+			if min(viewAngles) > math.pi+0.01:
 				# Case 2.a
 				raise NotImplementedError()
-			elif math.pi-0.01 <= min(viewAngle) <= math.pi+0.01:
+			elif math.pi-0.01 <= min(viewAngles) <= math.pi+0.01:
 				# Case 2.b
 				padded_diameter = 1.1*diameter
 				view_region = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
-		elif viewAngle[0] < math.pi and viewAngle[1] < math.pi:
+		elif viewAngles[0] < math.pi and viewAngles[1] < math.pi:
 			# Case 3
-			view_region = base_sphere.intersect(PyramidViewRegion(visibleDistance, viewAngle))
-		elif viewAngle[0] > math.pi and viewAngle[1] > math.pi:
+			view_region = base_sphere.intersect(PyramidViewRegion(visibleDistance, viewAngles))
+		elif viewAngles[0] > math.pi and viewAngles[1] > math.pi:
 			# Case 4
 			backwards_orientation = Orientation.fromEuler(math.pi, 0, 0)
-			backwards_view_angle = (math.tau-viewAngle[0], math.tau-viewAngle[1])
+			backwards_view_angle = (math.tau-viewAngles[0], math.tau-viewAngles[1])
 			view_region = base_sphere.difference(PyramidViewRegion(visibleDistance, backwards_view_angle, rotation=backwards_orientation))
-		elif viewAngle[0] < math.pi and viewAngle[1] > math.pi:
+		elif viewAngles[0] < math.pi and viewAngles[1] > math.pi:
 			# Case 5
 			raise NotImplementedError()
-		elif viewAngle[0] > math.pi and viewAngle[1] < math.pi:
+		elif viewAngles[0] > math.pi and viewAngles[1] < math.pi:
 			# Case 6
-			raise NotImplementedError()
+			# Create cone with yaw oriented around (0,0,-1)
+			padded_height = visibleDistance * 2
+			radius = padded_height*math.tan((math.pi-viewAngles[1])/2)
+
+			cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
+
+			position_matrix = translation_matrix((0,0,-1*padded_height))
+			cone_mesh.apply_transform(position_matrix)
+
+			# Position on the yaw axis
+			orientation_1 = Orientation.fromEuler(0,0,0)
+			orientation_2 = Orientation.fromEuler(0,0,math.pi)
+
+			cone_1 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_1, center_mesh=False)
+			cone_2 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_2, center_mesh=False)
+
+			backwards_view_angle = (math.tau-viewAngles[0], math.pi-0.01)
+			back_pyramid = PyramidViewRegion(visibleDistance, backwards_view_angle, rotation=Orientation.fromEuler(math.pi, 0, 0))
+
+			# Note: Openscad does not like the result of the difference with the cones, so they must be done last.
+			view_region = base_sphere.difference(back_pyramid).difference(cone_1).difference(cone_2)
 
 		assert view_region is not None
 

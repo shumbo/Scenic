@@ -332,8 +332,8 @@ class Scenario(_ScenarioPickleMixin):
 					break
 				# Require object to be visible from the ego object
 				if vi.requireVisible and vi is not ego:
-					occluding_objects = {sample[obj] for obj in objects if obj is not self.egoObject \
-										 and obj is not vi and obj.occluding}
+					occluding_objects = {sample[obj] for obj in objects if sample[obj] is not ego \
+										 and sample[obj] is not vi and obj.occluding}
 
 					if not ego.canSee(vi, occludingObjects=occluding_objects):
 						rejection = 'object visibility'

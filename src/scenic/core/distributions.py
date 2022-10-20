@@ -521,8 +521,8 @@ class AttributeDistribution(Distribution):
 
         # Check for a @property defined on the class with a return type
 		if (ty is not object and (func := getattr(ty, attribute, None))
-            and isinstance(func, property)):
-            return typing.get_type_hints(func.fget).get('return')
+			and isinstance(func, property)):
+			return typing.get_type_hints(func.fget).get('return')
 
 		# We can't tell what the attribute type is.
 		return None

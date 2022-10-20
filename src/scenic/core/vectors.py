@@ -17,7 +17,7 @@ from scenic.core.distributions import (Samplable, Distribution, MethodDistributi
     needsSampling, makeOperatorHandler, distributionMethod, distributionFunction,
 	RejectionException, TupleDistribution)
 from scenic.core.lazy_eval import valueInContext, needsLazyEvaluation, makeDelayedFunctionCall
-from scenic.core.utils import argsToString
+from scenic.core.utils import argsToString, cached_property
 from scenic.core.geometry import normalizeAngle, dotProduct, norm
 
 class VectorDistribution(Distribution):
@@ -190,7 +190,7 @@ class Orientation:
 	def fromEuler(cls, yaw, pitch, roll) -> Orientation:
 		return Orientation(Rotation.from_euler('ZXY', [yaw, pitch, roll], degrees=False).as_quat())
 
-	@utils.cached_property
+	@cached_property
 	def eulerAngles(self) -> EulerAngles:
 		"""Global intrinsic Euler angles yaw, pitch, roll."""
 		r = Rotation.from_quat(self.q)

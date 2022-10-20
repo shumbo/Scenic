@@ -4,7 +4,8 @@ import trimesh
 workspace_region = RectangularRegion(0 @ 0, 0, 40, 40)
 workspace = Workspace(workspace_region)
 
-sample_space = BoxRegion(dimensions=(40,14,20), position=(0,12.5,10))
+forward_sample_space = BoxRegion(dimensions=(40,14,20), position=(0,12.5,10))
+full_sample_space = BoxRegion(dimensions=(40,40,40), position=(0,0,0))
 
 # Create an object at the origin who's vision cone should extend exactly
 # to the edges of the workspace.
@@ -14,16 +15,25 @@ ego = Object with visibleDistance 30,
     with length 5,
     with height 5,
     with pitch 45 deg,
-    with viewAngle (45 deg, 90 deg),
-    with viewRays (40, 40)
+    with viewAngles (340 deg, 60 deg),
+    with rayDensity 5
 
-Object in sample_space,
+# Load chair mesh from file
+with open(localPath("mesh.obj"), "r") as mesh_file:
+    mesh = trimesh.load(mesh_file, file_type="obj")
+
+# Load chair shape at 1/10th of the original size
+chair_shape = MeshShape(mesh,initial_rotation=(0,90 deg,0))
+
+Object in forward_sample_space,
     with width 2,
     with height 2,
     with length 2,
-    with requireVisible True
+    with requireVisible True,
+    with name "seeingObject"
 
 Object at (0,5,4),
     with width 10,
     with length 0.5,
-    with height 6
+    with height 6,
+    with name "wall"

@@ -47,11 +47,11 @@ class Specifier:
 		return f'<Specifier of {self.priorities}>'
 
 class ModifyingSpecifier(Specifier):
-	def __init__(self, priorities, value, modifiable_props, deps=None, internal=False):
+	def __init__(self, priorities, value, modifiable_props, deps=None):
 		# modifiable_props keeps track of what properties specified by this specifier
 		# can be modified.
 		self.modifiable_props = modifiable_props
-		super().__init__(priorities, value, deps, internal)
+		super().__init__(priorities, value, deps)
 
 ## Support for property defaults
 

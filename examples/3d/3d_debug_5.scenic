@@ -6,21 +6,18 @@ workspace = Workspace(workspace_region)
 
 sample_space = BoxRegion(dimensions=(30,30,30), position=(0,0,15))
 
-# Create an object at the origin who's vision cone should extend exactly
-# to the edges of the workspace.
 ego = Object with visibleDistance 20,
     with width 5,
     with length 5,
     with height 5,
-    with viewAngle (200 deg, 200 deg)
+    with viewAngles (360 deg, 180 deg)
 
 Object in sample_space,
     with width 1,
     with length 1,
     with height 1,
     facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
-    with visibleDistance 5,
-    with viewAngle (360 deg, 45 deg),
+    with viewAngles (180 deg, 180 deg),
     with requireVisible True,
     with cameraOffset (0,0,0.5)
 
@@ -29,9 +26,8 @@ Object in sample_space,
     with length 1,
     with height 1,
     facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
-    # visible from ego,
     with visibleDistance 5,
-    with viewAngle (120 deg, 90 deg),
+    with viewAngles (360 deg, 90 deg),
     with requireVisible True
 
 Object in sample_space,
@@ -40,5 +36,6 @@ Object in sample_space,
     with height 1,
     facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
     with visibleDistance 5,
-    with viewAngle (180 deg, 180 deg),
+    with viewAngles (90 deg, 90 deg),
     with requireVisible True
+
