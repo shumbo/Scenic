@@ -12,7 +12,7 @@ ego = Object with visibleDistance 20,
     with height 5,
     with viewAngles (360 deg, 180 deg)
 
-Object in sample_space,
+obj_1 = Object in sample_space,
     with width 1,
     with length 1,
     with height 1,
@@ -21,7 +21,7 @@ Object in sample_space,
     with requireVisible True,
     with cameraOffset (0,0,0.5)
 
-Object in sample_space,
+obj_2 = Object in sample_space,
     with width 1,
     with length 1,
     with height 1,

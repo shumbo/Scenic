@@ -336,7 +336,27 @@ class Scenario(_ScenarioPickleMixin):
 										 and sample[obj] is not vi and obj.occluding}
 
 					if not ego.canSee(vi, occludingObjects=occluding_objects):
-						rejection = 'object visibility'
+						rejection = 'object visibility (from ego)'
+						break
+				# Require that the observing entity, if one has been specified,
+				# can see the object.
+				if vi.observingEntity is not None:
+					observing_entity = sample[vi.observingEntity]
+					occluding_objects = {sample[obj] for obj in objects \
+										 if sample[obj] is not observing_entity \
+										 and sample[obj] is not vi and obj.occluding}
+					if not observing_entity.canSee(vi, occludingObjects=occluding_objects):
+						rejection = 'object visibility (from observing entity)'
+						break
+				# Require that the non-observing entity, if one has been specified,
+				# can see the object.
+				if vi.nonObservingEntity is not None:
+					non_observing_entity = sample[vi.nonObservingEntity]
+					occluding_objects = {sample[obj] for obj in objects \
+										 if sample[obj] is not nonObservingEntity \
+										 and sample[obj] is not vi and obj.occluding}
+					if non_observing_entity.canSee(vi, occludingObjects=occluding_objects):
+						rejection = 'object visibility (from non-observing entity)'
 						break
 				# Require object to not intersect another object
 				if not vi.allowCollisions:

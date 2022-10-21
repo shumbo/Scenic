@@ -485,6 +485,11 @@ class Point(Constructible):
 	# for Points for implementation convenience.
 	regionContainedIn: None
 
+	# These properties are used internally to store entities that must be able to
+	# or must be unable to observe this entity.
+	observingEntity: None
+	nonObservingEntity: None
+
 	@cached_property
 	def visibleRegion(self):
 		"""The :term:`visible region` of this object.
