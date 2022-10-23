@@ -694,11 +694,45 @@ class MeshVolumeRegion(_MeshRegion):
 				return False
 
 			# PASS 2
-			# Compute inradius and circumradius for a variety of candidate points,
-			# and use the point with the largest inradius (in_point) and the point with the
-			# smallest circumradius (circ_point). Any mesh who's closest distance to in_point 
-			# is less than the inradius must intersect. Any mesh who's closest distance to
-			# circ_point is greater than circumradius cannot intersect.
+			# Compute inradius and circumradius for a candidate point in each region,
+			# and compute the inradius and circumradius of each point. If the candidate 
+			# points are closer than the sum of the inradius values, they must intersect.
+			# If the candidate points are farther apart than the sum of the circumradius
+			# values, they can't intersect.
+
+			# Get a candidate point from each mesh. If the position of the object is in the mesh use that.
+			# Otherwise try to sample a point as a candidate, skipping this pass if the sample fails.
+			if self.containsPoint(self.position):
+				s_candidate_point = self.position
+			elif len(samples:=trimesh.sample.volume_mesh(self.mesh, self.num_samples)) > 0:
+				s_candidate_point = Vector(*samples[0])
+			else:
+				s_candidate_point = None
+
+			if other.containsPoint(other.position):
+				o_candidate_point = other.position
+			elif len(samples:=trimesh.sample.volume_mesh(other.mesh, other.num_samples)) > 0:
+				o_candidate_point = Vector(*samples[0])
+			else:
+				o_candidate_point = None
+
+			if s_candidate_point is not None and o_candidate_point is not None:
+				# Compute the inradius of each object from its candidate point.
+				s_inradius = abs(trimesh.proximity.ProximityQuery(self.mesh).signed_distance([s_candidate_point])[0])
+				o_inradius = abs(trimesh.proximity.ProximityQuery(other.mesh).signed_distance([o_candidate_point])[0])
+
+				# Compute the circumradius of each object from its candidate point.
+				s_circumradius = numpy.max(numpy.linalg.norm(self.mesh.vertices - s_candidate_point, axis=1))
+				o_circumradius = numpy.max(numpy.linalg.norm(other.mesh.vertices - o_candidate_point, axis=1))
+
+				# Get the distance between the two points and check for mandatory or impossible collision.
+				point_distance = s_candidate_point.distanceTo(o_candidate_point)
+
+				if point_distance < s_inradius + o_inradius:
+					return True
+
+				if point_distance > s_circumradius + o_circumradius:
+					return False
 
 			# PASS 3
 			# Use Trimesh's collision manager to check for intersection.
