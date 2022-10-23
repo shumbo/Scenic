@@ -1087,7 +1087,6 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 			h_angles = np.linspace(h_range[0],h_range[1],math.ceil(math.degrees(h_size)*rayDensity))
 			v_angles = np.linspace(v_range[0],v_range[1],math.ceil(math.degrees(v_size)*rayDensity))
 
-			# TODO Generating double rays in certain cases?
 			angle_matrix = np.transpose([np.tile(h_angles, len(v_angles)), np.repeat(v_angles, len(h_angles))])
 
 			ray_vectors = np.zeros((len(angle_matrix[:,0]), 3))

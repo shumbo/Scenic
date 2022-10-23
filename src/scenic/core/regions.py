@@ -766,10 +766,49 @@ class MeshVolumeRegion(_MeshRegion):
 		The object must support coercion to a mesh.
 		"""
 		# PASS 1
-		# TODO: Check if bounding box of object intersects the region? Need to make sure this
-		# has enough speedup to be worth it.
+		# Check if bounding boxes intersect. If not, volumes cannot intersect and so
+		# the object cannot be contained in this region.
+		range_overlaps = [(self.mesh.bounds[0,dim] <= obj.occupiedSpace.mesh.bounds[1,dim]) and \
+						  (obj.occupiedSpace.mesh.bounds[0,dim] <= self.mesh.bounds[1,dim]) \
+						  for dim in range(3)]
+		bb_overlap = all(range_overlaps)
+
+		if not bb_overlap:
+			return False
 
 		# PASS 2
+		# Take the object's position if contained in the mesh, or a random sample otherwise.
+		# Then check if the point is not in the region, return False if so. Otherwise, compute
+		# the circumradius of the object from that point and see if the closest point on the
+		# mesh is farther than the circumradius. If it is, then the object must be contained and
+		# return True.
+
+		# Get a candidate point from the mesh. If the position of the object is in the mesh use that.
+		# Otherwise try to sample a point as a candidate, skipping this pass if the sample fails.
+		if obj.containsPoint(obj.position):
+			candidate_point = obj.position
+		elif len(samples:=trimesh.sample.volume_mesh(obj.occupiedSpace.mesh, obj.occupiedSpace.num_samples)) > 0:
+			candidate_point = Vector(*samples[0])
+		else:
+			candidate_point = None
+
+		if candidate_point is not None:
+			# If this region doesn't contain the candidate point, it can't contain the object.
+			if not self.containsPoint(candidate_point):
+				return False
+
+			# Compute the circumradius of the object from the candidate point.
+			distances = numpy.linalg.norm(obj.occupiedSpace.mesh.vertices - candidate_point, axis=1)
+			circumradius = numpy.max(distances)
+
+			# Compute the minimum distance from the region to this point.
+			pq = trimesh.proximity.ProximityQuery(self.mesh)
+			region_distance = abs(pq.signed_distance([candidate_point])[0])
+
+			if region_distance > circumradius:
+				return True
+
+		# PASS 3
 		# If the difference between the object's region and this region is empty,
 		# i.e. obj_region - self_region = EmptyRegion, that means the object is
 		# entirely contained in this region. Expensive but guaranteed to give the
