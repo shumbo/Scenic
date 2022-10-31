@@ -578,7 +578,7 @@ def test_on_3d():
         pos = scene.egoObject.position
         assert -5 <= pos.x <= 5
         assert -10 <= pos.y <= 10
-        assert pos.z = 0.5
+        assert pos.z == 0.5
         assert scene.egoObject.orientation == Orientation.fromEuler(0,0,0)
 
 def test_on_3d_heading():
@@ -592,7 +592,7 @@ def test_on_3d_heading():
         pos = scene.egoObject.position
         assert -5 <= pos.x <= 5
         assert -10 <= pos.y <= 10
-        assert pos.z = 0.5
+        assert pos.z == 0.5
         assert scene.egoObject.orientation.eulerAngles == pytest.approx(0.5,0.6,0.7)
 
 def test_on_modifying():

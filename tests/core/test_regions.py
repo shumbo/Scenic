@@ -60,7 +60,7 @@ def test_circular_sampling():
     assert all(dist <= 2 for dist in dists)
     assert sum(dist <= 1.414 for dist in dists) >= 1250
     assert sum(dist > 1.414 for dist in dists) >= 1250
-    xs, ys = zip(*pts)
+    xs, ys, zs = zip(*pts)
     assert sum(x >= 4 for x in xs) >= 1250
     assert sum(y >= -3 for y in ys) >= 1250
 

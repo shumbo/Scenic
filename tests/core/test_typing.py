@@ -36,7 +36,7 @@ def test_coerce_to_scalar():
     assert all(coerce(thing, float) == float(thing) for thing in good)
     assert all(coerce(thing, Heading) == float(thing) for thing in good)
 
-    bad = ['foo', Vector(1, 2), VectorField('', lambda x: 0), [1, 2, 3]]
+    bad = ['foo', Vector(1, 2), VectorField('', lambda x: 0), [1,2,3,4]]
     assert all(not canCoerce(thing, float) for thing in bad)
     assert all(not canCoerce(thing, Heading) for thing in bad)
 

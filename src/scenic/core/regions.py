@@ -45,11 +45,13 @@ class Region(Samplable, ABC):
 		self.orientation = orientation
 
 	## Abstract Methods ##
-	# The following methods must be implemented
 
 	def intersects(self, other, triedReversed=False) -> bool:
 		"""Check if this `Region` intersects another."""
-		raise NotImplementedError
+		if triedReversed:
+			raise NotImplementedError
+		else:
+			return other.intersects(self, triedReversed=True)
 
 	def uniformPointInner(self):
 		"""Do the actual random sampling. Implemented by subclasses."""
@@ -342,7 +344,7 @@ class DifferenceRegion(Region):
 								sampler=self.sampler, name=self.name)
 
 	def containsPoint(self, point):
-		return regionA.containsPoint(point) and not regionB.containsPoint(point)
+		return self.regionA.containsPoint(point) and not self.regionB.containsPoint(point)
 
 	def uniformPointInner(self):
 		return self.orient(self.sampler(self))
@@ -1232,7 +1234,7 @@ class CircularRegion(Region):
 		return self.orient(pt)
 
 	def getAABB(self):
-		x, y = self.center
+		x, y, _ = self.center
 		r = self.radius
 		return ((x - r, y - r), (x + r, y + r))
 

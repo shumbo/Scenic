@@ -509,7 +509,7 @@ class Point(Constructible):
 
 	def canSee(self, other, occludingObjects=list()) -> bool:
 		return canSee(position=self.position, orientation=None, visibleDistance=self.visibleDistance, \
-			viewAngles=(math.tau, math.tau), rayDensity=self.rayDensity, visibleRegion=self.visibleRegion, \
+			viewAngles=(math.tau, math.pi), rayDensity=self.rayDensity, visibleRegion=self.visibleRegion, \
 			target=other, occludingObjects=occludingObjects)
 
 	def sampleGiven(self, value):
@@ -597,6 +597,9 @@ class OrientedPoint(Point):
 
 	def toHeading(self) -> float:
 		return self.heading
+
+	def toOrientation(self) -> Orientation:
+		return self.orientation
 
 	def canSee(self, other, occludingObjects=list()) -> bool:
 		return canSee(position=self.position, orientation=self.orientation, visibleDistance=self.visibleDistance,
@@ -1198,8 +1201,53 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 
 		return len(candidate_rays) > 0
 
-	elif isinstance(target, (Point, OrientedPoint)):
-		raise NotImplementedError()
+	elif isinstance(target, (Point, OrientedPoint, Vector)):
+		if isinstance(target, (Point, OrientatedPoint)):
+			target_loc = target.position
+		else:
+			target_loc = target
+
+		# First check if the distance to the point is less than or equal to the visible distance. If not, the object cannot
+		# be visible.
+		target_distance = position.distanceTo(target_loc)
+		if target_distance > visibleDistance:
+			return False
+
+		# Create the single candidate ray and check that it's within viewAngles.
+		target_vertex = target_loc - position
+		target_vertex = orientation.invertRotation().getRotation().apply(target_vertex)
+		candidate_ray = target_vertex/np.linalg.norm(target_vertex)
+
+		azimuth = np.arctan2(candidate_ray[1], candidate_ray[0]) - math.pi/2
+		altitude = np.arcsin(candidate_ray[2]/(np.linalg.norm(candidate_ray)))
+
+		# Check if this ray is within our view cone.
+		if (not (-viewAngles[0]/2 <= azimuth <= viewAngles[0]/2)) or \
+		   (not (-viewAngles[1]/2 <= altitude <= viewAngles[1]/2)):
+		   return False
+
+		candidate_ray_list = np.array([candidate_ray])
+
+		# Now check if occluding objects block sight to target
+		for occ_obj in occludingObjects:
+			# Test all candidate rays against this occluding object
+			object_hit_info = occ_obj.occupiedSpace.mesh.ray.intersects_location(
+				ray_origins=[position.coordinates for ray in candidate_ray_list],
+				ray_directions=candidate_ray_list)
+
+			# Check the candidate ray hits the occluding object with a smaller
+			# distance than the target.
+			occluded_rays = set()
+
+			for hit_iter in range(len(object_hit_info[0])):
+				ray = tuple(candidate_ray_list[object_hit_info[1][hit_iter]])
+				occ_distance = position.distanceTo(Vector(*object_hit_info[0][hit_iter,:]))
+
+				if occ_distance <= target_distance:
+					# The ray is occluded
+					return False
+
+		return True
 	else:
 		raise NotImplementedError("Cannot check if " + str(target) + " of type " + type(target) + " can be seen.")
 

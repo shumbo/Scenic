@@ -206,6 +206,66 @@ def test_oriented_point_can_see_object():
     """)
     assert p == (True, False)
 
+def test_can_see_occlusion():
+    p = sampleParamPFrom("""
+        workspace_region = RectangularRegion(0 @ 0, 0, 40, 40)
+        workspace = Workspace(workspace_region)
+
+        ego = Object with visibleDistance 30,
+            at (0,0,1),
+            with width 5,
+            with length 5,
+            with height 5,
+            with pitch 45 deg,
+            with viewAngles (340 deg, 60 deg),
+            with rayDensity 5
+
+        seeing_obj = Object at (0,10,5),
+            with width 2,
+            with height 2,
+            with length 2,
+            with name "seeingObject"
+
+        Object at (0,5,4),
+            with width 10,
+            with length 0.5,
+            with height 6,
+            with name "wall",
+            with occluding False
+
+        param p = ego can see seeing_obj
+    """)
+    assert p == True
+
+    p = sampleParamPFrom("""
+        workspace_region = RectangularRegion(0 @ 0, 0, 40, 40)
+        workspace = Workspace(workspace_region)
+
+        ego = Object with visibleDistance 30,
+            at (0,0,1),
+            with width 5,
+            with length 5,
+            with height 5,
+            with pitch 45 deg,
+            with viewAngles (340 deg, 60 deg),
+            with rayDensity 5
+
+        seeing_obj = Object at (0,10,5),
+            with width 2,
+            with height 2,
+            with length 2,
+            with name "seeingObject"
+
+        Object at (0,5,4),
+            with width 10,
+            with length 0.5,
+            with height 6,
+            with name "wall"
+
+        param p = ego can see seeing_obj
+    """)
+    assert p == False
+
 # In
 def test_point_in_region_2d():
     p = sampleParamPFrom("""

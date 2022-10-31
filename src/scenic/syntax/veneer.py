@@ -771,11 +771,11 @@ def RelativeHeading(X, Y=None):
 
 	If the 'from <heading>' is omitted, the heading of ego is used.
 	"""
-	X = toHeading(X, '"relative heading of X from Y" with X not a heading')
+	X = toOrientation(X, '"relative heading of X from Y" with X not a heading or orientation')
 	if Y is None:
-		Y = (ego().heading, 0, 0)
+		Y = ego().orientation
 	else:
-		Y = toHeading(Y, '"relative heading of X from Y" with Y not a heading')
+		Y = toOrientation(Y, '"relative heading of X from Y" with Y not a heading')
 	# TODO: should we actually return a tripple of 3 angles?
 	return normalizeAngle(X[0] - Y[0]) 
 
@@ -849,11 +849,16 @@ def CanSee(X, Y):
 	"""
 	if not isinstance(X, Point):
 		raise RuntimeParseError('"X can see Y" with X not a Point')
-	if isinstance(Y, Point):
-		return X.canSee(Y)
-	else:
-		Y = toVector(Y, '"X can see Y" with Y not a vector')
-		return X.visibleRegion.containsPoint(Y)
+
+	if currentScenario is None:
+		raise RuntimeError("CanSee resolved before sample time.")
+
+	occluding_objects = currentScenario.objects
+
+	for obj in occluding_objects:
+		assert not needsSampling(obj)
+
+	return X.canSee(Y, occludingObjects=occluding_objects)
 
 ### Specifiers
 
@@ -1109,16 +1114,16 @@ def Facing(heading):
 			# return heading[context.position]
 		return Specifier({'yaw': 1, 'pitch': 1, 'roll': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 	else:
-		heading = toHeading(heading, "facing x with x not a heading")
-		headingDeps = requiredProperties(heading)
+		orientation = toOrientation(heading, "facing x with x not a heading or orientation")
+		orientationDeps = requiredProperties(orientation)
 		def helper(context, spec):
-			nonlocal heading
-			heading = valueInContext(heading, context)
-			euler = context.parentOrientation.globalToLocalAngles(heading[0], heading[1], heading[2])
+			nonlocal orientation
+			orientation = valueInContext(orientation, context)
+			euler = context.parentOrientation.globalToLocalAngles(orientation.yaw, orientation.pitch, orientation.roll)
 			return {'yaw': euler[0], 'pitch': euler[1], 'roll': euler[2]}
 			# return toHeading(heading, 'specifier "facing X" with X not a heading or vector field')
 
-		return Specifier({'yaw': 1, 'pitch': 1, 'roll': 1}, DelayedArgument({'parentOrientation'}|headingDeps, helper))
+		return Specifier({'yaw': 1, 'pitch': 1, 'roll': 1}, DelayedArgument({'parentOrientation'}|orientationDeps, helper))
 
 def FacingToward(pos):
 	"""The 'facing toward <vector>' specifier.
