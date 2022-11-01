@@ -565,7 +565,7 @@ class OrientedPoint(Point):
 
 	# The view angle in the horizontal and vertical direction
 	viewAngle: math.tau
-	viewAngles: PropertyDefault((), {'dynamic'}, lambda self: (self.viewAngle, math.pi))
+	viewAngles: PropertyDefault(('viewAngle',), set(), lambda self: (self.viewAngle, math.pi))
 
 	mutator: PropertyDefault({'headingStdDev'}, {'additive'},
 		lambda self: HeadingMutator(self.headingStdDev))
@@ -655,7 +655,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 	shape: BoxShape()
 
 	baseOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
-	contactTolerance: 0.00001
+	contactTolerance: 1e-6
 
 	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
 	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))
@@ -959,7 +959,8 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 		# Orient the object so that it has the same relative position and orientation to the
 		# origin as it did to the viewer
 		target_vertices = target_region.mesh.vertices - np.array(position.coordinates)
-		target_vertices = orientation.invertRotation().getRotation().apply(target_vertices)
+		if orientation is not None:
+			target_vertices = orientation.invertRotation().getRotation().apply(target_vertices)
 
 		## Check if the object crosses the y axis ahead and/or behind the viewer
 
@@ -1103,7 +1104,8 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 
 		ray_vectors = np.concatenate(candidate_ray_list, axis=0)
 
-		ray_vectors = orientation.getRotation().apply(ray_vectors)
+		if orientation is not None:
+			ray_vectors = orientation.getRotation().apply(ray_vectors)
 		
 		## DEBUG ##
 		#Show all original candidate rays
@@ -1202,7 +1204,7 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 		return len(candidate_rays) > 0
 
 	elif isinstance(target, (Point, OrientedPoint, Vector)):
-		if isinstance(target, (Point, OrientatedPoint)):
+		if isinstance(target, (Point, OrientedPoint)):
 			target_loc = target.position
 		else:
 			target_loc = target
@@ -1215,10 +1217,11 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 
 		# Create the single candidate ray and check that it's within viewAngles.
 		target_vertex = target_loc - position
-		target_vertex = orientation.invertRotation().getRotation().apply(target_vertex)
+		if orientation is not None:
+			target_vertex = orientation.invertRotation().getRotation().apply(target_vertex)	
 		candidate_ray = target_vertex/np.linalg.norm(target_vertex)
 
-		azimuth = np.arctan2(candidate_ray[1], candidate_ray[0]) - math.pi/2
+		azimuth = np.mod(np.arctan2(candidate_ray[1], candidate_ray[0]) - math.pi/2 + np.pi, 2*np.pi) - np.pi
 		altitude = np.arcsin(candidate_ray[2]/(np.linalg.norm(candidate_ray)))
 
 		# Check if this ray is within our view cone.
@@ -1245,6 +1248,7 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 
 				if occ_distance <= target_distance:
 					# The ray is occluded
+					print("Fail 2")
 					return False
 
 		return True

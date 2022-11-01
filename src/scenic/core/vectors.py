@@ -330,9 +330,17 @@ class Vector(Samplable, collections.abc.Sequence):
 
 	@scalarOperator
 	def angleTo(self, other) -> float:
-        # TODO fix for 3D
+		return self.azimuthTo(other)
+
+	@scalarOperator
+	def azimuthTo(self, other) -> float:
 		dx, dy, dz = other.toVector() - self
 		return normalizeAngle(math.atan2(dy, dx) - (math.pi / 2))
+
+	@scalarOperator
+	def altitudeTo(self, other) -> float:
+		dx, dy, dz = other.toVector() - self
+		return normalizeAngle(math.atan2(dz, math.sqrt(dx**2 + dy**2)))
 
 	@scalarOperator
 	def angleWith(self, other) -> float:

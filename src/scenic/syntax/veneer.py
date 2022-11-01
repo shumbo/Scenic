@@ -24,7 +24,8 @@ __all__ = (
 	'TopBackRight', 'BottomFrontLeft', 'BottomFrontRight', 'BottomBackLeft',
 	'BottomBackRight',
 	'RelativeHeading', 'ApparentHeading', 'RelativePosition',
-	'DistanceFrom', 'DistancePast', 'AngleTo', 'AngleFrom', 'Follow',
+	'DistanceFrom', 'DistancePast', 'Follow',
+	'AngleTo', 'AngleFrom', 'AzimuthTo', 'AzimuthFrom','AltitudeTo', 'AltitudeFrom',
 	# Infix operators
 	'FieldAt', 'RelativeTo', 'OffsetAlong', 'CanSee',
 	# Primitive types
@@ -776,8 +777,7 @@ def RelativeHeading(X, Y=None):
 		Y = ego().orientation
 	else:
 		Y = toOrientation(Y, '"relative heading of X from Y" with Y not a heading')
-	# TODO: should we actually return a tripple of 3 angles?
-	return normalizeAngle(X[0] - Y[0]) 
+	return normalizeAngle(X.yaw - Y.yaw) 
 
 def ApparentHeading(X, Y=None):
 	"""The 'apparent heading of <oriented point> [from <vector>]' operator.
@@ -830,6 +830,28 @@ def AngleFrom(X, Y):
 	Y = toVector(Y, '"angle from X to Y" with Y not a vector')
 	return X.angleTo(Y)
 
+def AzimuthTo(X):
+	"""The 'angle to <vector>' operator (using the position of ego as the reference)."""
+	X = toVector(X, '"azimuth to X" with X not a vector')
+	return ego().azimuthTo(X)
+
+def AzimuthFrom(X, Y):
+	"""The 'angle from <vector> to <vector>' operator."""
+	X = toVector(X, '"azimuth from X to Y" with X not a vector')
+	Y = toVector(Y, '"azimuth from X to Y" with Y not a vector')
+	return X.azimuthTo(Y)
+
+def AltitudeTo(X):
+	"""The 'angle to <vector>' operator (using the position of ego as the reference)."""
+	X = toVector(X, '"altitude to X" with X not a vector')
+	return ego().altitudeTo(X)
+
+def AltitudeFrom(X, Y):
+	"""The 'angle from <vector> to <vector>' operator."""
+	X = toVector(X, '"altitude from X to Y" with X not a vector')
+	Y = toVector(Y, '"altitude from X to Y" with Y not a vector')
+	return X.altitudeTo(Y)
+
 def Follow(F, X, D):
 	"""The 'follow <field> from <vector> for <number>' operator."""
 	if not isinstance(F, VectorField):
@@ -850,15 +872,15 @@ def CanSee(X, Y):
 	if not isinstance(X, Point):
 		raise RuntimeParseError('"X can see Y" with X not a Point')
 
-	if currentScenario is None:
-		raise RuntimeError("CanSee resolved before sample time.")
+	# if currentScenario is None:
+	# 	raise RuntimeError("CanSee resolved before sample time.")
 
-	occluding_objects = currentScenario.objects
+	# occluding_objects = currentScenario.objects
 
-	for obj in occluding_objects:
-		assert not needsSampling(obj)
+	# for obj in occluding_objects:
+	# 	assert not needsSampling(obj)
 
-	return X.canSee(Y, occludingObjects=occluding_objects)
+	return X.canSee(Y)
 
 ### Specifiers
 

@@ -1075,80 +1075,88 @@ class DefaultViewRegion(MeshVolumeRegion):
 			raise ValueError("viewAngles cannot have a component less than or equal to 0")
 
 		# Cases in view region computation
-		# Case 1: 		One view angle = 360 degrees
-		# 	Case 1.a: 	Other view angle >= 180 degrees => Full Sphere View Region
-		# 	Case 1.b: 	Other view angle < 180 degrees 	=> Sphere - (Cone + Cone) (Cones on appropriate hemispheres)
-		# Case 2: 		One view angle = 180 degrees
-		# 	Case 2.a:	Other view angle = 180 degrees 	=> Hemisphere View Region
-		# 	Case 2.b:	Other view angle < 180 degrees	=> Hemisphere - (Cone + Cone) (Cones on appropriate hemispheres)
-		# Case 3: 		Both view angles < 180 			=> Capped Pyramid View Region
-		# Case 4: 		Both view angles > 180 			=> Sphere - Backwards Capped Pyramid View Region
-		# Case 5:		HAngle < 180, VAngle > 180		=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
-		# Case 6:		HAngle > 180, Vangle < 180		=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
+		# Case 1: 		Azimuth view angle = 360 degrees
+		# 	Case 1.a: 	Altitude view angle = 180 degrees 	=> Full Sphere View Region
+		# 	Case 1.b: 	Altitude view angle < 180 degrees  	=> Sphere - (Cone + Cone) (Cones on z axis expanding from origin)
+		# Case 2: 		Azimuth view angle = 180 degrees
+		# 	Case 2.a:	Altitude view angle = 180 degrees 	=> Hemisphere View Region
+		# 	Case 2.b:	Altitude view angle < 180 degrees	=> Hemisphere - (Cone + Cone) (Cones on appropriate hemispheres)
+		# Case 3:		Altitude view angle = 180 degrees	
+		#	Case 3.a: 	Azimuth view angle < 180 degrees	=> Sphere intersected with Pyramid View Region
+		#	Case 3.b: 	Azimuth view angle > 180 degrees	=> Sphere - Backwards Pyramid View Region 
+		# Case 4: 		Both view angles < 180 				=> Capped Pyramid View Region
+		# Case 5:		HAngle > 180, Vangle < 180			=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
 
 		view_region = None
 		diameter = 2*visibleDistance
 		base_sphere = SpheroidRegion(dimensions=(diameter, diameter, diameter), engine="scad")
 
-		if (math.tau-0.01 <= viewAngles[0] <= math.tau+0.01) or (math.tau-0.01 <= viewAngles[1] <= math.tau+0.01):
+		if (math.tau-0.01 <= viewAngles[0] <= math.tau+0.01):
 			# Case 1
-			if min(viewAngles) > math.pi-0.01:
+			if viewAngles[1] > math.pi-0.01:
 				#Case 1.a
 				view_region = base_sphere
 			else:
 				# Case 1.b
-				# Find cone_direction. 0 indicates on the pitch axis. 1 indicates on the yaw axis.
-				if viewAngles[0] < viewAngles[1]:
-					cone_direction = 0
-				else:
-					cone_direction = 1
-
 				# Create cone with yaw oriented around (0,0,-1)
 				padded_height = visibleDistance * 2
-				radius = padded_height*math.tan((math.pi-viewAngles[cone_direction])/2)
+				radius = padded_height*math.tan((math.pi-viewAngles[1])/2)
 
 				cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
 
 				position_matrix = translation_matrix((0,0,-1*padded_height))
 				cone_mesh.apply_transform(position_matrix)
 
-				# Create two cones around the appropriate axis
-				if cone_direction == 0:
-					# Position on the pitch axis
-					orientation_1 = Orientation.fromEuler(0,0,math.pi/2)
-					orientation_2 = Orientation.fromEuler(0,0,-math.pi/2)
-				else:
-					# Position on the yaw axis
-					orientation_1 = Orientation.fromEuler(0,0,0)
-					orientation_2 = Orientation.fromEuler(0,0,math.pi)
+				# Create two cones around the yaw axis
+				orientation_1 = Orientation.fromEuler(0,0,0)
+				orientation_2 = Orientation.fromEuler(0,0,math.pi)
 
 				cone_1 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_1, center_mesh=False)
 				cone_2 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_2, center_mesh=False)
 
 				view_region = base_sphere.difference(cone_1).difference(cone_2)
 
-		elif (math.pi-0.01 <= viewAngles[0] <= math.pi+0.01) or (math.pi-0.01 <= viewAngles[1] <= math.pi+0.01):
+		elif (math.pi-0.01 <= viewAngles[0] <= math.pi+0.01):
 			# Case 2
-			if min(viewAngles) > math.pi+0.01:
+			if viewAngles[1] > math.pi-0.01:
 				# Case 2.a
-				raise NotImplementedError()
-			elif math.pi-0.01 <= min(viewAngles) <= math.pi+0.01:
-				# Case 2.b
 				padded_diameter = 1.1*diameter
 				view_region = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
-		elif viewAngles[0] < math.pi and viewAngles[1] < math.pi:
+			elif math.pi-0.01 <= min(viewAngles) <= math.pi+0.01:
+				# Case 2.b
+				# Create cone with yaw oriented around (0,0,-1)
+				padded_height = visibleDistance * 2
+				radius = padded_height*math.tan((math.pi-viewAngles[1])/2)
+
+				cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
+
+				position_matrix = translation_matrix((0,0,-1*padded_height))
+				cone_mesh.apply_transform(position_matrix)
+
+				# Create two cones around the yaw axis
+				orientation_1 = Orientation.fromEuler(0,0,0)
+				orientation_2 = Orientation.fromEuler(0,0,math.pi)
+
+				cone_1 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_1, center_mesh=False)
+				cone_2 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_2, center_mesh=False)
+
+				padded_diameter = 1.1*diameter
+
+				base_hemisphere = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
+
+				view_region = base_hemisphere.difference(cone_1).difference(cone_2)
+		elif viewAngles[1] > math.pi-0.01:
 			# Case 3
-			view_region = base_sphere.intersect(PyramidViewRegion(visibleDistance, viewAngles))
-		elif viewAngles[0] > math.pi and viewAngles[1] > math.pi:
+			if viewAngles[0] > math.pi:
+				raise NotImplementedError
+			elif viewAngles[1] < math.pi:
+				raise NotImplementedError
+
+		elif viewAngles[0] < math.pi and viewAngles[1] < math.pi:
 			# Case 4
-			backwards_orientation = Orientation.fromEuler(math.pi, 0, 0)
-			backwards_view_angle = (math.tau-viewAngles[0], math.tau-viewAngles[1])
-			view_region = base_sphere.difference(PyramidViewRegion(visibleDistance, backwards_view_angle, rotation=backwards_orientation))
-		elif viewAngles[0] < math.pi and viewAngles[1] > math.pi:
-			# Case 5
-			raise NotImplementedError()
+			view_region = base_sphere.intersect(PyramidViewRegion(visibleDistance, viewAngles))
 		elif viewAngles[0] > math.pi and viewAngles[1] < math.pi:
-			# Case 6
+			# Case 5
 			# Create cone with yaw oriented around (0,0,-1)
 			padded_height = visibleDistance * 2
 			radius = padded_height*math.tan((math.pi-viewAngles[1])/2)

@@ -7,7 +7,7 @@ import pytest
 
 from scenic.core.distributions import Options
 from scenic.core.object_types import Object
-from scenic.core.vectors import Vector, OrientedVector, VectorField
+from scenic.core.vectors import Vector, OrientedVector, VectorField, Orientation
 from scenic.core.type_support import (canCoerce, canCoerceType, coerce, CoercionFailure,
                                       Heading, get_type_origin, get_type_args)
 
@@ -34,6 +34,8 @@ def test_get_type_args():
 def test_coerce_to_scalar():
     good = [42, 3.14, fractions.Fraction(1, 3), numpy.int16(7)]
     assert all(coerce(thing, float) == float(thing) for thing in good)
+    print([coerce(thing, Heading) for thing in good])
+    print([coerce(thing, Heading) == float(thing) for thing in good])
     assert all(coerce(thing, Heading) == float(thing) for thing in good)
 
     bad = ['foo', Vector(1, 2), VectorField('', lambda x: 0), [1,2,3,4]]
@@ -41,8 +43,8 @@ def test_coerce_to_scalar():
     assert all(not canCoerce(thing, Heading) for thing in bad)
 
 def test_coerce_to_heading():
-    assert coerce(OrientedVector(1, 2, 0.5), Heading) == pytest.approx(0.5)
-    assert coerce(Object(heading=0.42), Heading) == pytest.approx(0.42)
+    assert coerce(OrientedVector(1, 2, 0, 0.5), Heading) == pytest.approx(0.5)
+    assert coerce(Object(yaw=0.42), Heading) == pytest.approx(0.42)
 
 def test_coerce_to_vector():
     def check(thing, answer=None):
@@ -52,9 +54,11 @@ def test_coerce_to_vector():
             answer = thing
         assert res == answer
     check(Vector(1, 2))
-    check([1, 2])
-    check((1, 2))
-    check(Object(position=Vector(4, 9)), answer=(4, 9))
+    check(Vector(1, 2, 0))
+    check([1, 2, 0])
+    check((1, 2, 0))
+    check(Object(position=Vector(4, 9)), answer=(4, 9, 0))
+    check(Object(position=Vector(4, 9, 0)), answer=(4, 9, 0))
     assert not canCoerce(42, Vector)
 
 def test_coerce_to_class():

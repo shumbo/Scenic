@@ -1003,11 +1003,11 @@ def test_record():
         record ego.position as position
     """)
     result = sampleResult(scenario, maxSteps=4)
-    assert result.records['initial'] == (0, 0)
-    assert result.records['final'] == (6, 0)
+    assert result.records['initial'] == (0, 0, 0)
+    assert result.records['final'] == (6, 0, 0)
     assert tuple(result.records['position']) == (
-        (0, (0, 0)),
-        (1, (2, 0)),
-        (2, (4, 0)),
-        (3, (6, 0))
+        (0, (0, 0, 0)),
+        (1, (2, 0, 0)),
+        (2, (4, 0, 0)),
+        (3, (6, 0, 0))
     )

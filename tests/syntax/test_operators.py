@@ -16,14 +16,6 @@ def test_relative_heading():
     """)
     assert p == pytest.approx(math.radians(65 - 30))
 
-def test_relative_orientation():
-    p = sampleParamPFrom("""
-        ego = Object facing (30 deg, 40 deg, 50 deg)
-        other = Object facing (60 deg, 80 deg, 100 deg)
-        param p = relative orientation of other
-    """)
-    assert p.eulerAngles() == pytest.approx(math.radians(60 - 30), math.radians(80 - 40), math.radians(100 - 50))
-
 def test_relative_heading_no_ego():
     with pytest.raises(RuntimeParseError):
         compileScenic("""
@@ -93,23 +85,23 @@ def test_angle_from_3d():
 # Azimuth/Altitude
 def test_azimuth_to():
     ego = sampleEgoFrom('ego = Object at (0,0,0)\n'
-                        'ego = Object facing azimuth to (1, 1, 0)'
+                        'ego = Object at (2,2,2), facing azimuth to (1, 1, 0)'
                         )
-    assert ego.heading == pytest.approx(math.radians(45))
+    assert ego.heading == pytest.approx(math.radians(-45))
 
 def test_azimuth_from_to():
     ego = sampleEgoFrom('ego = Object facing azimuth from (0,0,0) to (1, 1, 0)'
                         )
-    assert ego.heading == pytest.approx(math.radians(45))
+    assert ego.heading == pytest.approx(math.radians(-45))
 
 def test_altitude_to():
     ego = sampleEgoFrom('ego = Object at (0,0,0)\n'
-                        'ego = Object facing azimuth to (1, 0, 1)'
+                        'ego = Object at (2,2,2), facing altitude to (1, 0, 1)'
                         )
     assert ego.heading == pytest.approx(math.radians(45))
 
-def test_azimuth_from_to():
-    ego = sampleEgoFrom('ego = Object facing azimuth from (0,0,0) to (1, 0, 1)')
+def test_altitude_from_to():
+    ego = sampleEgoFrom('ego = Object facing altitude from (0,0,0) to (1, 0, 1)')
     assert ego.heading == pytest.approx(math.radians(45))
 
 # Distance

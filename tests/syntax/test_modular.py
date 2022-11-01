@@ -35,7 +35,7 @@ def test_main_scenario():
             ego = Object at (1, 2)
     """)
     assert len(scene.objects) == 1
-    assert tuple(scene.egoObject.position) == (1, 2)
+    assert tuple(scene.egoObject.position) == (1, 2, 0)
 
 def test_requirement():
     scenario = compileScenic("""
@@ -92,10 +92,10 @@ def test_sequential_composition():
     assert len(trajectory[0]) == 1
     assert len(trajectory[1]) == 2
     assert len(trajectory[2]) == 2
-    assert tuple(trajectory[0][0]) == (1, 0)
+    assert tuple(trajectory[0][0]) == (1, 0, 0)
     for i in range(1, 3):
-        assert tuple(trajectory[i][0]) == (1, 0)
-        assert tuple(trajectory[i][1]) == (5, 0)
+        assert tuple(trajectory[i][0]) == (1, 0, 0)
+        assert tuple(trajectory[i][1]) == (5, 0, 0)
 
 def test_subscenario_for_steps():
     scenario = compileScenic("""
@@ -112,9 +112,9 @@ def test_subscenario_for_steps():
     assert len(trajectory[0]) == len(trajectory[1]) == 1
     assert len(trajectory[2]) == len(trajectory[3]) == 2
     for i in range(3):
-        assert tuple(trajectory[i][0]) == (1, 0)
+        assert tuple(trajectory[i][0]) == (1, 0, 0)
     for i in range(2, 4):
-        assert tuple(trajectory[i][1]) == (5, 0)
+        assert tuple(trajectory[i][1]) == (5, 0, 0)
 
 def test_subscenario_for_time():
     scenario = compileScenic("""
@@ -131,8 +131,8 @@ def test_subscenario_for_time():
     assert len(trajectory[0]) == len(trajectory[1]) == 1
     assert len(trajectory[2]) == 2
     for i in range(3):
-        assert tuple(trajectory[i][0]) == (1, 0)
-    assert tuple(trajectory[2][1]) == (5, 0)
+        assert tuple(trajectory[i][0]) == (1, 0, 0)
+    assert tuple(trajectory[2][1]) == (5, 0, 0)
 
 def test_subscenario_until():
     scenario = compileScenic("""
@@ -149,8 +149,8 @@ def test_subscenario_until():
     assert len(trajectory[0]) == len(trajectory[1]) == 1
     assert len(trajectory[2]) == 2
     for i in range(3):
-        assert tuple(trajectory[i][0]) == (1, 0)
-    assert tuple(trajectory[3][1]) == (5, 0)
+        assert tuple(trajectory[i][0]) == (1, 0, 0)
+    assert tuple(trajectory[3][1]) == (5, 0, 0)
 
 def test_subscenario_require_eventually():
     """Test that 'require eventually' must be satisfied before the scenario ends.
@@ -291,8 +291,8 @@ def test_shuffle_1():
         assert len(trajectory) == 3
         assert len(trajectory[0]) == 1
         assert len(trajectory[1]) == 2
-        assert trajectory[0][0] == (-1, 0)
-        assert trajectory[1][1] == (1, 0)
+        assert trajectory[0][0] == (-1, 0, 0)
+        assert trajectory[1][1] == (1, 0, 0)
 
 def test_shuffle_2():
     scenario = compileScenic("""
@@ -457,8 +457,8 @@ def test_delayed_local_argument():
     trajectory = sampleTrajectory(scenario)
     assert len(trajectory) == 2
     assert len(trajectory[1]) == 2
-    assert tuple(trajectory[1][0]) == (0, 0)
-    assert tuple(trajectory[1][1]) == (-5.5, 12)
+    assert tuple(trajectory[1][0]) == (0, 0, 0)
+    assert tuple(trajectory[1][1]) == pytest.approx((-6, 12, 0))
 
 def test_delayed_local_interrupt():
     scenario = compileScenic("""
@@ -504,5 +504,5 @@ def test_independent_requirements():
     """, scenario='Main')
     for i in range(30):
         trajectory = sampleTrajectory(scenario, maxSteps=2, maxIterations=100)
-        assert tuple(trajectory[2][0]) == (1, 0)
-        assert tuple(trajectory[2][1]) == (3, 0)
+        assert tuple(trajectory[2][0]) == (1, 0, 0)
+        assert tuple(trajectory[2][1]) == (3, 0, 0)

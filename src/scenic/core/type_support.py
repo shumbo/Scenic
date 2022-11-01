@@ -94,7 +94,7 @@ def canCoerceType(typeA, typeB):
 	if typeB is float:
 		return issubclass(typeA, numbers.Real)
 	elif typeB is Heading:
-		return canCoerceType(typeA, float) or hasattr(typeA, 'toHeading') or canCoerceType(typeA, Orientation)
+		return canCoerceType(typeA, float) or hasattr(typeA, 'toHeading') or issubclass(typeA, Orientation)
 	elif typeB is Orientation:
 		if issubclass(typeA, (tuple, list)):
 			return True
@@ -183,8 +183,8 @@ def coerceToFloat(thing) -> float:
 	return float(thing)
 
 def coerceToHeading(thing) -> Heading:
-	if canCoerce(thing, Orientation):
-		return coerceToOrientation(thing).yaw
+	if isinstance(thing, Orientation):
+		return thing.yaw
 
 	h = thing.toHeading() if hasattr(thing, 'toHeading') else float(thing)
 	return h
@@ -198,7 +198,7 @@ def coerceToOrientation(thing) -> Orientation:
 		if len(thing) != 3:
 			raise CoercionFailure("Cannot coerce a tuple/list of length not 3 to an orientation")
 		return Orientation.fromEuler(*thing)
-	elif canCoerceType(thing, float):
+	elif canCoerceType(type(thing), float):
 		return Orientation.fromEuler(coerceToFloat(thing), 0, 0)
 	else:
 		raise CoercionFailure
