@@ -12,7 +12,16 @@ ego = Object with visibleDistance 20,
     with height 5,
     with viewAngles (360 deg, 180 deg)
 
-obj_1 = Object in sample_space,
+Object in sample_space,
+    with width 1,
+    with length 1,
+    with height 1,
+    facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
+    with visibleDistance 5,
+    with viewAngles (360 deg, 90 deg),
+    with requireVisible True
+
+Object in sample_space,
     with width 1,
     with length 1,
     with height 1,
@@ -21,13 +30,31 @@ obj_1 = Object in sample_space,
     with requireVisible True,
     with cameraOffset (0,0,0.5)
 
-obj_2 = Object in sample_space,
+Object in sample_space,
     with width 1,
     with length 1,
     with height 1,
     facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
     with visibleDistance 5,
-    with viewAngles (360 deg, 90 deg),
+    with viewAngles (180 deg, 90 deg),
+    with requireVisible True
+
+Object in sample_space,
+    with width 1,
+    with length 1,
+    with height 1,
+    facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
+    with visibleDistance 5,
+    with viewAngles (200 deg, 180 deg),
+    with requireVisible True
+
+Object in sample_space,
+    with width 1,
+    with length 1,
+    with height 1,
+    facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
+    with visibleDistance 5,
+    with viewAngles (20 deg, 180 deg),
     with requireVisible True
 
 Object in sample_space,
@@ -45,20 +72,5 @@ Object in sample_space,
     with height 1,
     facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
     with visibleDistance 5,
-    with viewAngles (20 deg, 180 deg)
-
-Object in sample_space,
-    with width 1,
-    with length 1,
-    with height 1,
-    facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
-    with visibleDistance 5,
-    with viewAngles (200 deg, 180 deg)
-
-Object in sample_space,
-    with width 1,
-    with length 1,
-    with height 1,
-    facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
-    with visibleDistance 5,
-    with viewAngles (180 deg, 90 deg)
+    with viewAngles (200 deg, 40 deg),
+    with requireVisible True

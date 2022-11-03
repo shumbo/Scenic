@@ -1055,6 +1055,95 @@ class PyramidViewRegion(MeshVolumeRegion):
 
 		super().__init__(mesh=pyramid_mesh, rotation=rotation, center_mesh=False)
 
+class PyramidViewRegion(MeshVolumeRegion):
+	"""
+	:param visibleDistance: The view distance for this region (will be slightly amplified to 
+		prevent mesh intersection errors).
+	:param viewAngles: The view angles for this region.
+	:param rotation: An optional Orientation object which determines the rotation of the object in space.
+	"""
+	def __init__(self, visibleDistance, viewAngles, rotation=None):
+		if min(viewAngles) <= 0 or max(viewAngles) >= math.pi:
+			raise ValueError("viewAngles members must be between 0 and Pi.")
+
+		x_dim = 2*visibleDistance*math.tan(viewAngles[0]/2)
+		z_dim = 2*visibleDistance*math.tan(viewAngles[1]/2)
+
+		dimensions = (x_dim, visibleDistance*1.01, z_dim)
+
+		# Create pyramid mesh and scale it appropriately.
+		vertices = [[ 0,  0,  0],
+		            [-1,  1,  1],
+		            [ 1,  1,  1],
+		            [ 1,  1, -1],
+		            [-1,  1, -1]]
+
+		faces = [[0,2,1],
+		         [0,3,2],
+		         [0,4,3],
+	             [0,1,4],
+		         [1,2,4],
+		         [2,3,4]]
+
+		pyramid_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+		scale = pyramid_mesh.extents / numpy.array(dimensions)
+
+		scale_matrix = numpy.eye(4)
+		scale_matrix[:3, :3] /= scale
+
+		pyramid_mesh.apply_transform(scale_matrix)
+
+		super().__init__(mesh=pyramid_mesh, rotation=rotation, center_mesh=False)
+
+
+class TriangularPrismViewRegion(MeshVolumeRegion):
+	"""
+	:param visibleDistance: The view distance for this region (will be slightly amplified to 
+		prevent mesh intersection errors).
+	:param viewAngles: The view angles for this region.
+	:param rotation: An optional Orientation object which determines the rotation of the object in space.
+	"""
+	def __init__(self, visibleDistance, viewAngle, rotation=None):
+		if viewAngle <= 0 or viewAngle >= math.pi:
+			raise ValueError("viewAngles members must be between 0 and Pi.")
+
+		y_dim = 1.01*visibleDistance
+		z_dim = 2*y_dim
+		x_dim = math.tan(viewAngle/2)*y_dim
+
+		dimensions = (x_dim, y_dim, z_dim)
+
+		# Create triangualr prism mesh and scale it appropriately.
+		vertices = [[ 0,  0,  1], # 0 - Top origin
+					[ 0,  0, -1], # 1 - Bottom origin
+					[-1,  1,  1], # 2 - Top left
+					[ 1,  1,  1], # 3 - Top right
+					[-1,  1, -1], # 4 - Bottom left
+					[ 1,  1, -1]] # 5 - Bottom right
+
+		faces = [
+				 [0,3,2], # Top triangle
+				 [1,4,5], # Bottom triangle
+				 [1,0,2], # Left 1
+				 [1,2,4], # Left 2
+				 [1,3,0], # Right 1
+				 [1,5,3], # Right 2
+				 [4,2,3], # Back 1
+				 [4,3,5], # Back 2
+				]
+
+		tprism_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+		scale = tprism_mesh.extents / numpy.array(dimensions)
+
+		scale_matrix = numpy.eye(4)
+		scale_matrix[:3, :3] /= scale
+
+		tprism_mesh.apply_transform(scale_matrix)
+
+		super().__init__(mesh=tprism_mesh, rotation=rotation, center_mesh=False)
+
 class DefaultViewRegion(MeshVolumeRegion):
 	""" The default view region shape.
 	:param visibleDistance: The view distance for this region.
@@ -1122,7 +1211,7 @@ class DefaultViewRegion(MeshVolumeRegion):
 				# Case 2.a
 				padded_diameter = 1.1*diameter
 				view_region = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
-			elif math.pi-0.01 <= min(viewAngles) <= math.pi+0.01:
+			else:
 				# Case 2.b
 				# Create cone with yaw oriented around (0,0,-1)
 				padded_height = visibleDistance * 2
@@ -1145,12 +1234,16 @@ class DefaultViewRegion(MeshVolumeRegion):
 				base_hemisphere = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
 
 				view_region = base_hemisphere.difference(cone_1).difference(cone_2)
+
 		elif viewAngles[1] > math.pi-0.01:
 			# Case 3
-			if viewAngles[0] > math.pi:
-				raise NotImplementedError
-			elif viewAngles[1] < math.pi:
-				raise NotImplementedError
+			if viewAngles[0] < math.pi:
+				view_region = base_sphere.intersect(TriangularPrismViewRegion(visibleDistance, viewAngles[0]))
+			elif viewAngles[0] > math.pi:
+				back_tprism = TriangularPrismViewRegion(visibleDistance, math.tau - viewAngles[0], rotation=Orientation.fromEuler(math.pi, 0, 0))
+				view_region = base_sphere.difference(back_tprism)
+			else:
+				assert False, f"{viewAngles=}"
 
 		elif viewAngles[0] < math.pi and viewAngles[1] < math.pi:
 			# Case 4
@@ -1178,6 +1271,8 @@ class DefaultViewRegion(MeshVolumeRegion):
 
 			# Note: Openscad does not like the result of the difference with the cones, so they must be done last.
 			view_region = base_sphere.difference(back_pyramid).difference(cone_1).difference(cone_2)
+		else:
+			assert False, f"{viewAngles=}"
 
 		assert view_region is not None
 
