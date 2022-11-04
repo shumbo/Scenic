@@ -2,6 +2,7 @@
 import math
 import pytest
 
+from scenic.core.vectors import Orientation
 from scenic.core.errors import RuntimeParseError
 from tests.utils import compileScenic, sampleEgoFrom, sampleParamP, sampleParamPFrom
 
@@ -275,8 +276,8 @@ def test_object_in_region_2d():
         reg = RectangularRegion(10@5, 0, 4, 2)
         ego = Object at 11.5@5.5, with width 0.25, with length 0.25
         other_1 = Object at 9@4.5, with width 2.5
-        other_2 = Object at (11.5, 5.5, 1), with width 2.5
-        param p = tuple([ego in reg, other_1 in reg], other_2 in reg)
+        other_2 = Object at (11.5, 5.5, 2), with width 0.25, with length 0.25
+        param p = tuple([ego in reg, other_1 in reg, other_2 in reg])
     """)
     assert p == (True, False, True)
 
@@ -286,18 +287,18 @@ def test_point_in_region_3d():
         reg = BoxRegion()
         ptA = Point at (0.25,0.25,0.25)
         ptB = Point at (1,1,1)
-        param p = tuple([(0,0,0) in reg, (0.5,0.5,0.5) in reg, ptA in reg, ptB in reg])
+        param p = tuple([(0,0,0) in reg, (0.49,0.49,0.49) in reg, (0.5,0.5,0.5) in reg, (0.51,0.51,0.51) in reg, ptA in reg, ptB in reg])
     """)
-    assert p == (True, True, True, False)
+    assert p == (True, True, True, False, True, False)
 
 def test_object_in_region_3d():
     p = sampleParamPFrom("""
         ego = Object
         reg = BoxRegion(dimensions=(2,2,2))
-        obj_1 = Object at (0,0,0)
-        obj_2 = Object at (0.5, 0.5, 0.5)
-        obj_3 = Object at (0.75, 0.75, 0.75)
-        obj_4 = Object at (3,3,3)
+        obj_1 = Object at (0,0,0), with allowCollisions True
+        obj_2 = Object at (0.5, 0.5, 0.5), with allowCollisions True
+        obj_3 = Object at (0.75, 0.75, 0.75), with allowCollisions True
+        obj_4 = Object at (3,3,3), with allowCollisions True
         param p = tuple([obj_1 in reg, obj_2 in reg, obj_3 in reg, obj_4 in reg])
     """)
     assert p == (True, True, False, False)
@@ -314,10 +315,10 @@ def test_field_at_vector():
 
 def test_field_at_vector_3d():
     ego = sampleEgoFrom(        
-            'vf = VectorField("Foo", lambda pos: (pos.x deg, pos.y deg, pos.z deg)\n'
+            'vf = VectorField("Foo", lambda pos: (pos.x deg, pos.y deg, pos.z deg))\n'
             'ego = Object facing (vf at (1, 5, 3))'
             )
-    assert ego.heading == Orientation.fromEuler(math.radians(1), math.radians(5), math.radians(3))
+    assert ego.heading == pytest.approx(Orientation.fromEuler(math.radians(1), math.radians(5), math.radians(3)).yaw)
 
 # Relative To
 def test_heading_relative_to_field():
@@ -364,8 +365,10 @@ def test_mistyped_relative_to_lazy():
         """)
 
 def test_orientation_relative_to_orientation():
-    ego = sampleEgoFrom("ego = Object facing (0, -90 deg, 0) relative to (90 deg, 90 deg, 90 deg)")
-    assert ego.orientation == Orientation.fromEuler(0,0,0)
+    ego = sampleEgoFrom("""
+        ego = Object facing (0 deg, -90 deg, 0 deg) relative to (90 deg, 90 deg, -90 deg)
+    """)
+    assert tuple(ego.orientation.q) == pytest.approx(tuple(Orientation.fromEuler(math.radians(90),0,math.radians(-90)).q))
 
 ## Vector operators
 
@@ -379,10 +382,10 @@ def test_relative_to_vector_3d():
     assert tuple(ego.position) == pytest.approx((-1, 12, 6))
 
 def test_relative_to_oriented_point():
-    ego = sampleEgoFrom('op = OrientedPoint at (12,13,14) facing (90 deg, 0, 0)'
+    ego = sampleEgoFrom('op = OrientedPoint at (12,13,14), facing (90 deg, 0, 0)\n'
                         'ego = Object at ((1,0,0) relative to op)'
                         )
-    assert tuple(ego.position) == pytest.approx((0,1,0))
+    assert tuple(ego.position) == pytest.approx((12,14,14))
 
 # Offset By
 def test_offset_by():
@@ -464,6 +467,10 @@ def test_not_visible():
         param p = Point in not visible reg
     """)
     ps = [sampleParamP(scenario, maxIterations=100) for i in range(50)]
+    print("CHECKING")
+    for p in ps:
+        if not (p.x <= 100 or p.y <= 200):
+            print(p.position)
     assert all(p.x <= 100 or p.y <= 200 for p in ps)
     assert any(p.x > 100 for p in ps)
     assert any(p.y > 200 for p in ps)

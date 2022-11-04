@@ -795,7 +795,7 @@ class MeshVolumeRegion(_MeshRegion):
 
 	def containsPoint(self, point):
 		"""Check if this region's volume contains a point."""
-		return self.mesh.contains([point])[0]
+		return self.distanceTo(point) < self.tolerance
 
 	def containsObject(self, obj):
 		"""Check if this region's volume contains an :obj:`~scenic.core.object_types.Object`.
@@ -847,9 +847,12 @@ class MeshVolumeRegion(_MeshRegion):
 		# PASS 3
 		# If the difference between the object's region and this region is empty,
 		# i.e. obj_region - self_region = EmptyRegion, that means the object is
-		# entirely contained in this region. Expensive but guaranteed to give the
-		# right answer.
-		return isinstance(obj.occupiedSpace.difference(self), EmptyRegion)
+		# entirely contained in this region. We also return true if the result is a MeshSurfaceRegion,
+		# as this usually means the object and this region share a surface. 
+		# right answer. 
+		diff_region = obj.occupiedSpace.difference(self)
+		if isinstance(diff_region, EmptyRegion) or isinstance(diff_region, MeshSurfaceRegion):
+			return True
 
 	def uniformPointInner(self):
 		""" Samples a point uniformly from the volume of the region"""
@@ -872,7 +875,7 @@ class MeshVolumeRegion(_MeshRegion):
 		if dist > 0:
 			dist = 0
 
-		return dist
+		return abs(dist)
 
 	## Sampling Methods ##
 	def sampleGiven(self, value):
@@ -1016,46 +1019,6 @@ class SpheroidRegion(MeshVolumeRegion):
 			orientation=orientation, tolerance=tolerance, engine=engine)
 
 class PyramidViewRegion(MeshVolumeRegion):
-	""" A rectangular sector of a sphere.
-	:param visibleDistance: The view distance for this region.
-	:param viewAngles: The view angles for this region.
-	:param rotation: An optional Orientation object which determines the rotation of the object in space.
-	"""
-	def __init__(self, visibleDistance, viewAngles, rotation=None):
-		if min(viewAngles) <= 0 or max(viewAngles) >= math.pi:
-			raise ValueError("viewAngles members must be between 0 and Pi.")
-
-		x_dim = 2*visibleDistance*math.tan(viewAngles[0]/2)
-		z_dim = 2*visibleDistance*math.tan(viewAngles[1]/2)
-
-		dimensions = (x_dim, visibleDistance*1.01, z_dim)
-
-		# Create pyramid mesh and scale it appropriately.
-		vertices = [[ 0,  0,  0],
-		            [-1,  1,  1],
-		            [ 1,  1,  1],
-		            [ 1,  1, -1],
-		            [-1,  1, -1]]
-
-		faces = [[0,2,1],
-		         [0,3,2],
-		         [0,4,3],
-	             [0,1,4],
-		         [1,2,4],
-		         [2,3,4]]
-
-		pyramid_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-
-		scale = pyramid_mesh.extents / numpy.array(dimensions)
-
-		scale_matrix = numpy.eye(4)
-		scale_matrix[:3, :3] /= scale
-
-		pyramid_mesh.apply_transform(scale_matrix)
-
-		super().__init__(mesh=pyramid_mesh, rotation=rotation, center_mesh=False)
-
-class PyramidViewRegion(MeshVolumeRegion):
 	"""
 	:param visibleDistance: The view distance for this region (will be slightly amplified to 
 		prevent mesh intersection errors).
@@ -1110,7 +1073,7 @@ class TriangularPrismViewRegion(MeshVolumeRegion):
 
 		y_dim = 1.01*visibleDistance
 		z_dim = 2*y_dim
-		x_dim = math.tan(viewAngle/2)*y_dim
+		x_dim = 2*math.tan(viewAngle/2)*y_dim
 
 		dimensions = (x_dim, y_dim, z_dim)
 
@@ -1174,7 +1137,7 @@ class DefaultViewRegion(MeshVolumeRegion):
 		#	Case 3.a: 	Azimuth view angle < 180 degrees	=> Sphere intersected with Pyramid View Region
 		#	Case 3.b: 	Azimuth view angle > 180 degrees	=> Sphere - Backwards Pyramid View Region 
 		# Case 4: 		Both view angles < 180 				=> Capped Pyramid View Region
-		# Case 5:		HAngle > 180, Vangle < 180			=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
+		# Case 5:		Azimuth > 180, Altitude < 180		=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
 
 		view_region = None
 		diameter = 2*visibleDistance
