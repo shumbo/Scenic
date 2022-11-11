@@ -58,7 +58,7 @@ def test_polyline_start():
         pt = r.start
         ego = Object at pt, facing pt.heading
     """)
-    assert tuple(ego.position) == pytest.approx((1, 1))
+    assert tuple(ego.position) == pytest.approx((1, 1, 0))
     assert ego.heading == pytest.approx(math.radians(-135))
 
 def test_polyline_end():
@@ -67,5 +67,5 @@ def test_polyline_end():
         pt = r.end
         ego = Object at pt, facing pt.heading
     """)
-    assert tuple(ego.position) == pytest.approx((6, 2))
+    assert tuple(ego.position) == pytest.approx((6, 2, 0))
     assert ego.heading == pytest.approx(math.radians(-45))
