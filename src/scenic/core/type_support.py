@@ -31,6 +31,7 @@ import sys
 import inspect
 import numbers
 import typing
+import numpy
 
 from scenic.core.distributions import (Distribution, RejectionException, StarredDistribution,
 									   TupleDistribution, distributionFunction)
@@ -100,7 +101,7 @@ def canCoerceType(typeA, typeB):
 			return True
 		return canCoerceType(typeA, float) or issubclass(typeA, Orientation) or hasattr(typeA, 'toOrientation')
 	elif typeB is Vector:
-		return issubclass(typeA, (tuple, list)) or hasattr(typeA, 'toVector')
+		return issubclass(typeA, (tuple, list, numpy.ndarray)) or hasattr(typeA, 'toVector')
 	elif typeB is veneer.Behavior:
 		return issubclass(typeA, typeB) or typeA in (type, type(None))
 	else:
@@ -206,7 +207,7 @@ def coerceToOrientation(thing) -> Orientation:
 		raise CoercionFailure
 
 def coerceToVector(thing) -> Vector:
-	if isinstance(thing, (tuple, list)):
+	if isinstance(thing, (tuple, list, numpy.ndarray)):
 		l = len(thing)
 		if not 2 <= l <= 3:
 			raise CoercionFailure('expected 2D/3D vector, got '

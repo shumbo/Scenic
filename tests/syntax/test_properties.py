@@ -30,9 +30,9 @@ def test_yaw_wrong_type():
 def test_yaw_numpy_types():
     ego = sampleEgoFrom("""
         import numpy as np
-        ego = Object with yaw np.single(3.4)
+        ego = Object with yaw np.single(3.1)
     """)
-    assert ego.yaw == pytest.approx(3.4)
+    assert ego.yaw == pytest.approx(3.1)
 
 def test_left():
     ego = sampleEgoFrom("""

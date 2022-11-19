@@ -353,7 +353,7 @@ class Scenario(_ScenarioPickleMixin):
 				if vi.nonObservingEntity is not None:
 					non_observing_entity = sample[vi.nonObservingEntity]
 					occluding_objects = {sample[obj] for obj in objects \
-										 if sample[obj] is not nonObservingEntity \
+										 if sample[obj] is not non_observing_entity \
 										 and sample[obj] is not vi and obj.occluding}
 					if non_observing_entity.canSee(vi, occludingObjects=occluding_objects):
 						rejection = 'object visibility (from non-observing entity)'

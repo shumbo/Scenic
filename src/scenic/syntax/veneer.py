@@ -43,9 +43,9 @@ __all__ = (
 	'Point', 'OrientedPoint', 'Object',
 	# Specifiers
 	'With',
-	'At', 'In', 'On', 'Beyond', 'VisibleFrom', 'VisibleSpec', 'NotVisibleSpec',
+	'At', 'In', 'ContainedIn', 'On', 'Beyond', 'VisibleFrom', 'VisibleSpec', 'NotVisibleSpec',
 	'OffsetBy', 'OffsetAlongSpec',
-	'Facing', 'FacingToward', 'ApparentlyFacing', 'FacingDirectlyToward', 'FacingAwayFrom',
+	'Facing', 'ApparentlyFacing', 'FacingToward', 'FacingDirectlyToward', 'FacingAwayFrom', 'FacingDirectlyAwayFrom',
 	'LeftSpec', 'RightSpec', 'Ahead', 'Behind', 'Above', 'Below',
 	'Following',
 	# Constants
@@ -918,6 +918,25 @@ def In(region):
 		values['parentOrientation'] = region.orientation[pos]
 	return Specifier(props, values)
 
+def ContainedIn(region):
+	"""The 'contained in <region>' specifier.
+
+	Specifies 'position' and 'regionContainedIn', with no dependencies.
+	Optionally specifies 'heading' if the given Region has a :term:`preferred orientation`.
+	
+	If composed with 'on <X>', X must intersect the region. This specifies
+	position and orientation. 
+	"""
+	region = toType(region, Region, 'specifier "in R" with R not a Region')
+	pos = Region.uniformPointIn(region)
+	props = {'position': 1, 'regionContainedIn': 1}
+	values = {'position': pos, 'regionContainedIn': region}
+	if alwaysProvidesOrientation(region):
+		props['parentOrientation'] = 3
+		values['parentOrientation'] = region.orientation[pos]
+	return Specifier(props, values)
+
+
 def On(thing):
 	"""The 'on <X>' specifier.
 
@@ -1024,10 +1043,6 @@ def Beyond(pos, offset, fromPt=None):
 	# TODO: @Matthew `val` pos.offsetRotated() should be helper function defining both position and parent orientation
 	# as dictionary of values
 
-	print("pos", pos)
-	print("frompt", fromPt)
-	print("offset", offset)
-
 	direction = pos - fromPt
 	sphericalCoords = direction.cartesianToSpherical()
 	offsetRotation = Orientation.fromEuler(sphericalCoords[1], sphericalCoords[2], 0)
@@ -1099,7 +1114,7 @@ def OffsetBy(offset):
 	Specifies 'position', with no dependencies.
 	"""
 	offset = toVector(offset, 'specifier "offset by X" with X not a vector')
-	value = {'position': RelativeTo(offset, ego()).toVector(), 'parentOrientation': ego().parentOrientation}
+	value = {'position': RelativeTo(offset, ego()).toVector(), 'parentOrientation': ego().orientation}
 	return Specifier({'position': 1, 'parentOrientation': 3}, value)
 
 def OffsetAlongSpec(direction, offset):
@@ -1112,7 +1127,7 @@ def OffsetAlongSpec(direction, offset):
 		offset along <field> by <vector>
 	"""
 	pos = OffsetAlong(ego(), direction, offset)
-	parentOrientation = ego().parentOrientation
+	parentOrientation = ego().orientation
 	return Specifier({'position': 1, 'parentOrientation': 3},  {'position': pos, 'parentOrientation': parentOrientation})
 
 def Facing(heading):
@@ -1175,7 +1190,7 @@ def FacingDirectlyToward(pos):
 		direction = pos - context.position
 		inverseQuat = context.parentOrientation.invertRotation()
 		rotated = direction.applyRotation(inverseQuat)
-		sphericalCoords = rotated.cartestianToSpherical()
+		sphericalCoords = rotated.cartesianToSpherical()
 		return {'yaw': sphericalCoords[1], 'pitch': sphericalCoords[2]}
 	return Specifier({'yaw': 1, 'pitch': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 
@@ -1193,9 +1208,8 @@ def FacingAwayFrom(pos):
 		direction = context.position - pos
 		inverseQuat = context.parentOrientation.invertRotation()
 		rotated = direction.applyRotation(inverseQuat)
-		sphericalCoords = rotated.cartestianToSpherical()
+		sphericalCoords = rotated.cartesianToSpherical()
 		return {'yaw': sphericalCoords[1], 'pitch': sphericalCoords[2]}
-		# return {'heading': pos.angleTo(context.position)}
 	return Specifier({'yaw': 1, 'pitch': 3}, DelayedArgument({'position', 'parentOrientation'}, helper))
 
 def FacingDirectlyAwayFrom(pos):
@@ -1215,19 +1229,20 @@ def FacingDirectlyAwayFrom(pos):
 def ApparentlyFacing(heading, fromPt=None):
 	"""The 'apparently facing <heading> [from <vector>]' specifier.
 
-	Specifies 'pitch', 'roll', and 'yaw' of 'orientation', 'heading', depending 
+	Specifies 'yaw' depending 
 	on 'position'.
 
 	If the 'from <vector>' is omitted, the position of ego is used.
 	"""
+	heading = toHeading(heading, 'specifier "apparently facing X" with X not a heading')
+	if fromPt is None:
+		fromPt = ego()
+	fromPt = toVector(fromPt, 'specifier "apparently facing X from Y" with Y not a vector')
+
 	def helper(context, spec):
-		heading = toHeading(heading, 'specifier "apparently facing X" with X not a heading')
-		if fromPt is None:
-			fromPt = ego()
-		fromPt = toVector(fromPt, 'specifier "apparently facing X from Y" with Y not a vector')
-		value = lambda self: fromPt.angleTo(self.position) + heading # TODO: @Matthew Should not return lambda function
-		return value 
-	return Specifier({'yaw': 1, 'pitch': 1}, {'heading': DelayedArgument({'position', 'parentOrientation'}, helper)})
+		return {'yaw': fromPt.angleTo(context.position) + heading} 
+
+	return Specifier({'yaw': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 
 def LeftSpec(pos, dist=0, specs=None):
 	"""The 'left of X [by Y]' polymorphic specifier.
@@ -1241,7 +1256,7 @@ def LeftSpec(pos, dist=0, specs=None):
 	If the 'by <scalar/vector>' is omitted, zero is used.
 	"""
 	return leftSpecHelper('left of', pos, dist, 'width', lambda dist: (dist, 0, 0),
-						  lambda self, dims, tol, dx, dy, dz: Vector(-self.width/2 - dx - dims[0]/2 - tol, dy, dz))
+						  lambda self, dims, tol, dx, dy, dz: Vector(-self.width / 2 - dx - dims[0]/2 - tol, dy, dz))
 
 def RightSpec(pos, dist=0):
 	"""The 'right of X [by Y]' polymorphic specifier.

@@ -149,7 +149,7 @@ class Region(Samplable, ABC):
 		if self.orientation is None:
 			return vec
 		else:
-			return OrientedVector(vec.x, vec.y, self.orientation[vec])
+			return OrientedVector(vec.x, vec.y, vec.z, self.orientation[vec])
 
 	def __str__(self):
 		s = f'<{type(self).__name__}'
@@ -819,32 +819,56 @@ class MeshVolumeRegion(_MeshRegion):
 		# mesh is farther than the circumradius. If it is, then the object must be contained and
 		# return True.
 
-		# Get a candidate point from the mesh. If the position of the object is in the mesh use that.
+		# Get a candidate point from the object mesh. If the position of the object is in the mesh use that.
 		# Otherwise try to sample a point as a candidate, skipping this pass if the sample fails.
 		if obj.containsPoint(obj.position):
-			candidate_point = obj.position
+			obj_candidate_point = obj.position
 		elif len(samples:=trimesh.sample.volume_mesh(obj.occupiedSpace.mesh, obj.occupiedSpace.num_samples)) > 0:
-			candidate_point = Vector(*samples[0])
+			obj_candidate_point = Vector(*samples[0])
 		else:
-			candidate_point = None
+			obj_candidate_point = None
 
-		if candidate_point is not None:
+		if obj_candidate_point is not None:
 			# If this region doesn't contain the candidate point, it can't contain the object.
-			if not self.containsPoint(candidate_point):
+			if not self.containsPoint(obj_candidate_point):
 				return False
 
 			# Compute the circumradius of the object from the candidate point.
-			distances = numpy.linalg.norm(obj.occupiedSpace.mesh.vertices - candidate_point, axis=1)
-			circumradius = numpy.max(distances)
+			obj_circumradius = numpy.max(numpy.linalg.norm(obj.occupiedSpace.mesh.vertices - obj_candidate_point, axis=1))
 
 			# Compute the minimum distance from the region to this point.
 			pq = trimesh.proximity.ProximityQuery(self.mesh)
-			region_distance = abs(pq.signed_distance([candidate_point])[0])
+			region_distance = abs(pq.signed_distance([obj_candidate_point])[0])
 
-			if region_distance > circumradius:
+			if region_distance > obj_circumradius:
 				return True
 
 		# PASS 3
+		# Take the region's center_mass if contained in the mesh, or a random sample otherwise.
+		# Then get the circumradius of the region from that point and the farthest point on
+		# the object from this point. If the maximum distance is greater than the circumradius,
+		# return False.
+
+		# Get a candidate point from the rgion mesh. If the center of mass of the region is in the mesh use that.
+		# Otherwise try to sample a point as a candidate, skipping this pass if the sample fails.
+		if self.containsPoint(self.mesh.center_mass):
+			reg_candidate_point = self.mesh.center_mass
+		elif len(samples:=trimesh.sample.volume_mesh(self.mesh, self.num_samples)) > 0:
+			reg_candidate_point = Vector(*samples[0])
+		else:
+			reg_candidate_point = None
+
+		if obj_candidate_point is not None:
+			# Calculate circumradius of the region from the candidate_point
+			reg_circumradius = numpy.max(numpy.linalg.norm(self.mesh.vertices - reg_candidate_point, axis=1))
+
+			# Calculate maximum distance to the object.
+			obj_max_distance = numpy.max(numpy.linalg.norm(obj.occupiedSpace.mesh.vertices - reg_candidate_point, axis=1))
+
+			if obj_max_distance > reg_circumradius:
+				return False
+
+		# PASS 4
 		# If the difference between the object's region and this region is empty,
 		# i.e. obj_region - self_region = EmptyRegion, that means the object is
 		# entirely contained in this region. We also return true if the result is a MeshSurfaceRegion,
@@ -867,6 +891,8 @@ class MeshVolumeRegion(_MeshRegion):
 
 	def distanceTo(self, point):
 		""" Get the minimum distance from this region (including volume) to the specified point."""
+		point = toVector(point, "Could not convert 'point' to vector.")
+
 		pq = trimesh.proximity.ProximityQuery(self.mesh)
 
 		dist = pq.signed_distance([point.coordinates])[0]

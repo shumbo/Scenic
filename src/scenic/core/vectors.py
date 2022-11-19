@@ -246,6 +246,11 @@ class Orientation:
 			return NotImplemented
 		return numpy.array_equal(self.q, other.q) or numpy.array_equal(self.q, -other.q)
 
+	def approxEq(self, other, tol=1e-10):
+		if not isinstance(other, Orientation):
+			return NotImplemented
+		return abs(numpy.dot(self.q,other.q)) > 1 - tol
+
 globalOrientation = Orientation.fromEuler(0, 0, 0)
 
 def alwaysGlobalOrientation(orientation):

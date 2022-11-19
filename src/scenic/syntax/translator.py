@@ -497,6 +497,7 @@ builtinSpecifiers = {
 	('offset', 'along'): 'OffsetAlongSpec',
 	('at',): 'At',
 	('in',): 'In',
+	('contained', 'in'): 'ContainedIn',
 	('on',): 'On',
 	('beyond',): 'Beyond',
 	('visible',): 'VisibleSpec',
@@ -509,11 +510,12 @@ builtinSpecifiers = {
 	('following',): 'Following',
 
 	# heading
+	('facing',): 'Facing',
 	('apparently', 'facing'): 'ApparentlyFacing',
 	('facing', 'toward'): 'FacingToward',
-	('facing',): 'Facing',
-	('facing', 'away', 'from'): 'FacingAwayFrom', # TODO: @Matthew Add facing directly away from 
-	('facing', 'directly', 'toward'): 'FacingDirectlyToward'
+	('facing', 'directly', 'toward'): 'FacingDirectlyToward',
+	('facing', 'away', 'from'): 'FacingAwayFrom',
+	#('facing', 'directly', 'away', 'from'): 'FacingDirectlyAwayFrom', #TODO Fix with new parser
 }
 
 # sanity check: implementations of specifiers actually exist

@@ -17,7 +17,7 @@ from scenic.core.distributions import Samplable, needsSampling, distributionMeth
 from scenic.core.specifiers import Specifier, PropertyDefault, ModifyingSpecifier
 from scenic.core.vectors import Vector, Orientation, alwaysGlobalOrientation
 from scenic.core.geometry import (_RotatedRectangle, averageVectors, hypot, min,
-                                  pointIsInCone)
+                                  pointIsInCone, normalizeAngle)
 from scenic.core.regions import (Region, CircularRegion, SectorRegion, MeshVolumeRegion, MeshSurfaceRegion, 
 								  BoxRegion, SpheroidRegion, DefaultViewRegion, EmptyRegion)
 from scenic.core.type_support import toVector, toHeading, toType, toScalar
@@ -143,7 +143,7 @@ class Constructible(Samplable):
 						raise RuntimeParseError(f'property "{prop}" specified twice with the same priority')
 					if spec.priorities[prop] < priorities[prop]:
 						properties[prop] = spec
-						priorities[prop] = spec.properties[prop]
+						priorities[prop] = spec.priorities[prop]
 				else:
 					# This property has not already been specified, so we should initialize it.
 					properties[prop] = spec
@@ -301,6 +301,9 @@ class Constructible(Samplable):
 		              'yaw', 'pitch', 'roll'):
 			value = toScalar(value, f'"{prop}" of {self} not a scalar')
 
+		if prop in ['yaw', 'pitch', 'roll']:
+			value = normalizeAngle(value)
+
 		# Check if this property is already an attribute
 		if hasattr(self, prop) and prop not in self.properties:
 			raise RuntimeParseError(f"Property {prop} would overwrite an attribute with the same name.")
@@ -315,12 +318,12 @@ class Constructible(Samplable):
 		assert not needsSampling(self)
 		oldVals = {}
 		for spec in specifiers:
-			prop = spec.property
-			if prop in self._dynamicProperties:
-				raise RuntimeParseError(f'cannot override dynamic property "{prop}"')
-			if prop not in self.properties:
-				raise RuntimeParseError(f'object has no property "{prop}" to override')
-			oldVals[prop] = getattr(self, prop)
+			for prop in spec.priorities:
+				if prop in self._dynamicProperties:
+					raise RuntimeParseError(f'cannot override dynamic property "{prop}"')
+				if prop not in self.properties:
+					raise RuntimeParseError(f'object has no property "{prop}" to override')
+				oldVals[prop] = getattr(self, prop)
 		defs = { prop: Specifier(prop, getattr(self, prop)) for prop in self.properties }
 		self._applySpecifiers(specifiers, defs=defs)
 		return oldVals
@@ -731,6 +734,9 @@ class Object(OrientedPoint, _RotatedRectangle):
 	def containsPoint(self, point):
 		return self.occupiedSpace.containsPoint(point)
 
+	def distanceTo(self, other):
+		return self.occupiedSpace.distanceTo(other)
+
 	def intersects(self, other):
 		return self.occupiedSpace.intersects(other.occupiedSpace)
 
@@ -956,6 +962,14 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 		elif isinstance(target, (Object)):
 			target_region = target.occupiedSpace
 
+		# Check that the distance to the target is not greater than visibleDistance, and
+		# see if position is in the target.
+		if target.containsPoint(position):
+			return True
+
+		if target.distanceTo(position) > visibleDistance:
+			return False
+
 		# Orient the object so that it has the same relative position and orientation to the
 		# origin as it did to the viewer
 		target_vertices = target_region.mesh.vertices - np.array(position.coordinates)
@@ -1128,19 +1142,13 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 
 		# Extract rays that are within visibleDistance, mapping the vector
 		# to the distance at which they hit the target
-		feasible_vectors = {}
-
-		for hit_iter in range(len(raw_target_hit_info[0])):
-			hit_loc = Vector(*raw_target_hit_info[0][hit_iter])
-			hit_distance = position.distanceTo(hit_loc)
-
-			if hit_distance <= visibleDistance:
-				feasible_vectors[tuple(ray_vectors[raw_target_hit_info[1][hit_iter],:])] = hit_distance
+		hit_locs = raw_target_hit_info[0]
+		hit_distances = np.linalg.norm(hit_locs - np.array(position), axis=1)
+		feasible_vectors = hit_locs[hit_distances <= visibleDistance]
+		feasible_distances = hit_distances[hit_distances <= visibleDistance]
 
 		if len(feasible_vectors) == 0:
 			return False
-
-		candidate_rays = set(feasible_vectors.keys())
 
 		## DEBUG ##
 		#Show all candidate vertices that hit target
@@ -1157,6 +1165,10 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 		# render_scene.show()
 
 		# Now check if occluded objects block sight to target
+		
+		target_dist_map = {tuple(feasible_vectors[vec_iter]): feasible_distances[vec_iter] for vec_iter in range(len(feasible_vectors))}
+		candidate_rays = {tuple(ray) for ray in feasible_vectors}
+
 		for occ_obj in occludingObjects:
 			# If no more rays are candidates, then object is no longer visible.
 			if len(candidate_rays) == 0:
@@ -1171,35 +1183,21 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 
 			# Check if any candidate ray hits the occluding object with a smaller
 			# distance than the target.
+			object_vectors = object_hit_info[0]
+			object_distances = np.linalg.norm(object_vectors - np.array(position), axis=1)
+
+			object_dist_map = {tuple(object_vectors[vec_iter]): object_distances[vec_iter] for vec_iter in range(len(object_vectors))}
+
 			occluded_rays = set()
 
 			for hit_iter in range(len(object_hit_info[0])):
 				ray = tuple(candidate_ray_list[object_hit_info[1][hit_iter]])
-				occ_distance = position.distanceTo(Vector(*object_hit_info[0][hit_iter,:]))
 
-				if occ_distance <= feasible_vectors[ray]:
+				if object_dist_map[ray] <= target_dist_map[ray]:
 					# This ray is occluded
 					occluded_rays.add(ray)
 
 			candidate_rays = candidate_rays - occluded_rays
-
-			## DEBUG ##
-			# Show occluded and non occluded rays from this object
-			
-			# occluded_vertices = [visibleDistance*np.array(vec) + position.coordinates for vec in occluded_rays]
-			# clear_vertices = [visibleDistance*np.array(vec) + position.coordinates for vec in candidate_rays]
-			# vertices = occluded_vertices + clear_vertices
-			# vertices = [position.coordinates] + vertices
-			# lines = [trimesh.path.entities.Line([0,v]) for v in range(1,len(vertices))]
-			# occluded_colors = [(255,0,0,255) for line in occluded_vertices]
-			# clear_colors = [(0,255,0,255) for line in clear_vertices]
-			# colors = occluded_colors + clear_colors
-
-			# render_scene = trimesh.scene.Scene()
-			# render_scene.add_geometry(trimesh.path.Path3D(entities=lines, vertices=vertices, process=False, colors=colors))
-			# render_scene.add_geometry(target.occupiedSpace.mesh)
-			# render_scene.add_geometry(list(occludingObjects)[0].occupiedSpace.mesh)
-			# render_scene.show()
 
 		return len(candidate_rays) > 0
 
