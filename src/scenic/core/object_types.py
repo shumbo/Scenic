@@ -1199,6 +1199,24 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 
 			candidate_rays = candidate_rays - occluded_rays
 
+			## DEBUG ##
+			# Show occluded and non occluded rays from this object
+			
+			# occluded_vertices = [visibleDistance*np.array(vec) + position.coordinates for vec in occluded_rays]
+			# clear_vertices = [visibleDistance*np.array(vec) + position.coordinates for vec in candidate_rays]
+			# vertices = occluded_vertices + clear_vertices
+			# vertices = [position.coordinates] + vertices
+			# lines = [trimesh.path.entities.Line([0,v]) for v in range(1,len(vertices))]
+			# occluded_colors = [(255,0,0,255) for line in occluded_vertices]
+			# clear_colors = [(0,255,0,255) for line in clear_vertices]
+			# colors = occluded_colors + clear_colors
+			# render_scene = trimesh.scene.Scene()
+			# render_scene.add_geometry(trimesh.path.Path3D(entities=lines, vertices=vertices, process=False, colors=colors))
+			# render_scene.add_geometry(target.occupiedSpace.mesh)
+			# render_scene.add_geometry(list(occludingObjects)[0].occupiedSpace.mesh)
+			# render_scene.show()
+
+
 		return len(candidate_rays) > 0
 
 	elif isinstance(target, (Point, OrientedPoint, Vector)):
