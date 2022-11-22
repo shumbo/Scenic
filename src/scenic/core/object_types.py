@@ -1141,13 +1141,26 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 			ray_directions=ray_vectors)
 
 		# Extract rays that are within visibleDistance, mapping the vector
-		# to the distance at which they hit the target
+		# to the closest distance at which they hit the target
 		hit_locs = raw_target_hit_info[0]
 		hit_distances = np.linalg.norm(hit_locs - np.array(position), axis=1)
-		feasible_vectors = hit_locs[hit_distances <= visibleDistance]
-		feasible_distances = hit_distances[hit_distances <= visibleDistance]
 
-		if len(feasible_vectors) == 0:
+		target_dist_map = {}
+
+		for hit_iter in range(len(raw_target_hit_info[0])):
+			hit_ray = tuple(ray_vectors[raw_target_hit_info[1][hit_iter]])
+			hit_dist = hit_distances[hit_iter]
+
+			# If the hit was out of visible distance, don't consider it.
+			if hit_dist > visibleDistance:
+				continue
+
+			# If we don't already have a hit distance for this vector, or if
+			# this hit was closer, update the target distance mapping.
+			if hit_ray not in target_dist_map or hit_dist < target_dist_map[hit_ray]:
+				target_dist_map[hit_ray] = hit_dist
+
+		if len(target_dist_map) == 0:
 			return False
 
 		## DEBUG ##
@@ -1165,9 +1178,8 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 		# render_scene.show()
 
 		# Now check if occluded objects block sight to target
-		
-		target_dist_map = {tuple(feasible_vectors[vec_iter]): feasible_distances[vec_iter] for vec_iter in range(len(feasible_vectors))}
-		candidate_rays = {tuple(ray) for ray in feasible_vectors}
+
+		candidate_rays = set(target_dist_map.keys())
 
 		for occ_obj in occludingObjects:
 			# If no more rays are candidates, then object is no longer visible.
@@ -1183,19 +1195,17 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 
 			# Check if any candidate ray hits the occluding object with a smaller
 			# distance than the target.
-			object_vectors = object_hit_info[0]
-			object_distances = np.linalg.norm(object_vectors - np.array(position), axis=1)
-
-			object_dist_map = {tuple(object_vectors[vec_iter]): object_distances[vec_iter] for vec_iter in range(len(object_vectors))}
+			object_distances = np.linalg.norm(object_hit_info[0] - np.array(position), axis=1)
 
 			occluded_rays = set()
 
 			for hit_iter in range(len(object_hit_info[0])):
-				ray = tuple(candidate_ray_list[object_hit_info[1][hit_iter]])
+				hit_ray = tuple(candidate_ray_list[object_hit_info[1][hit_iter]])
+				hit_dist = object_distances[hit_iter]
 
-				if object_dist_map[ray] <= target_dist_map[ray]:
-					# This ray is occluded
-					occluded_rays.add(ray)
+				# If this ray hit the object earlier than it hit the target, reject the ray.
+				if hit_dist <= target_dist_map[hit_ray]:
+					occluded_rays.add(hit_ray)
 
 			candidate_rays = candidate_rays - occluded_rays
 
