@@ -1283,7 +1283,6 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 
 				if occ_distance <= target_distance:
 					# The ray is occluded
-					print("Fail 2")
 					return False
 
 		return True
