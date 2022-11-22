@@ -458,7 +458,7 @@ def test_delayed_local_argument():
     assert len(trajectory) == 2
     assert len(trajectory[1]) == 2
     assert tuple(trajectory[1][0]) == (0, 0, 0)
-    assert tuple(trajectory[1][1]) == pytest.approx((-6, 12, 0))
+    assert tuple(trajectory[1][1]) == pytest.approx((-6, 12, 0), abs=2e-4)
 
 def test_delayed_local_interrupt():
     scenario = compileScenic("""

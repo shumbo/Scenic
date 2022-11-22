@@ -658,7 +658,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 	shape: BoxShape()
 
 	baseOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
-	contactTolerance: 1e-6
+	contactTolerance: 1e-4
 
 	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
 	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))
@@ -1140,6 +1140,11 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 			ray_origins=[position.coordinates for ray in ray_vectors],
 			ray_directions=ray_vectors)
 
+
+		# If no hits, this object can't be visible
+		if len(raw_target_hit_info[0]) == 0:
+			return False
+
 		# Extract rays that are within visibleDistance, mapping the vector
 		# to the closest distance at which they hit the target
 		hit_locs = raw_target_hit_info[0]
@@ -1192,6 +1197,10 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 			object_hit_info = occ_obj.occupiedSpace.mesh.ray.intersects_location(
 				ray_origins=[position.coordinates for ray in candidate_ray_list],
 				ray_directions=candidate_ray_list)
+
+			# If no hits, this object doesn't occlude.
+			if len(object_hit_info[0]) == 0:
+				continue
 
 			# Check if any candidate ray hits the occluding object with a smaller
 			# distance than the target.

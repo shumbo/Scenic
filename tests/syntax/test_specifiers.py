@@ -312,7 +312,7 @@ def test_above_object():
                         'target = Object facing (0, 90 deg, 0)\n'
                         'ego = Object above target'
                        )
-    assert tuple(ego.position) == pytest.approx((0, -1, 0))
+    assert tuple(ego.position) == pytest.approx((0, -1, 0), abs=2*ego.contactTolerance)
     assert ego.orientation == Orientation.fromEuler(0, math.pi/2, 0)
 
 def test_below_vector_3d():
@@ -327,7 +327,7 @@ def test_below_vector_by_3d():
     ego = sampleEgoFrom('ego = Object below (10, 20, 15) by 20, facing (90 deg, 0, 90 deg), with height 10')
     assert tuple(ego.position) == pytest.approx((10, -5, 15))
 
-def test_above_oriented_point():
+def test_below_oriented_point():
     ego = sampleEgoFrom(
                         'target = OrientedPoint facing (0, 90 deg, 0)\n'
                         'ego = Object below target'
@@ -335,12 +335,12 @@ def test_above_oriented_point():
     assert tuple(ego.position) == pytest.approx((0, 0.5, 0))
     assert ego.orientation == Orientation.fromEuler(0, math.pi/2, 0)
 
-def test_above_object():
+def test_below_object():
     ego = sampleEgoFrom(
                         'target = Object facing (0, 90 deg, 0)\n'
                         'ego = Object below target'
                        )
-    assert tuple(ego.position) == pytest.approx((0, 1, 0))
+    assert tuple(ego.position) == pytest.approx((0, 1, 0), abs=2*ego.contactTolerance)
     assert ego.orientation == Orientation.fromEuler(0, math.pi/2, 0)
 
 # Beyond
