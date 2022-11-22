@@ -23,7 +23,7 @@ roadDirection = workspace.roadDirection		# NOTE: chooses arbitrarily where guide
 
 class Car:
 	regionContainedIn: road
-	position: Point on road
+	position: new Point on road
 	parentOrientation: roadDirection at self.position
 	webotsType: self.model.name
 	model: modelWithName['ToyotaPrius']

@@ -49,9 +49,10 @@ class Constructible(Samplable):
 		super().__init_subclass__()
 		# find all defaults provided by the class or its superclasses
 		allDefs = collections.defaultdict(list)
+
 		for sc in cls.__mro__:
-			if issubclass(sc, Constructible) and hasattr(sc, '__annotations__'):
-				for prop, value in sc.__annotations__.items():
+			if issubclass(sc, Constructible) and hasattr(sc, '_scenic_properties'):
+				for prop, value in sc._scenic_properties.items():
 					allDefs[prop].append(PropertyDefault.forValue(value))
 
 		# resolve conflicting defaults and gather dynamic properties
@@ -350,7 +351,7 @@ class Constructible(Samplable):
 		return self._withProperties(props, constProps=constProps)
 
 	def dumpAsScenicCode(self, stream, skipConstProperties=True):
-		stream.write(self.__class__.__name__)
+		stream.write(f"new {self.__class__.__name__}")
 		first = True
 		for prop in sorted(self.properties):
 			if skipConstProperties and prop in self._constProps:
@@ -471,22 +472,24 @@ class Point(Constructible):
 		positionStdDev (float): Standard deviation of Gaussian noise to add to this
 		  object's ``position`` when mutation is enabled with scale 1. Default value 1.
 	"""
-	position: PropertyDefault((), {'dynamic'}, lambda self: Vector(0, 0, 0))
-	width: 0
-	length: 0
-	visibleDistance: 50
-	# Density of rays per degree in one dimension. Number of rays sent will be
-	# this value squared per 1 degree x 1 degree portion of the visible region
-	rayDensity: 1
+	_scenic_properties = {
+		"position": PropertyDefault((), {'dynamic'}, lambda self: Vector(0, 0)),
+		"width": 0,
+		"length": 0,
+		"visibleDistance": 50,
+		# Density of rays per degree in one dimension. Number of rays sent will be
+		# this value squared per 1 degree x 1 degree portion of the visible region
+		"rayDensity": 1,
 
-	mutationScale: 0
-	mutator: PropertyDefault({'positionStdDev'}, {'additive'},
-							 lambda self: PositionMutator(self.positionStdDev))
-	positionStdDev: 1
+		"mutationScale": 0,
+		"mutator": PropertyDefault({'positionStdDev'}, {'additive'},
+								lambda self: PositionMutator(self.positionStdDev)),
+		"positionStdDev": 1,
 
-	# This property is defined in Object, but we provide a default empty value
-	# for Points for implementation convenience.
-	regionContainedIn: None
+		# This property is defined in Object, but we provide a default empty value
+		# for Points for implementation convenience.
+		"regionContainedIn": None,
+	}
 
 	# These properties are used internally to store entities that must be able to
 	# or must be unable to observe this entity.
@@ -550,29 +553,31 @@ class OrientedPoint(Point):
 		headingStdDev (float): Standard deviation of Gaussian noise to add to this
 		  object's ``heading`` when mutation is enabled with scale 1. Default value 5°.
 	"""
-	# primitive orientation properties
-	yaw: PropertyDefault((), {'dynamic'}, lambda self: 0)
-	pitch: PropertyDefault((), {'dynamic'}, lambda self: 0)
-	roll: PropertyDefault((), {'dynamic'}, lambda self: 0)
-	parentOrientation: Orientation.fromEuler(0, 0, 0)
+	_scenic_properties = {
+		# primitive orientation properties
+		'yaw': PropertyDefault((), {'dynamic'}, lambda self: 0),
+		'pitch': PropertyDefault((), {'dynamic'}, lambda self: 0),
+		'roll': PropertyDefault((), {'dynamic'}, lambda self: 0),
+		'parentOrientation': Orientation.fromEuler(0, 0, 0),
 
-	# derived orientation properties that cannot be overwritten
-	orientation: PropertyDefault(
-	    {'yaw', 'pitch', 'roll', 'parentOrientation'},
-	    {'final'},
-	    lambda self: (Orientation.fromEuler(self.yaw, self.pitch, self.roll)
-	                  * self.parentOrientation)
-	)
-	heading: PropertyDefault({'orientation'}, {'final'},
-	    lambda self: self.yaw if alwaysGlobalOrientation(self.parentOrientation) else self.orientation.yaw)
+		# derived orientation properties that cannot be overwritten
+		'orientation': PropertyDefault(
+		    {'yaw', 'pitch', 'roll', 'parentOrientation'},
+		    {'final'},
+		    lambda self: (Orientation.fromEuler(self.yaw, self.pitch, self.roll)
+			          * self.parentOrientation)
+		),
+		'heading': PropertyDefault({'orientation'}, {'final'},
+		    lambda self: self.yaw if alwaysGlobalOrientation(self.parentOrientation) else self.orientation.yaw),
 
-	# The view angle in the horizontal and vertical direction
-	viewAngle: math.tau
-	viewAngles: PropertyDefault(('viewAngle',), set(), lambda self: (self.viewAngle, math.pi))
+		# The view angle in the horizontal and vertical direction
+		'viewAngle': math.tau,
+		'viewAngles': PropertyDefault(('viewAngle',), set(), lambda self: (self.viewAngle, math.pi)),
 
-	mutator: PropertyDefault({'headingStdDev'}, {'additive'},
-		lambda self: HeadingMutator(self.headingStdDev))
-	headingStdDev: math.radians(5)
+		'mutator': PropertyDefault({'headingStdDev'}, {'additive'},
+			lambda self: HeadingMutator(self.headingStdDev))
+		'headingStdDev': math.radians(5),
+	}
 
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
@@ -644,42 +649,35 @@ class Object(OrientedPoint, _RotatedRectangle):
 		behavior: Behavior for dynamic agents, if any (see :ref:`dynamics`). Default
 			value ``None``.
 	"""
-	width: PropertyDefault(('shape',), {}, lambda self: self.shape.dimensions[0])
-	length: PropertyDefault(('shape',), {}, lambda self: self.shape.dimensions[1])
-	height: PropertyDefault(('shape',), {}, lambda self: self.shape.dimensions[2])
-
-	allowCollisions: False
-	requireVisible: False
-	regionContainedIn: None
-	cameraOffset: Vector(0, 0, 0)
-	# Whether or not this object can occlude other objects
-	occluding: True
-
-	shape: BoxShape()
-
-	baseOffset: PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2))
-	contactTolerance: 1e-4
-
-	velocity: PropertyDefault(('speed', 'orientation'), {'dynamic'},
-	                          lambda self: Vector(0, self.speed).rotatedBy(self.orientation))
-	speed: PropertyDefault((), {'dynamic'}, lambda self: 0)
-	angularSpeed: PropertyDefault((), {'dynamic'}, lambda self: 0)
-
-	min_top_z: 0.4
-
-	occupiedSpace: PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation'), \
-		{'final'}, lambda self: MeshVolumeRegion(mesh=self.shape.mesh, \
-			dimensions=(self.width, self.length, self.height), \
-			position=self.position, rotation=self.orientation))
-
-	boundingBox: PropertyDefault(('occupiedSpace',), {'final'},  \
-		lambda self: lazyBoundingBox(self.occupiedSpace))
-
-	topSurface: PropertyDefault(('occupiedSpace', 'min_top_z'), \
-		{}, lambda self: defaultTopSurface(self.occupiedSpace, self.min_top_z))
-
-	behavior: None
-	lastActions: None
+	_scenic_properties = {
+		'width': PropertyDefault(('shape',), {}, lambda self: self.shape.dimensions[0]),
+		'length': PropertyDefault(('shape',), {}, lambda self: self.shape.dimensions[1]),
+		'height': PropertyDefault(('shape',), {}, lambda self: self.shape.dimensions[2]),
+		'allowCollisions': False,
+		'requireVisible': False,
+		'regionContainedIn': None,
+		'cameraOffset': Vector(0, 0, 0),
+		# Whether or not this object can occlude other objects
+		'occluding': True,
+		'shape': BoxShape(),
+		'baseOffset': PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2)),
+		'contactTolerance': 1e-4,
+		'velocity': PropertyDefault(('speed', 'heading'), {'dynamic'},
+			                  lambda self: Vector(0, self.speed).rotatedBy(self.heading)),
+		'speed': PropertyDefault((), {'dynamic'}, lambda self: 0),
+		'angularSpeed': PropertyDefault((), {'dynamic'}, lambda self: 0),
+		'min_top_z': 0.4,
+		'occupiedSpace': PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation'), \
+			{'final'}, lambda self: MeshVolumeRegion(mesh=self.shape.mesh, \
+				dimensions=(self.width, self.length, self.height), \
+				position=self.position, rotation=self.orientation)),
+		'boundingBox': PropertyDefault(('occupiedSpace',), {'final'},  \
+			lambda self: lazyBoundingBox(self.occupiedSpace)),
+		'topSurface': PropertyDefault(('occupiedSpace', 'min_top_z'), \
+			{}, lambda self: defaultTopSurface(self.occupiedSpace, self.min_top_z)),
+		"behavior": None,
+		"lastActions": None,
+	}
 
 	def __new__(cls, *args, **kwargs):
 		obj = super().__new__(cls)

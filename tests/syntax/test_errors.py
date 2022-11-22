@@ -2,6 +2,7 @@
 import sys
 import os.path
 import subprocess
+from tokenize import TokenError
 
 import pytest
 
@@ -22,23 +23,7 @@ def test_bad_extension(tmpdir):
     with pytest.raises(RuntimeError), open(path, 'w'):
         scenic.scenarioFromFile(path)
 
-### Parse errors during token translation
-
-## Operators used in Python but not Scenic
-
-@pytest.mark.parametrize('op', ('~',))
-def test_illegal_unary_operators(op):
-    with pytest.raises(TokenParseError):
-        compileScenic(f'x = {op}2')
-
-@pytest.mark.parametrize('op', ('<<', '>>', '|', '&', '^', '//'))
-def test_illegal_binary_operators(op):
-    # Basic usage
-    with pytest.raises(TokenParseError):
-        compileScenic(f'x = 3 {op} 2')
-    # Augmented assignments
-    with pytest.raises(TokenParseError):
-        compileScenic(f'x {op}= 4')
+### Parse errors
 
 ## Constructor definitions
 
@@ -46,93 +31,89 @@ badNames = ('', '3', '+', 'Behavior')
 
 @pytest.mark.parametrize('name', badNames)
 def test_illegal_constructor_name(name):
-    with pytest.raises(TokenParseError):
-        compileScenic(f'constructor {name}:\n' '    pass')
+    with pytest.raises(SyntaxError):
+        compileScenic(f'class {name}:\n' '    pass')
 
 @pytest.mark.parametrize('name', badNames)
 def test_illegal_constructor_superclass(name):
-    with pytest.raises(TokenParseError):
-        compileScenic(f'constructor Foo({name}):\n' '    pass')
-
-def test_constructor_python_superclass():
-    with pytest.raises(TokenParseError):
-        compileScenic('constructor Foo(object):\n' '    pass')
-
-def test_constructor_undefined_superclass():
-    with pytest.raises(TokenParseError):
-        compileScenic('constructor Foo(Bar):\n' '    pass')
+    with pytest.raises(SyntaxError):
+        compileScenic(f'class Foo({name}):\n' '    pass')
 
 def test_malformed_constructor():
-    with pytest.raises(TokenParseError):
-        compileScenic('constructor Foo\n' '    pass')
-    with pytest.raises(TokenParseError):
-        compileScenic('constructor Foo(Bar:\n' '    pass')
+    with pytest.raises(SyntaxError):
+        compileScenic('class Foo\n' '    pass')
+    with pytest.raises(SyntaxError):
+        compileScenic('class Foo(Bar:\n' '    pass')
+
+def test_multiple_inheritance():
+    with pytest.raises(SyntaxError):
+        compileScenic("class Bad(Object, Point):\n    pass")
+
+def test_new_python_class():
+    with pytest.raises(SyntaxError):
+        compileScenic("class PyCls(object):\n    pass\nnew PyCls")
 
 ## Soft requirements
 
 def test_malformed_soft_requirement():
-    with pytest.raises(TokenParseError):
+    with pytest.raises(SyntaxError):
         compileScenic('require[x] 3 == 3')
-    with pytest.raises(TokenParseError):
+    with pytest.raises(SyntaxError):
         compileScenic('require[1+x] 3 == 3')
-    with pytest.raises(TokenParseError):
+    with pytest.raises(SyntaxError):
         compileScenic('require[] 3 == 3')
 
 ## Specifiers
 
 def test_undefined_specifier():
-    with pytest.raises(TokenParseError):
-        compileScenic('Object cattywampus')
-    with pytest.raises(TokenParseError):
-        compileScenic('Object athwart 3')
+    with pytest.raises(SyntaxError):
+        compileScenic('new Object cattywampus')
+    with pytest.raises(SyntaxError):
+        compileScenic('new Object athwart 3')
 
 ## Illegal usages of keywords
 
 def test_reserved_functions():
-    with pytest.raises(TokenParseError):
+    with pytest.raises(SyntaxError):
         compileScenic('PropertyDefault()')
 
 ## Unmatched parentheses and multiline strings
 
 def test_unmatched_parentheses():
-    with pytest.raises(TokenParseError):
+    with pytest.raises(TokenError):
         compileScenic('(')
-    with pytest.raises(TokenParseError):
+    with pytest.raises(TokenError):
         compileScenic('x = (3 + 4')
-    with pytest.raises(TokenParseError):
+    with pytest.raises(SyntaxError):
         compileScenic(')')
-    with pytest.raises(TokenParseError):
+    with pytest.raises(SyntaxError):
         compileScenic('x = (4 - 2))')
 
 def test_incomplete_multiline_string():
-    with pytest.raises(TokenParseError):
+    with pytest.raises(TokenError):
         compileScenic('"""foobar')
-    with pytest.raises(TokenParseError):
+    with pytest.raises(TokenError):
         compileScenic('x = """foobar\n' 'wog\n')
-
-### Parse errors during Python parsing
 
 def test_incomplete_infix_operator():
     """Binary infix operator with too few arguments."""
-    with pytest.raises(PythonParseError):
+    with pytest.raises(SyntaxError):
         compileScenic('x = 3 @')
-    with pytest.raises(PythonParseError):
+    with pytest.raises(SyntaxError):
         compileScenic('x = 3 at')
-
-### Parse errors during parse tree surgery
 
 ## Infix operators
 
-def test_incomplete_infix_package():
-    """Packaged (3+-ary) infix operator with too few arguments."""
-    with pytest.raises(ASTParseError):
+def test_incomplete_ternary_operator():
+    """3+-ary infix operator with too few arguments."""
+    with pytest.raises(SyntaxError):
         compileScenic('x = 4 offset along 12')
 
-def test_extra_infix_package():
-    """Packaged (3+-ary) infix operator with too many arguments."""
-    with pytest.raises(ASTParseError):
+def test_extra_ternary_operator():
+    """3+-ary infix operator with too many arguments."""
+    with pytest.raises(SyntaxError):
         compileScenic('x = 4 at 12 by 17')
-    with pytest.raises(ASTParseError):
+    with pytest.raises(SyntaxError):
         compileScenic('x = 4 offset along 12 by 17 by 19')
 
 ## Ranges
@@ -146,7 +127,7 @@ def test_malformed_range():
 ## Requirements
 
 def test_multiple_requirements():
-    with pytest.raises(ASTParseError):
+    with pytest.raises(SyntaxError):
         compileScenic('require True, True, True')
 
 ### Line numbering
@@ -160,20 +141,20 @@ def test_multiple_requirements():
 templates = [
 (1,     # on first line
 '''{bug}
-ego = Object'''
+ego = new Object'''
 ),
 (2,     # after ordinary statement
-'''ego = Object
+'''ego = new Object
 {bug}'''
 ),
 (3,     # after import
-'''ego = Object
+'''ego = new Object
 import time
 {bug}'''
 ),
 (8,     # after explicit line continuation (and in a function)
 '''from time import time
-ego = Object
+ego = new Object
 
 def qux(foo=None,
         bar=3):
@@ -185,7 +166,7 @@ qux()
 '''
 ),
 (4,     # after automatic line continuation by parentheses
-'''ego = Object
+'''ego = new Object
 x = (1 + 2
      + 3)
 {bug}
@@ -194,7 +175,7 @@ x = (1 + 2
 ]
 
 indentedSpecTemplate = '''\
-ego = Object facing 1, {continuation}
+ego = new Object facing 1, {continuation}
              at 10@10
 {{bug}}
 '''
@@ -209,7 +190,7 @@ dynamicTemplates = [
         take 5
     interrupt when ego.position.x > 4:
         take 10
-ego = Object with behavior foo
+ego = new Object with behavior foo
 '''
 ),
 (5,
@@ -219,7 +200,7 @@ ego = Object with behavior foo
     interrupt when simulation().currentTime > 0:
         {bug}
         take 10
-ego = Object with behavior foo
+ego = new Object with behavior foo
 '''
 ),
 ]
@@ -282,7 +263,8 @@ def checkException(e, lines, program, bug, path, output, topLevel=True):
     if syntaxErrorLike:
         assert e.lineno == eLine, program
         assert e.text.strip() == bug
-        assert e.offset <= len(e.text)
+        # if text does not end with NEWLINE, it is okay to point to the next character after the last
+        assert e.offset <= len(e.text) if e.text[-1] == "\n" else len(e.text) + 1
 
     # If we skipped generating a textual backtrace in a subprocess, stop here.
     if output is None:
@@ -326,17 +308,16 @@ def runFile(path):
 
 @pytest.mark.parametrize('bug', (
     # BUGGY CODE                    ERROR CAUGHT DURING:
-    'x = 3 << 2',                   # token translation
-    '4 = 2',                        # Python parsing
-    '3 relative to',                # Python parsing
-    'Point at x y',                 # Python parsing (with offset past end of original line)
-    'require',                      # AST surgery
-    'terminate 4',                  # AST surgery (handled differently inside behaviors)
+    '4 = 2',                        # Scenic parsing
+    '3 relative to',                # Scenic parsing
+    'new Point at x y',             # Scenic parsing
+    'require',                      # Scenic parsing
+    'terminate 4',                  # Scenic compilation (handled differently inside behaviors)
     'break',                        # Python compilation
     '4 at 0',                       # Python execution (Scenic parse error)
     'x = _flub__',                  # Python execution (Python runtime error)
     'raise Exception',              # Python execution (program exception)
-    'Object at Uniform(0@0, 4)'     # sampling
+    'new Object at Uniform(0@0, 4)' # sampling
     'require 4 at 0',               # requirement evaluation (Scenic parse error)
     'require _flub__',              # requirement evaluation (Python runtime error)
 ))
@@ -364,7 +345,7 @@ def test_line_numbering_double(bug, template, tmpdir, pytestconfig):
 
 chainedTemplates = [
 ((5, 3),
-'''ego = Object
+'''ego = new Object
 try:
     raise TypeError
 except Exception as e:
@@ -372,7 +353,7 @@ except Exception as e:
 '''
 ),
 ((8, 6, 3),
-'''ego = Object
+'''ego = new Object
 try:
     raise TypeError
 except Exception as e:

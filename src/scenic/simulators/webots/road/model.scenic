@@ -42,7 +42,7 @@ class WebotsObject:
 
 class Car(WebotsObject):
 	regionContainedIn: road
-	position: Point on road
+	position: new Point on road
 	parentOrientation: roadDirection at self.position
 	yaw: self.roadDeviation
 	roadDeviation: 0
@@ -88,7 +88,7 @@ class Motorcycle(Car):
 
 class Pedestrian(WebotsObject):
 	regionContainedIn: walkway
-	position: Point on walkway
+	position: new Point on walkway
 	yaw: Range(0, 360) deg
 	width: 0.5
 	length: 0.5

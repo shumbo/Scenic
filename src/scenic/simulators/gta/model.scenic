@@ -5,6 +5,7 @@ import random
 from scenic.simulators.gta.interface import (Map, MapWorkspace, GTA,
 	CarModel)
 from scenic.simulators.utils.colors import Color, ColorMutator
+CarColor = Color	# alias for backwards compatibility
 
 # Load map and set up regions, etc.
 from scenic.simulators.gta.map import mapPath
@@ -55,7 +56,7 @@ class Car:
 		model (`CarModel`): Model of the car.
 		color (:obj:`Color` or RGB tuple): Color of the car.
 	"""
-	position: Point on road
+	position: new Point on road
 	parentOrientation: roadDirection at self.position
 	yaw: self.roadDeviation
 	roadDeviation: 0
@@ -87,7 +88,7 @@ def createPlatoonAt(car, numCars, model=None, dist=Range(2, 8),
 	lastCar = car
 	for i in range(numCars-1):
 		center = follow roadDirection from (front of lastCar) for resample(dist)
-		pos = OrientedPoint right of center by shift, facing resample(wiggle) relative to roadDirection
-		lastCar = Car ahead of pos, with model (car.model if model is None else resample(model))
+		pos = new OrientedPoint right of center by shift, facing resample(wiggle) relative to roadDirection
+		lastCar = new Car ahead of pos, with model (car.model if model is None else resample(model))
 		cars.append(lastCar)
 	return cars

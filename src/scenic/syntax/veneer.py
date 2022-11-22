@@ -9,7 +9,7 @@ global state such as the list of all created Scenic objects.
 __all__ = (
 	# Primitive statements and functions
 	'ego', 'workspace',
-	'require', 'resample', 'param', 'globalParameters', 'mutate', 'verbosePrint',
+	'new', 'require', 'resample', 'param', 'globalParameters', 'mutate', 'verbosePrint',
 	'localPath', 'model', 'simulator', 'simulation', 'require_always', 'require_eventually',
 	'terminate_when', 'terminate_simulation_when', 'terminate_after', 'in_initial_scenario',
 	'override',
@@ -379,6 +379,11 @@ class Modifier(typing.NamedTuple):
 
 ### Primitive statements and functions
 
+def new(cls, specifiers):
+	if not issubclass(cls, Constructible):
+		raise SyntaxError(f'"{cls.__name__}" is not a Scenic class')
+	return cls(*specifiers)
+
 def ego(obj=None):
 	"""Function implementing loads and stores to the 'ego' pseudo-variable.
 
@@ -600,7 +605,7 @@ def model(namespace, modelName):
 			if not name.startswith('_'):
 				namespace[name] = value
 
-def param(*quotedParams, **params):
+def param(params):
 	"""Function implementing the param statement."""
 	global loadingModel
 	if evaluatingRequirement:
@@ -609,11 +614,6 @@ def param(*quotedParams, **params):
 		raise RuntimeParseError('tried to create a global parameter during a simulation')
 	for name, value in params.items():
 		if name not in lockedParameters and (not loadingModel or name not in _globalParameters):
-			_globalParameters[name] = toDistribution(value)
-	assert len(quotedParams) % 2 == 0, quotedParams
-	it = iter(quotedParams)
-	for name, value in zip(it, it):
-		if name not in lockedParameters:
 			_globalParameters[name] = toDistribution(value)
 
 class ParameterTableProxy(collections.abc.Mapping):
@@ -638,16 +638,14 @@ class ParameterTableProxy(collections.abc.Mapping):
 def globalParameters():
 	return ParameterTableProxy(_globalParameters)
 
-def mutate(*objects):		# TODO update syntax
+def mutate(*objects, scale = 1):
 	"""Function implementing the mutate statement."""
 	if evaluatingRequirement:
 		raise RuntimeParseError('used mutate statement inside a requirement')
-	scale = 1
-	if objects and isinstance(objects[-1], (float, int)):
-		scale = objects[-1]
-		objects = objects[:-1]
 	if len(objects) == 0:
 		objects = currentScenario._objects
+	if not isinstance(scale, (int, float)):
+		raise RuntimeParseError('"mutate X by Y" with Y not a number')
 	for obj in objects:
 		if not isinstance(obj, Object):
 			raise RuntimeParseError('"mutate X" with X not an object')
@@ -819,14 +817,20 @@ def DistancePast(X, Y=None):
 	Y = toType(Y, OrientedPoint, '"distance past X of Y" with Y not an OrientedPoint')
 	return Y.distancePast(X)
 
+# TODO(shun): Migrate to `AngleFrom`
 def AngleTo(X):
 	"""The 'angle to <vector>' operator (using the position of ego as the reference)."""
 	X = toVector(X, '"angle to X" with X not a vector')
 	return ego().angleTo(X)
 
-def AngleFrom(X, Y):
+def AngleFrom(X=None, Y=None):
 	"""The 'angle from <vector> to <vector>' operator."""
+	assert X is not None or Y is not None
+	if X is None:
+		X = ego()
 	X = toVector(X, '"angle from X to Y" with X not a vector')
+	if Y is None:
+		Y = ego()
 	Y = toVector(Y, '"angle from X to Y" with Y not a vector')
 	return X.angleTo(Y)
 
@@ -1371,8 +1375,6 @@ def Following(field, dist, fromPt=None):
 	"""
 	if fromPt is None:
 		fromPt = ego()
-	else:
-		dist, fromPt = fromPt, dist
 	if not isinstance(field, VectorField):
 		raise RuntimeParseError('"following F" specifier with F not a vector field')
 	fromPt = toVector(fromPt, '"following F from X for D" with X not a vector')
