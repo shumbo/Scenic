@@ -1393,6 +1393,22 @@ class TestCompiler:
             case _:
                 assert False
 
+    def test_position_specifier_above(self):
+        node, _ = compileScenicAST(DirectionOfSpecifier(Above(), Name("x"), None))
+        match node:
+            case Call(Name("Above"), [Name("x")]):
+                assert True
+            case _:
+                assert False
+
+    def test_position_specifier_below(self):
+        node, _ = compileScenicAST(DirectionOfSpecifier(Below(), Name("x"), None))
+        match node:
+            case Call(Name("Below"), [Name("x")]):
+                assert True
+            case _:
+                assert False
+
     def test_position_specifier_distance(self):
         node, _ = compileScenicAST(
             DirectionOfSpecifier(Behind(), Name("x"), Constant(10))
@@ -1465,6 +1481,22 @@ class TestCompiler:
             case _:
                 assert False
 
+    def test_on_specifier(self):
+        node, _ = compileScenicAST(OnSpecifier(Name("region")))
+        match node:
+            case Call(Name("On"), [Name("region")]):
+                assert True
+            case _:
+                assert False
+
+    def test_contained_in_specifier(self):
+        node, _ = compileScenicAST(ContainedInSpecifier(Name("region")))
+        match node:
+            case Call(Name("ContainedIn"), [Name("region")]):
+                assert True
+            case _:
+                assert False
+
     def test_following_specifier(self):
         node, _ = compileScenicAST(FollowingSpecifier(Name("field"), Name("distance")))
         match node:
@@ -1499,6 +1531,30 @@ class TestCompiler:
         node, _ = compileScenicAST(FacingTowardSpecifier(Name("position")))
         match node:
             case Call(Name("FacingToward"), [Name("position")]):
+                assert True
+            case _:
+                assert False
+
+    def test_facing_away_from_specifier(self):
+        node, _ = compileScenicAST(FacingAwayFromSpecifier(Name("position")))
+        match node:
+            case Call(Name("FacingAwayFrom"), [Name("position")]):
+                assert True
+            case _:
+                assert False
+
+    def test_facing_directly_toward_specifier(self):
+        node, _ = compileScenicAST(FacingDirectlyTowardSpecifier(Name("position")))
+        match node:
+            case Call(Name("FacingDirectlyToward"), [Name("position")]):
+                assert True
+            case _:
+                assert False
+
+    def test_facing_directly_away_from_specifier(self):
+        node, _ = compileScenicAST(FacingDirectlyAwayFromSpecifier(Name("position")))
+        match node:
+            case Call(Name("FacingDirectlyAwayFrom"), [Name("position")]):
                 assert True
             case _:
                 assert False
@@ -1638,6 +1694,39 @@ class TestCompiler:
         with pytest.raises(AssertionError):
             # target or base needs to be set
             compileScenicAST(AngleFromOp())
+
+    def test_altitude_to_op(self):
+        node, _ = compileScenicAST(AltitudeFromOp(Name("Y"), None))
+        match node:
+            case Call(Name("AltitudeFrom"), [], [keyword("Y", Name("Y"))]):
+                assert True
+            case _:
+                assert False
+
+    def test_altitude_from_op(self):
+        node, _ = compileScenicAST(AltitudeFromOp(None, Name("X")))
+        match node:
+            case Call(Name("AltitudeFrom"), [], [keyword("X", Name("X"))]):
+                assert True
+            case _:
+                assert False
+
+    def test_altitude_to_from_op(self):
+        node, _ = compileScenicAST(AltitudeFromOp(Name("Y"), Name("X")))
+        match node:
+            case Call(
+                Name("AltitudeFrom"),
+                [],
+                [keyword("X", Name("X")), keyword("Y", Name("Y"))],
+            ):
+                assert True
+            case _:
+                assert False
+
+    def test_altitude_op_invalid(self):
+        with pytest.raises(AssertionError):
+            # target or base needs to be set
+            compileScenicAST(AltitudeFromOp())
 
     def test_follow_op(self):
         node, _ = compileScenicAST(FollowOp(Name("X"), Name("Y"), Name("Z")))

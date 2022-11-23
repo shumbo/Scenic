@@ -1442,11 +1442,16 @@ scenic_specifier:
     | "beyond" v=expression 'by' o=expression b=['from' a=expression {a}] { s.BeyondSpecifier(position=v, offset=o, base=b) }
     | "visible" b=['from' r=expression { r }] { s.VisibleSpecifier(base=b, LOCATIONS) }
     | 'not' "visible" b=['from' r=expression { r }] { s.NotVisibleSpecifier(base=b, LOCATIONS) }
-    | ('in' | "on") r=expression { s.InSpecifier(region=r, LOCATIONS) }
+    | 'in' r=expression { s.InSpecifier(region=r, LOCATIONS) }
+    | 'on' r=expression { s.OnSpecifier(region=r, LOCATIONS) }
+    | 'contained' 'in' r=expression { s.ContainedInSpecifier(region=r, LOCATIONS) }
     | "following" f=expression b=['from' e=expression {e}] 'for' d=expression {
         s.FollowingSpecifier(field=f, distance=d, base=b, LOCATIONS)
      }
     | "facing" "toward" p=expression { s.FacingTowardSpecifier(position=p, LOCATIONS) }
+    | "facing" "away" "from" p=expression { s.FacingAwayFromSpecifier(position=p, LOCATIONS) }
+    | "facing" "directly" "toward" p=expression { s.FacingDirectlyTowardSpecifier(position=p, LOCATIONS) }
+    | "facing" "directly" "away" "from" p=expression { s.FacingDirectlyAwayFromSpecifier(position=p, LOCATIONS) }
     | "facing" h=expression { s.FacingSpecifier(heading=h, LOCATIONS) }
     | "apparently" "facing" h=expression v=['from' a=expression { a }] {
         s.ApparentlyFacingSpecifier(heading=h, base=v, LOCATIONS)
@@ -1457,6 +1462,8 @@ scenic_specifier_position_direction:
     | "right" "of" { s.RightOf(LOCATIONS) }
     | "ahead" "of" { s.AheadOf(LOCATIONS) }
     | "behind" { s.Behind(LOCATIONS) }
+    | "above" {s.Above(LOCATIONS)}
+    | "below" {s.Below(LOCATIONS)}
 
 # Comparisons operators
 # ---------------------
@@ -1544,6 +1551,8 @@ scenic_prefix_operators:
     | "distance" "past" e1=scenic_prefix_operators { s.DistancePastOp(target=e1, LOCATIONS) }
     # angle from/to
     | &"angle" scenic_angle_from_op
+    # altitude from/to
+    | &"altitude" scenic_altitude_from_op
     | "follow" e1=expression 'from' e2=expression 'for' e3=scenic_prefix_operators { s.FollowOp(target=e1, base=e2, distance=e3, LOCATIONS) }
     | "visible" e=scenic_prefix_operators { s.VisibleOp(region=e, LOCATIONS) }
     | 'not' "visible" e=scenic_prefix_operators { s.NotVisibleOp(region=e, LOCATIONS) }
@@ -1560,6 +1569,12 @@ scenic_angle_from_op:
     | "angle" 'to' e1=expression 'from' e2=scenic_prefix_operators { s.AngleFromOp(target=e1, base=e2, LOCATIONS) }
     | "angle" 'to' e1=scenic_prefix_operators { s.AngleFromOp(target=e1, LOCATIONS) }
     | "angle" 'from' e1=scenic_prefix_operators { s.AngleFromOp(base=e1, LOCATIONS) }
+
+scenic_altitude_from_op:
+    | "altitude" 'from' e1=expression 'to' e2=scenic_prefix_operators { s.AltitudeFromOp(base=e1, target=e2, LOCATIONS) }
+    | "altitude" 'to' e1=expression 'from' e2=scenic_prefix_operators { s.AltitudeFromOp(target=e1, base=e2, LOCATIONS) }
+    | "altitude" 'to' e1=scenic_prefix_operators { s.AltitudeFromOp(target=e1, LOCATIONS) }
+    | "altitude" 'from' e1=scenic_prefix_operators { s.AltitudeFromOp(base=e1, LOCATIONS) }
 
 scenic_position_of_op_position:
     | "front" "left" { s.FrontLeft(LOCATIONS) }

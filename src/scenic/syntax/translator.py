@@ -544,8 +544,6 @@ prefixOperators = {
 	('distance', 'past'): 'DistancePast',
 	('angle', 'from'): 'AngleFrom',
 	('angle', 'to'): 'AngleTo',
-	('azimuth', 'from'): 'AzimuthFrom',
-	('azimuth', 'to'): 'AzimuthTo',
 	('altitude', 'from'): 'AltitudeFrom',
 	('altitude', 'to'): 'AltitudeTo',
 	('front', 'left'): 'FrontLeft',

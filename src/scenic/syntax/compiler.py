@@ -1181,6 +1181,10 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
             fn = "Ahead"
         elif isinstance(node.direction, s.Behind):
             fn = "Behind"
+        elif isinstance(node.direction, s.Above):
+            fn = "Above"
+        elif isinstance(node.direction, s.Below):
+            fn = "Below"
         else:
             assert False, f"impossible direction {node.direction} in PositionSpecifier"
         return ast.Call(
@@ -1237,6 +1241,20 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
             keywords=[],
         )
 
+    def visit_OnSpecifier(self, node: s.InSpecifier):
+        return ast.Call(
+            func=ast.Name(id="On", ctx=loadCtx),
+            args=[self.visit(node.region)],
+            keywords=[],
+        )
+
+    def visit_ContainedInSpecifier(self, node: s.InSpecifier):
+        return ast.Call(
+            func=ast.Name(id="ContainedIn", ctx=loadCtx),
+            args=[self.visit(node.region)],
+            keywords=[],
+        )
+
     def visit_FollowingSpecifier(self, node: s.FollowingSpecifier):
         return ast.Call(
             func=ast.Name(id="Following", ctx=loadCtx),
@@ -1256,6 +1274,27 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
     def visit_FacingTowardSpecifier(self, node: s.FacingTowardSpecifier):
         return ast.Call(
             func=ast.Name(id="FacingToward", ctx=loadCtx),
+            args=[self.visit(node.position)],
+            keywords=[],
+        )
+
+    def visit_FacingAwayFromSpecifier(self, node: s.FacingAwayFromSpecifier):
+        return ast.Call(
+            func=ast.Name(id="FacingAwayFrom", ctx=loadCtx),
+            args=[self.visit(node.position)],
+            keywords=[],
+        )
+
+    def visit_FacingDirectlyTowardSpecifier(self, node: s.FacingDirectlyTowardSpecifier):
+        return ast.Call(
+            func=ast.Name(id="FacingDirectlyToward", ctx=loadCtx),
+            args=[self.visit(node.position)],
+            keywords=[],
+        )
+
+    def visit_FacingDirectlyAwayFromSpecifier(self, node: s.FacingDirectlyAwayFromSpecifier):
+        return ast.Call(
+            func=ast.Name(id="FacingDirectlyAwayFrom", ctx=loadCtx),
             args=[self.visit(node.position)],
             keywords=[],
         )
@@ -1327,6 +1366,21 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
             keywords.append(ast.keyword("Y", self.visit(node.target)))
         return ast.Call(
             func=ast.Name(id="AngleFrom", ctx=loadCtx),
+            args=[],
+            keywords=keywords,
+        )
+
+    def visit_AltitudeFromOp(self, node: s.AltitudeFromOp):
+        assert (
+            node.base is not None or node.target is not None
+        ), "neither target nor base were specified in AltitudeFromOp"
+        keywords = []
+        if node.base is not None:
+            keywords.append(ast.keyword("X", self.visit(node.base)))
+        if node.target is not None:
+            keywords.append(ast.keyword("Y", self.visit(node.target)))
+        return ast.Call(
+            func=ast.Name(id="AltitudeFrom", ctx=loadCtx),
             args=[],
             keywords=keywords,
         )

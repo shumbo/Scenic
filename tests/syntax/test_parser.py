@@ -1456,6 +1456,28 @@ class TestNew:
             case _:
                 assert False
 
+    def test_specifier_position_above(self):
+        mod = parse_string_helper("new Object above above")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(
+                New("Object", [DirectionOfSpecifier(Above(), Name("above"), None)])
+            ):
+                assert True
+            case _:
+                assert False
+
+    def test_specifier_position_below(self):
+        mod = parse_string_helper("new Object below below")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(
+                New("Object", [DirectionOfSpecifier(Below(), Name("below"), None)])
+            ):
+                assert True
+            case _:
+                assert False
+
     def test_specifier_position_by(self):
         mod = parse_string_helper("new Object left of left by distance")
         stmt = mod.body[0]
@@ -1575,7 +1597,21 @@ class TestNew:
             case Expr(
                 New(
                     "Object",
-                    [InSpecifier(Name("region"))],
+                    [OnSpecifier(Name("region"))],
+                )
+            ):
+                assert True
+            case _:
+                assert False
+
+    def test_specifier_contained_in(self):
+        mod = parse_string_helper("new Object contained in region")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(
+                New(
+                    "Object",
+                    [ContainedInSpecifier(Name("region"))],
                 )
             ):
                 assert True
@@ -1632,6 +1668,48 @@ class TestNew:
                 New(
                     "Object",
                     [FacingTowardSpecifier(Name("position"))],
+                )
+            ):
+                assert True
+            case _:
+                assert False
+
+    def test_specifier_facing_away_from(self):
+        mod = parse_string_helper("new Object facing away from position")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(
+                New(
+                    "Object",
+                    [FacingAwayFromSpecifier(Name("position"))],
+                )
+            ):
+                assert True
+            case _:
+                assert False
+
+    def test_specifier_facing_directly_toward(self):
+        mod = parse_string_helper("new Object facing directly toward position")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(
+                New(
+                    "Object",
+                    [FacingDirectlyTowardSpecifier(Name("position"))],
+                )
+            ):
+                assert True
+            case _:
+                assert False
+
+    def test_specifier_facing_directly_away_from(self):
+        mod = parse_string_helper("new Object facing directly away from position")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(
+                New(
+                    "Object",
+                    [FacingDirectlyAwayFromSpecifier(Name("position"))],
                 )
             ):
                 assert True
@@ -2206,6 +2284,42 @@ class TestOperator:
     )
     def test_angle_from_precedence(self, code, expected):
         assert_equal_source_ast(code, expected)
+
+    def test_altitude_from(self):
+        mod = parse_string_helper("altitude from x")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(AltitudeFromOp(None, Name("x"))):
+                assert True
+            case _:
+                assert False
+
+    def test_altitude_to(self):
+        mod = parse_string_helper("altitude to x")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(AltitudeFromOp(Name("x"), None)):
+                assert True
+            case _:
+                assert False
+
+    def test_altitude_from_to(self):
+        mod = parse_string_helper("altitude from x to y")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(AltitudeFromOp(Name("y"), Name("x"))):
+                assert True
+            case _:
+                assert False
+
+    def test_altitude_to_from(self):
+        mod = parse_string_helper("altitude to x from y")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(AltitudeFromOp(Name("x"), Name("y"))):
+                assert True
+            case _:
+                assert False
 
     def test_follow(self):
         mod = parse_string_helper("follow x from y for z")

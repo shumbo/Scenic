@@ -25,7 +25,7 @@ __all__ = (
 	'BottomBackRight',
 	'RelativeHeading', 'ApparentHeading', 'RelativePosition',
 	'DistanceFrom', 'DistancePast', 'Follow',
-	'AngleTo', 'AngleFrom', 'AzimuthTo', 'AzimuthFrom','AltitudeTo', 'AltitudeFrom',
+	'AngleTo', 'AngleFrom','AltitudeTo', 'AltitudeFrom',
 	# Infix operators
 	'FieldAt', 'RelativeTo', 'OffsetAlong', 'CanSee',
 	# Primitive types
@@ -834,25 +834,19 @@ def AngleFrom(X=None, Y=None):
 	Y = toVector(Y, '"angle from X to Y" with Y not a vector')
 	return X.angleTo(Y)
 
-def AzimuthTo(X):
-	"""The 'angle to <vector>' operator (using the position of ego as the reference)."""
-	X = toVector(X, '"azimuth to X" with X not a vector')
-	return ego().azimuthTo(X)
-
-def AzimuthFrom(X, Y):
-	"""The 'angle from <vector> to <vector>' operator."""
-	X = toVector(X, '"azimuth from X to Y" with X not a vector')
-	Y = toVector(Y, '"azimuth from X to Y" with Y not a vector')
-	return X.azimuthTo(Y)
-
 def AltitudeTo(X):
 	"""The 'angle to <vector>' operator (using the position of ego as the reference)."""
 	X = toVector(X, '"altitude to X" with X not a vector')
 	return ego().altitudeTo(X)
 
-def AltitudeFrom(X, Y):
-	"""The 'angle from <vector> to <vector>' operator."""
+def AltitudeFrom(X=None, Y=None):
+	"""The 'altitude from <vector> to <vector>' operator."""
+	assert X is not None or Y is not None
+	if X is None:
+		X = ego()
 	X = toVector(X, '"altitude from X to Y" with X not a vector')
+	if Y is None:
+		Y = ego()
 	Y = toVector(Y, '"altitude from X to Y" with Y not a vector')
 	return X.altitudeTo(Y)
 
@@ -1226,7 +1220,7 @@ def FacingDirectlyAwayFrom(pos):
 		direction = context.position - pos
 		inverseQuat = context.parentOrientation.invertRotation()
 		rotated = direction.applyRotation(inverseQuat)
-		sphericalCoords = rotated.cartestianToSpherical()
+		sphericalCoords = rotated.cartesianToSpherical()
 		return {'yaw': sphericalCoords[1], 'pitch': sphericalCoords[2]}
 	return Specifier({'yaw': 1, 'pitch': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 

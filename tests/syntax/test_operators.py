@@ -54,8 +54,8 @@ def test_apparent_heading_from():
 # Angle
 def test_angle():
     p = sampleParamPFrom("""
-        ego = Object facing 30 deg
-        other = Object facing 65 deg, at 10@10
+        ego = new Object facing 30 deg
+        other = new Object facing 65 deg, at 10@10
         param p = angle to other
     """)
     assert p == pytest.approx(math.radians(-45))
@@ -83,18 +83,7 @@ def test_angle_from_3d():
     ego = sampleEgoFrom('ego = new Object facing angle from (2, 4, 5) to (3, 5, 6)')
     assert ego.heading == pytest.approx(math.radians(-45))
 
-# Azimuth/Altitude
-def test_azimuth_to():
-    ego = sampleEgoFrom('ego = new Object at (0,0,0)\n'
-                        'ego = new Object at (2,2,2), facing azimuth to (1, 1, 0)'
-                        )
-    assert ego.heading == pytest.approx(math.radians(-45))
-
-def test_azimuth_from_to():
-    ego = sampleEgoFrom('ego = new Object facing azimuth from (0,0,0) to (1, 1, 0)'
-                        )
-    assert ego.heading == pytest.approx(math.radians(-45))
-
+# Altitude
 def test_altitude_to():
     ego = sampleEgoFrom('ego = new Object at (0,0,0)\n'
                         'ego = new Object at (2,2,2), facing altitude to (1, 0, 1)'
@@ -204,7 +193,7 @@ def test_can_see_occlusion():
         workspace_region = RectangularRegion(0 @ 0, 0, 40, 40)
         workspace = Workspace(workspace_region)
 
-        ego = Object with visibleDistance 30,
+        ego = new Object with visibleDistance 30,
             at (0,0,1),
             with width 5,
             with length 5,
@@ -213,13 +202,13 @@ def test_can_see_occlusion():
             with viewAngles (340 deg, 60 deg),
             with rayDensity 5
 
-        seeing_obj = Object at (0,10,5),
+        seeing_obj = new Object at (0,10,5),
             with width 2,
             with height 2,
             with length 2,
             with name "seeingObject"
 
-        Object at (0,5,4),
+        new Object at (0,5,4),
             with width 10,
             with length 0.5,
             with height 6,
@@ -234,7 +223,7 @@ def test_can_see_occlusion():
         workspace_region = RectangularRegion(0 @ 0, 0, 40, 40)
         workspace = Workspace(workspace_region)
 
-        ego = Object with visibleDistance 30,
+        ego = new Object with visibleDistance 30,
             at (0,0,1),
             with width 5,
             with length 5,
@@ -243,13 +232,13 @@ def test_can_see_occlusion():
             with viewAngles (340 deg, 60 deg),
             with rayDensity 5
 
-        seeing_obj = Object at (0,10,5),
+        seeing_obj = new Object at (0,10,5),
             with width 2,
             with height 2,
             with length 2,
             with name "seeingObject"
 
-        Object at (0,5,4),
+        new Object at (0,5,4),
             with width 10,
             with length 0.5,
             with height 6,
@@ -266,7 +255,7 @@ def test_point_in_region_2d():
         reg = RectangularRegion(10@5, 0, 4, 2)
         ptA = new Point at 11@4.5
         ptB = new Point at 11@3.5
-        ptC = Point at (11, 4.5, 1)
+        ptC = new Point at (11, 4.5, 1)
         param p = tuple([9@5.5 in reg, 9@7 in reg, (11, 4.5, -1) in reg, ptA in reg, ptB in reg, ptC in reg])
     """)
     assert p == (True, False, True, True, False, True)
@@ -274,30 +263,31 @@ def test_point_in_region_2d():
 def test_object_in_region_2d():
     p = sampleParamPFrom("""
         reg = RectangularRegion(10@5, 0, 4, 2)
-(??)        ego = Object at 11.5@5.5, with width 0.25, with length 0.25
-(??)        other = Object at 9@4.5, with width 2.5
-(??)        param p = tuple([ego in reg, other in reg])
+        ego = new Object at 11.5@5.5, with width 0.25, with length 0.25
+        other_1 = new Object at 9@4.5, with width 2.5
+        other_2 = new Object at (11.5, 5.5, 2), with width 0.25, with length 0.25
+        param p = tuple([ego in reg, other_1 in reg, other_2 in reg])
     """)
     assert p == (True, False, True)
 
 def test_point_in_region_3d():
     p = sampleParamPFrom("""
-        ego = Object
+        ego = new Object
         reg = BoxRegion()
-        ptA = Point at (0.25,0.25,0.25)
-        ptB = Point at (1,1,1)
+        ptA = new Point at (0.25,0.25,0.25)
+        ptB = new Point at (1,1,1)
         param p = tuple([(0,0,0) in reg, (0.49,0.49,0.49) in reg, (0.5,0.5,0.5) in reg, (0.51,0.51,0.51) in reg, ptA in reg, ptB in reg])
     """)
     assert p == (True, True, True, False, True, False)
 
 def test_object_in_region_3d():
     p = sampleParamPFrom("""
-        ego = Object
+        ego = new Object
         reg = BoxRegion(dimensions=(2,2,2))
-        obj_1 = Object at (0,0,0), with allowCollisions True
-        obj_2 = Object at (0.5, 0.5, 0.5), with allowCollisions True
-        obj_3 = Object at (0.75, 0.75, 0.75), with allowCollisions True
-        obj_4 = Object at (3,3,3), with allowCollisions True
+        obj_1 = new Object at (0,0,0), with allowCollisions True
+        obj_2 = new Object at (0.5, 0.5, 0.5), with allowCollisions True
+        obj_3 = new Object at (0.75, 0.75, 0.75), with allowCollisions True
+        obj_4 = new Object at (3,3,3), with allowCollisions True
         param p = tuple([obj_1 in reg, obj_2 in reg, obj_3 in reg, obj_4 in reg])
     """)
     assert p == (True, True, False, False)
@@ -315,7 +305,7 @@ def test_field_at_vector():
 def test_field_at_vector_3d():
     ego = sampleEgoFrom(        
             'vf = VectorField("Foo", lambda pos: (pos.x deg, pos.y deg, pos.z deg))\n'
-            'ego = Object facing (vf at (1, 5, 3))'
+            'ego = new Object facing (vf at (1, 5, 3))'
             )
     assert ego.heading == pytest.approx(Orientation.fromEuler(math.radians(1), math.radians(5), math.radians(3)).yaw)
 
@@ -373,7 +363,7 @@ def test_orientation_relative_to_orientation():
 
 # Relative To
 def test_relative_to_vector():
-    ego = sampleEgoFrom('ego = Object at 3@2 relative to -4@10')
+    ego = sampleEgoFrom('ego = new Object at 3@2 relative to -4@10')
     assert tuple(ego.position) == pytest.approx((-1, 12, 0))
 
 def test_relative_to_vector_3d():
@@ -392,7 +382,7 @@ def test_offset_by():
     assert tuple(ego.position) == pytest.approx((-1, 12, 0))
 
 def test_offset_by_3d():
-    ego = sampleEgoFrom('ego = Object at (3, 2, 1) offset by (-4, 10, 5)')
+    ego = sampleEgoFrom('ego = new Object at (3, 2, 1) offset by (-4, 10, 5)')
     assert tuple(ego.position) == pytest.approx((-1, 12, 6))
 
 # Offset Along
@@ -402,8 +392,8 @@ def test_offset_along_heading():
     assert tuple(ego.position) == pytest.approx((3 - 10*d - 4*d, 2 + 10*d - 4*d, 0))
 
 def test_offset_along_heading_3d():
-    ego = sampleEgoFrom('ego = Object at (3, 2, 5) offset along (90 deg, 0 deg, 90 deg) by (4, 10, 5)')
-    assert tuple(ego.position) == pytest.approx((-7, 7, 1))
+    ego = sampleEgoFrom('ego = new Object at (3, 2, 7) offset along (90 deg, 0 deg, 90 deg) by (4, 10, 5)')
+    assert tuple(ego.position) == pytest.approx((-7, 7, 3))
 
 def test_offset_along_field():
     ego = sampleEgoFrom("""
@@ -416,7 +406,7 @@ def test_offset_along_field():
 def test_offset_along_field_3d():
     ego = sampleEgoFrom("""
         vf = VectorField("Foo", lambda pos: 3 deg * pos.x) 
-        ego = Object at (15, 7, 5) offset along vf by (2, -3, 4) 
+        ego = new Object at (15, 7, 5) offset along vf by (2, -3, 4) 
     """)
     d = 1 / math.sqrt(2)
     assert tuple(ego.position) == pytest.approx((15 + 3*d + 2*d, 7 - 3*d + 2*d, 9))
@@ -437,7 +427,7 @@ def test_follow_3d():
         vf = VectorField("Foo", lambda pos: 90 deg * (pos.x + pos.y - 1),
                          minSteps=4, defaultStepSize=1)
         p = follow vf from (1, 1, 1) for 4
-        ego = Object at p, facing p.heading
+        ego = new Object at p, facing p.heading
     """)
     assert tuple(ego.position) == pytest.approx((-1, 3, 1))
     assert ego.heading == pytest.approx(math.radians(90))

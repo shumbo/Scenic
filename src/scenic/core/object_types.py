@@ -489,12 +489,11 @@ class Point(Constructible):
 		# This property is defined in Object, but we provide a default empty value
 		# for Points for implementation convenience.
 		"regionContainedIn": None,
+		# These properties are used internally to store entities that must be able to
+		# or must be unable to observe this entity.
+		"observingEntity": None,
+		"nonObservingEntity": None,
 	}
-
-	# These properties are used internally to store entities that must be able to
-	# or must be unable to observe this entity.
-	observingEntity: None
-	nonObservingEntity: None
 
 	@cached_property
 	def visibleRegion(self):
@@ -575,7 +574,7 @@ class OrientedPoint(Point):
 		'viewAngles': PropertyDefault(('viewAngle',), set(), lambda self: (self.viewAngle, math.pi)),
 
 		'mutator': PropertyDefault({'headingStdDev'}, {'additive'},
-			lambda self: HeadingMutator(self.headingStdDev))
+			lambda self: HeadingMutator(self.headingStdDev)),
 		'headingStdDev': math.radians(5),
 	}
 
