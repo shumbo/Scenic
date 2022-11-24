@@ -43,4 +43,4 @@ def test_left():
 
 def test_heading_set_directly():
     with pytest.raises(RuntimeParseError):
-        compileScenic('ego = Object with heading 4')
+        compileScenic('ego = new Object with heading 4')

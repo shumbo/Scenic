@@ -950,7 +950,7 @@ def On(thing):
 	# TODO: @Matthew Helper function for delayed argument checks if modifying or not
 
 	if isinstance(thing, Object):
-		region = toType(thing.topSurface, Region, 'Cannot coax topSurface of Object to Region')
+		region = toType(thing.occupiedSpace, Region, 'Cannot coax occupiedSpace of Object to Region')
 	else:
 		region = toType(thing, Region, 'specifier "on R" with R not a Region')
 
@@ -962,7 +962,7 @@ def On(thing):
 	def helper(context, spec):
 		# Pick position based on whether we are specifying or modifying
 		if 'position' in context.properties:
-			pos = findOnHelper(region, context.position)
+			pos = findOnHelper(region, context.position, region.on_direction)
 		else:
 			pos = Region.uniformPointIn(region)
 
@@ -981,8 +981,8 @@ def On(thing):
 	return ModifyingSpecifier(props, DelayedArgument({'baseOffset', 'contactTolerance'}, helper), modifiable_props={'position'})
 
 @distributionFunction
-def findOnHelper(region, pos):
-	on_pos = region.findOn(pos)
+def findOnHelper(region, pos, on_direction):
+	on_pos = region.findOn(pos, on_direction=on_direction)
 
 	if on_pos is None:
 		raise RejectionException("Unable to place object on surface.")

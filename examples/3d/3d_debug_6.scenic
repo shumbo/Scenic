@@ -9,7 +9,7 @@ full_sample_space = BoxRegion(dimensions=(40,40,40), position=(0,0,0))
 
 # Create an object at the origin who's vision cone should extend exactly
 # to the edges of the workspace.
-ego = Object with visibleDistance 30,
+ego = new Object with visibleDistance 30,
     at (0,0,1),
     with width 5,
     with length 5,
@@ -25,14 +25,14 @@ with open(localPath("mesh.obj"), "r") as mesh_file:
 # Load chair shape at 1/10th of the original size
 chair_shape = MeshShape(mesh,initial_rotation=(0,90 deg,0))
 
-Object in forward_sample_space,
+new Object in forward_sample_space,
     with width 2,
     with height 2,
     with length 2,
     with requireVisible True,
-    with name "seeingObject"
+    with name "seeingnew Object"
 
-Object at (0,5,4),
+new Object at (0,5,4),
     with width 10,
     with length 0.5,
     with height 6,

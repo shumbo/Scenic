@@ -421,7 +421,7 @@ class _MeshRegion(Region):
 		if you know what you're doing and don't plan to scale or translate the mesh.
 	:param additional_deps: Any additional sampling dependencies this region relies on.
 	"""
-	def __init__(self, mesh, name=None, dimensions=None, position=None, rotation=None, orientation=None, \
+	def __init__(self, mesh, name=None, dimensions=None, position=None, rotation=None, orientation=None, on_direction=(0,0,1), \
 	  	tolerance=1e-8, center_mesh=True, engine="blender", additional_deps=[]):
 		# Copy the mesh and parameters
 		self._mesh = mesh.copy()
@@ -462,6 +462,14 @@ class _MeshRegion(Region):
 		if position is not None:
 			position_matrix = translation_matrix(position)
 			self.mesh.apply_transform(position_matrix)
+
+		# Set default orientation to one inferred from face norms if none is provided.
+		if orientation is None:
+			self.orientation = VectorField("DefaultSurfaceVectorField", lambda pos: self.getFlatOrientation(pos))
+		else:
+			self.orientation = orientation
+
+		self.on_direction = toVector(on_direction)
 
 	## API Methods ##
 	# Mesh Access #
@@ -626,14 +634,14 @@ class _MeshRegion(Region):
 		# Don't know how to compute this difference, fall back to default behavior.
 		return super().difference(other)
 
-	def findOn(self, point):
+	def findOn(self, point, on_direction):
 		""" Find the nearest point in the region with the same x,y value.
 		Returns None if no such points exist.
 		"""
 		# Get first point hit in both directions of ray
 		point = point.coordinates
 
-		intersection_data, _, _ = self.mesh.ray.intersects_location(ray_origins=[point, point], ray_directions=[(0,0,1), (0,0,-1)], multiple_hits=False)
+		intersection_data, _, _ = self.mesh.ray.intersects_location(ray_origins=[point, point], ray_directions=[on_direction, -1*on_direction], multiple_hits=False)
 
 		if len(intersection_data) == 0:
 			return None
@@ -649,6 +657,31 @@ class _MeshRegion(Region):
 		closest_point = intersection_data[distances.index(min(distances))]
 
 		return Vector(*closest_point)
+
+	def getFlatOrientation(self, pos):
+		prox_query = trimesh.proximity.ProximityQuery(self.mesh)
+
+		_, distance, triangle_id = prox_query.on_surface([pos.coordinates])
+
+		if distance > self.tolerance:
+			return (0,0,0)
+
+		face_normal_vector = self.mesh.face_normals[triangle_id][0]
+
+		transform = trimesh.geometry.align_vectors([0,0,1], face_normal_vector)
+		orientation = tuple(scipy.spatial.transform.Rotation.from_matrix(transform[:3,:3]).as_euler('ZXY'))
+
+		return orientation
+
+	@cached_property
+	def circumcircle(self):
+		assert not needsSampling(self)
+
+		center_point = Vector(*self.mesh.bounding_box.center_mass)
+		half_extents = [val/2 for val in self.mesh.extents]
+		circumradius = hypot(*half_extents)
+
+		return (center_point, circumradius)
 
 class MeshVolumeRegion(_MeshRegion):
 	""" An instance of _MeshRegion that performs operations over the volume
@@ -702,17 +735,17 @@ class MeshVolumeRegion(_MeshRegion):
 			# If the candidate points are farther apart than the sum of the circumradius
 			# values, they can't intersect.
 
-			# Get a candidate point from each mesh. If the position of the object is in the mesh use that.
+			# Get a candidate point from each mesh. If the center of the object is in the mesh use that.
 			# Otherwise try to sample a point as a candidate, skipping this pass if the sample fails.
-			if self.containsPoint(self.position):
-				s_candidate_point = self.position
+			if self.containsPoint(Vector(*self.mesh.bounding_box.center_mass)):
+				s_candidate_point = Vector(*self.mesh.bounding_box.center_mass)
 			elif len(samples:=trimesh.sample.volume_mesh(self.mesh, self.num_samples)) > 0:
 				s_candidate_point = Vector(*samples[0])
 			else:
 				s_candidate_point = None
 
-			if other.containsPoint(other.position):
-				o_candidate_point = other.position
+			if other.containsPoint(Vector(*other.mesh.bounding_box.center_mass)):
+				o_candidate_point = Vector(*other.mesh.bounding_box.center_mass)
 			elif len(samples:=trimesh.sample.volume_mesh(other.mesh, other.num_samples)) > 0:
 				o_candidate_point = Vector(*samples[0])
 			else:
@@ -851,8 +884,8 @@ class MeshVolumeRegion(_MeshRegion):
 
 		# Get a candidate point from the rgion mesh. If the center of mass of the region is in the mesh use that.
 		# Otherwise try to sample a point as a candidate, skipping this pass if the sample fails.
-		if self.containsPoint(self.mesh.center_mass):
-			reg_candidate_point = self.mesh.center_mass
+		if self.containsPoint(Vector(*self.mesh.bounding_box.center_mass)):
+			reg_candidate_point = Vector(*self.mesh.bounding_box.center_mass)
 		elif len(samples:=trimesh.sample.volume_mesh(self.mesh, self.num_samples)) > 0:
 			reg_candidate_point = Vector(*samples[0])
 		else:
@@ -926,10 +959,6 @@ class MeshSurfaceRegion(_MeshRegion):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 
-		# Set default orientation to one inferred from face norms if none is provided.
-		if self.orientation is None:
-			self.orientation = VectorField("DefaultSurfaceVectorField", lambda pos: self.getFlatOrientation(pos))
-
 	# Property testing methods #
 	def intersects(self, other, triedReversed=False):
 		"""	Check if this region's surface intersects another region.
@@ -980,21 +1009,6 @@ class MeshSurfaceRegion(_MeshRegion):
 		dist = abs(pq.signed_distance([point.coordinates])[0])
 
 		return dist
-
-	def getFlatOrientation(self, pos):
-		prox_query = trimesh.proximity.ProximityQuery(self.mesh)
-
-		_, distance, triangle_id = prox_query.on_surface([pos.coordinates])
-
-		if distance > self.tolerance:
-			return None
-
-		face_normal_vector = self.mesh.face_normals[triangle_id][0]
-
-		transform = trimesh.geometry.align_vectors([0,0,1], face_normal_vector)
-		orientation = tuple(scipy.spatial.transform.Rotation.from_matrix(transform[:3,:3]).as_euler('ZXY'))
-
-		return orientation
 
 	## Sampling Methods ##
 	def sampleGiven(self, value):

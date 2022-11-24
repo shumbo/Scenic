@@ -476,6 +476,8 @@ class Point(Constructible):
 		"position": PropertyDefault((), {'dynamic'}, lambda self: Vector(0, 0)),
 		"width": 0,
 		"length": 0,
+		"baseOffset": Vector(0,0,0),
+		"contactTolerance": 0,
 		"visibleDistance": 50,
 		# Density of rays per degree in one dimension. Number of rays sent will be
 		# this value squared per 1 degree x 1 degree portion of the visible region
@@ -661,15 +663,16 @@ class Object(OrientedPoint, _RotatedRectangle):
 		'shape': BoxShape(),
 		'baseOffset': PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2)),
 		'contactTolerance': 1e-4,
+		'onDirection': Vector(0,0,1),
 		'velocity': PropertyDefault(('speed', 'heading'), {'dynamic'},
 			                  lambda self: Vector(0, self.speed).rotatedBy(self.heading)),
 		'speed': PropertyDefault((), {'dynamic'}, lambda self: 0),
 		'angularSpeed': PropertyDefault((), {'dynamic'}, lambda self: 0),
 		'min_top_z': 0.4,
-		'occupiedSpace': PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation'), \
+		'occupiedSpace': PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation', 'onDirection'), \
 			{'final'}, lambda self: MeshVolumeRegion(mesh=self.shape.mesh, \
 				dimensions=(self.width, self.length, self.height), \
-				position=self.position, rotation=self.orientation)),
+				position=self.position, rotation=self.orientation, on_direction=self.onDirection)),
 		'boundingBox': PropertyDefault(('occupiedSpace',), {'final'},  \
 			lambda self: lazyBoundingBox(self.occupiedSpace)),
 		'topSurface': PropertyDefault(('occupiedSpace', 'min_top_z'), \

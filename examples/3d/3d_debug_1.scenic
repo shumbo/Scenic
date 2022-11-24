@@ -21,24 +21,24 @@ with open(localPath("mesh.obj"), "r") as mesh_file:
 chair_shape = MeshShape(mesh, scale=0.1, initial_rotation=(0,90 deg,0))
 
 # Create the ego object, which will have random dimensions between close to zero and 2
-ego = Object in sample_space,
+ego = new Object in sample_space,
     with shape BoxShape(dimensions=(Range(0.01,1),Range(0.01,1),Range(0.01,1)), scale=Range(1,2))
 
 # Create a box object in the sample_space
-Object in sample_space,
+new Object in sample_space,
     with width 1,
     with length 1,
     with height 2,
     with requireVisible False
 
 # Create a chair shaped object in the sample_space.
-Object in sample_space,
+new Object in sample_space,
     with shape chair_shape,
     with requireVisible False
 
 # Create a chair shaped object with a bounding box
 # of size (1,1,1) in the sample_space
-Object in sample_space,
+new Object in sample_space,
     with width 1,
     with length 1,
     with height 1,
