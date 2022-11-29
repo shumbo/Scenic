@@ -1668,6 +1668,29 @@ class TestNew:
 
 
 class TestOperator:
+    def test_implies_basic(self):
+        mod = parse_string_helper("x implies y")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(ImpliesOp(Name("x"), Name("y"))):
+                assert True
+            case _:
+                assert False
+
+    def test_implies_precedence(self):
+        mod = parse_string_helper("x implies y or z")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(ImpliesOp(Name("x"), BoolOp(Or(), [Name("y"), Name("z")]))):
+                assert True
+            case _:
+                assert False
+
+    def test_implies_three_operands(self):
+        with pytest.raises(SyntaxError) as e:
+            parse_string_helper("x implies y implies z")
+        assert "must take exactly two operands" in e.value.msg
+
     def test_relative_position(self):
         mod = parse_string_helper("relative position of x")
         stmt = mod.body[0]

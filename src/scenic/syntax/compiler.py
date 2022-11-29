@@ -1271,6 +1271,13 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
 
     # Operators
 
+    def visit_ImpliesOp(self, node: s.ImpliesOp):
+        return ast.Call(
+            func=ast.Name(id="Implies", ctx=loadCtx),
+            args=[self.visit(node.hypothesis), self.visit(node.conclusion)],
+            keywords=[],
+        )
+
     def visit_RelativePositionOp(self, node: s.RelativePositionOp):
         return ast.Call(
             func=ast.Name(id="RelativePosition", ctx=loadCtx),

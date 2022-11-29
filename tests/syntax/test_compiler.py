@@ -1526,6 +1526,14 @@ class TestCompiler:
                 assert False
 
     # Operators
+    def test_implies_op(self):
+        node, _ = compileScenicAST(ImpliesOp(Name("x"), Name("y")))
+        match node:
+            case Call(Name("Implies"), [Name("x"), Name("y")]):
+                assert True
+            case _:
+                assert False
+
     def test_relative_position_op(self):
         node, _ = compileScenicAST(RelativePositionOp(Name("X")))
         match node:

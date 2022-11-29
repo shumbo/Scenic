@@ -687,6 +687,20 @@ class ApparentlyFacingSpecifier(AST):
 
 
 # Operators
+
+
+class ImpliesOp(AST):
+    __match_args__ = ("hypothesis", "conclusion")
+
+    def __init__(
+        self, hypothesis: ast.AST, conclusion: ast.AST, *args: any, **kwargs: any
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.hypothesis = hypothesis
+        self.conclusion = conclusion
+        self._fields = ["hypothesis", "conclusion"]
+
+
 class RelativePositionOp(AST):
     __match_args__ = ("target", "base")
 
