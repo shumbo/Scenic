@@ -1363,10 +1363,10 @@ expression (memo):
     | invalid_expression
     | invalid_legacy_expression
     | scenic_new_expr
-    | a=scenic_implication 'if' b=scenic_implication 'else' c=expression {
+    | a=scenic_until 'if' b=scenic_until 'else' c=expression {
         ast.IfExp(body=a, test=b, orelse=c, LOCATIONS)
      }
-    | scenic_implication
+    | scenic_until
     | lambdef
 
 yield_expr:
@@ -1413,6 +1413,11 @@ named_expression:
     | assignment_expression
     | invalid_named_expression
     | a=expression !':=' { a }
+
+scenic_until (memo):
+    | invalid_scenic_until
+    | a=scenic_implication 'until' b=scenic_implication { s.UntilOp(a, b, LOCATIONS) }
+    | scenic_implication
 
 scenic_implication (memo):
     | invalid_scenic_implication
@@ -1846,7 +1851,8 @@ scenic_dynamic_duration:
     | v=expression "seconds" { s.Seconds(v, LOCATIONS) }
     | v=expression "steps" { s.Steps(v, LOCATIONS) }
 
-scenic_do_until_stmt: 'do' e=(','.expression+) 'until' cond=expression { s.DoUntil(elts=e, cond=cond, LOCATIONS) }
+# FIXME: Is this the right way to resolve ambiguity in `do A until B until X`?
+scenic_do_until_stmt: 'do' e=(','.disjunction+) 'until' cond=expression { s.DoUntil(elts=e, cond=cond, LOCATIONS) }
 
 scenic_do_stmt: 'do' e=(','.expression+) { s.Do(elts=e, LOCATIONS) }
 
@@ -2166,8 +2172,15 @@ invalid_named_expression[NoReturn]:
         )
      }
 
+invalid_scenic_until[NoReturn]:
+    | a=disjunction 'until' scenic_implication {
+        self.raise_syntax_error_known_location(
+            f"`until` must take exactly two operands", a
+        )
+     }
+
 invalid_scenic_implication[NoReturn]:
-    | a=disjunction 'implies' scenic_implication {
+    | a=scenic_until 'implies' scenic_implication {
         self.raise_syntax_error_known_location(
             f"`implies` must take exactly two operands", a
         )

@@ -1271,6 +1271,13 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
 
     # Operators
 
+    def visit_UntilOp(self, node: s.UntilOp):
+        return ast.Call(
+            func=ast.Name(id="Until", ctx=loadCtx),
+            args=[self.visit(node.left), self.visit(node.right)],
+            keywords=[],
+        )
+
     def visit_ImpliesOp(self, node: s.ImpliesOp):
         return ast.Call(
             func=ast.Name(id="Implies", ctx=loadCtx),

@@ -1691,6 +1691,38 @@ class TestOperator:
             parse_string_helper("x implies y implies z")
         assert "must take exactly two operands" in e.value.msg
 
+    def test_until_basic(self):
+        mod = parse_string_helper("x until y")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(UntilOp(Name("x"), Name("y"))):
+                assert True
+            case _:
+                assert False
+
+    def test_until_precedence_1(self):
+        mod = parse_string_helper("x until y or z")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(UntilOp(Name("x"), BoolOp(Or(), [Name("y"), Name("z")]))):
+                assert True
+            case _:
+                assert False
+
+    def test_until_precedence_2(self):
+        mod = parse_string_helper("x implies y until z")
+        stmt = mod.body[0]
+        match stmt:
+            case Expr(UntilOp(ImpliesOp(Name("x"), Name("y")), Name("z"))):
+                assert True
+            case _:
+                assert False
+
+    def test_until_three_operands(self):
+        with pytest.raises(SyntaxError) as e:
+            parse_string_helper("x until y until z")
+        assert "must take exactly two operands" in e.value.msg
+
     def test_relative_position(self):
         mod = parse_string_helper("relative position of x")
         stmt = mod.body[0]

@@ -701,6 +701,18 @@ class ImpliesOp(AST):
         self._fields = ["hypothesis", "conclusion"]
 
 
+class UntilOp(AST):
+    __match_args__ = ("left", "right")
+
+    def __init__(
+        self, left: ast.AST, right: ast.AST, *args: any, **kwargs: any
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.left = left
+        self.right = right
+        self._fields = ["left", "right"]
+
+
 class RelativePositionOp(AST):
     __match_args__ = ("target", "base")
 

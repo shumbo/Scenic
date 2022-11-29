@@ -1526,6 +1526,14 @@ class TestCompiler:
                 assert False
 
     # Operators
+    def test_until_op(self):
+        node, _ = compileScenicAST(UntilOp(Name("x"), Name("y")))
+        match node:
+            case Call(Name("Until"), [Name("x"), Name("y")]):
+                assert True
+            case _:
+                assert False
+
     def test_implies_op(self):
         node, _ = compileScenicAST(ImpliesOp(Name("x"), Name("y")))
         match node:
