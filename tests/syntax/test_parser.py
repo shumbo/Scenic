@@ -1067,7 +1067,7 @@ class TestRequire:
         mod = parse_string_helper("require always X")
         stmt = mod.body[0]
         match stmt:
-            case RequireAlways(Name("X"), None):
+            case Require(Always(Name("X")), None, None):
                 assert True
             case _:
                 assert False
@@ -1076,7 +1076,7 @@ class TestRequire:
         mod = parse_string_helper("require always X as safety")
         stmt = mod.body[0]
         match stmt:
-            case RequireAlways(Name("X"), "safety"):
+            case Require(Always(Name("X")), None, "safety"):
                 assert True
             case _:
                 assert False
@@ -1085,7 +1085,7 @@ class TestRequire:
         mod = parse_string_helper("require eventually X")
         stmt = mod.body[0]
         match stmt:
-            case RequireEventually(Name("X"), None):
+            case Require(Eventually(Name("X")), None, None):
                 assert True
             case _:
                 assert False
@@ -1094,7 +1094,7 @@ class TestRequire:
         mod = parse_string_helper("require eventually X as liveness")
         stmt = mod.body[0]
         match stmt:
-            case RequireEventually(Name("X"), "liveness"):
+            case Require(Eventually(Name("X")), None, "liveness"):
                 assert True
             case _:
                 assert False
@@ -2423,6 +2423,33 @@ class TestOperator:
     )
     def test_visible_precedence(self, code, expected):
         assert_equal_source_ast(code, expected)
+
+    def test_always(self):
+        mod = parse_string_helper("require always x")
+        stmt = mod.body[0]
+        match stmt:
+            case Require(Always(Name("x"))):
+                assert True
+            case _:
+                assert False
+
+    def test_eventually(self):
+        mod = parse_string_helper("require eventually x")
+        stmt = mod.body[0]
+        match stmt:
+            case Require(Eventually(Name("x"))):
+                assert True
+            case _:
+                assert False
+
+    def test_next(self):
+        mod = parse_string_helper("require next x")
+        stmt = mod.body[0]
+        match stmt:
+            case Require(Next(Name("x"))):
+                assert True
+            case _:
+                assert False
 
     def test_deg_1(self):
         mod = parse_string_helper("1 + 2 deg")

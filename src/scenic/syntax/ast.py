@@ -270,28 +270,31 @@ class Require(AST):
         self._fields = ["cond", "prob", "name"]
 
 
-class RequireAlways(AST):
-    __match_args__ = ("cond", "name")
+class Always(AST):
+    __match_args__ = ("value",)
 
-    def __init__(
-        self, cond: ast.AST, name: Optional[str] = None, *args: any, **kwargs: any
-    ) -> None:
+    def __init__(self, value: ast.AST, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.cond = cond
-        self.name = name
-        self._fields = ["cond", "name"]
+        self.value = value
+        self._fields = ["value"]
 
 
-class RequireEventually(AST):
-    __match_args__ = ("cond", "name")
+class Eventually(AST):
+    __match_args__ = ("value",)
 
-    def __init__(
-        self, cond: ast.AST, name: Optional[str] = None, *args: any, **kwargs: any
-    ) -> None:
+    def __init__(self, value: ast.AST, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.cond = cond
-        self.name = name
-        self._fields = ["cond", "name"]
+        self.value = value
+        self._fields = ["value"]
+
+
+class Next(AST):
+    __match_args__ = ("value",)
+
+    def __init__(self, value: ast.AST, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.value = value
+        self._fields = ["value"]
 
 
 class Record(AST):

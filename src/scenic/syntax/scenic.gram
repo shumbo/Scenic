@@ -540,8 +540,6 @@ scenic_stmt:
     | scenic_model_stmt
     | scenic_tracked_assignment
     | scenic_param_stmt
-    | scenic_require_always_stmt
-    | scenic_require_eventually_stmt
     | scenic_require_stmt
     | scenic_record_initial_stmt
     | scenic_record_final_stmt
@@ -1558,6 +1556,12 @@ scenic_prefix_operators:
     | "visible" e=scenic_prefix_operators { s.VisibleOp(region=e, LOCATIONS) }
     | 'not' "visible" e=scenic_prefix_operators { s.NotVisibleOp(region=e, LOCATIONS) }
     | p=scenic_position_of_op_position 'of' e=scenic_prefix_operators { s.PositionOfOp(position=p, target=e, LOCATIONS) }
+    # always
+    | 'always' e=expression { s.Always(e, LOCATIONS) }
+    # eventually
+    | 'eventually' e=expression { s.Eventually(e, LOCATIONS) }
+    # next
+    | 'next' e=expression { s.Next(e, LOCATIONS) }
     | sum
 
 scenic_distance_from_op:
@@ -1796,16 +1800,6 @@ scenic_require_stmt:
 scenic_require_stmt_name:
     | a=(NAME | NUMBER) { a.string }
     | a=STRING { a.string[1:-1] }
-
-scenic_require_always_stmt:
-    | 'require' 'always' e=expression n=['as' a=scenic_require_stmt_name { a }] {
-        s.RequireAlways(cond=e, name=n, LOCATIONS)
-     }
-
-scenic_require_eventually_stmt:
-    | 'require' 'eventually' e=expression n=['as' a=scenic_require_stmt_name { a }] {
-        s.RequireEventually(cond=e, name=n, LOCATIONS)
-     }
 
 scenic_record_stmt:
     | "record" e=expression n=['as' a=scenic_require_stmt_name { a }] {

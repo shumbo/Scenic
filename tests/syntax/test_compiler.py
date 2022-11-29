@@ -1080,52 +1080,6 @@ class TestCompiler:
             case _:
                 assert False
 
-    def test_require_always(self):
-        node, requirements = compileScenicAST(RequireAlways(Name("C"), lineno=2))
-        match node:
-            case Expr(
-                Call(
-                    Name("require_always"),
-                    [
-                        Constant(0),  # reqId
-                        Lambda(body=Name("C")),  # requirement
-                        Constant(2),  # lineno
-                        Constant(None),  # name
-                    ],
-                )
-            ):
-                assert True
-            case _:
-                assert False
-        match requirements:
-            case [Name("C")]:
-                assert True
-            case _:
-                assert False
-
-    def test_require_eventually(self):
-        node, requirements = compileScenicAST(RequireEventually(Name("C"), lineno=2))
-        match node:
-            case Expr(
-                Call(
-                    Name("require_eventually"),
-                    [
-                        Constant(0),  # reqId
-                        Lambda(body=Name("C")),  # requirement
-                        Constant(2),  # lineno
-                        Constant(None),  # name
-                    ],
-                )
-            ):
-                assert True
-            case _:
-                assert False
-        match requirements:
-            case [Name("C")]:
-                assert True
-            case _:
-                assert False
-
     def test_record(self):
         node, requirements = compileScenicAST(Record(Name("C"), lineno=2))
         match node:

@@ -1377,6 +1377,27 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
             keywords=[],
         )
 
+    def visit_Always(self, node: s.Always):
+        return ast.Call(
+            func=ast.Name("Always", ctx=loadCtx),
+            args=[self.visit(node.value)],
+            keywords=[],
+        )
+
+    def visit_Eventually(self, node: s.Eventually):
+        return ast.Call(
+            func=ast.Name("Eventually", ctx=loadCtx),
+            args=[self.visit(node.value)],
+            keywords=[],
+        )
+
+    def visit_Next(self, node: s.Next):
+        return ast.Call(
+            func=ast.Name("Next", ctx=loadCtx),
+            args=[self.visit(node.value)],
+            keywords=[],
+        )
+
     def visit_DegOp(self, node: s.DegOp):
         return ast.BinOp(
             left=self.visit(node.operand), op=ast.Mult(), right=ast.Constant(0.01745329)
