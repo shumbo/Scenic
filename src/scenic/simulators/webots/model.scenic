@@ -71,7 +71,7 @@ class WebotsObject:
     controller: None
     resetController: True
 
-    positionOffset: (0, 0)
+    positionOffset: (0, 0, 0)
     rotationOffset: 0
 
 class Ground(WebotsObject):
@@ -187,7 +187,7 @@ class Hill(Terrain):
     spread: 0.25
 
     def heightAtOffset(self, offset):
-        dx, dy = offset
+        dx, dy, _ = offset
         if not (-self.hw < dx < self.hw and -self.hl < dy < self.hl):
             return 0
         sx, sy = dx / (self.width * self.spread), dy / (self.length * self.spread)

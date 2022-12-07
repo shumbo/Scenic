@@ -86,12 +86,6 @@ class WebotsSimulation(Simulation):
             obj.webotsObject = webotsObj
             obj.webotsName = name
 
-            # get starting elevation
-            if obj.elevation is None:
-                pos = webotsObj.getField('translation').getSFVec3f()
-                spos = self.coordinateSystem.positionToScenic(pos)
-                obj.elevation = spos[2]
-
         # Reset Webots simulation
         supervisor.simulationResetPhysics()
 
@@ -102,8 +96,7 @@ class WebotsSimulation(Simulation):
         for obj, webotsObj in self.webotsObjects.items():
             # position
             pos = self.coordinateSystem.positionFromScenic(
-                obj.position + obj.positionOffset,
-                elevation=obj.elevation
+                obj.position + obj.positionOffset
             )
             webotsObj.getField('translation').setSFVec3f(pos)
             # heading
@@ -150,21 +143,21 @@ class WebotsSimulation(Simulation):
             return { prop: getattr(obj, prop) for prop in properties }
 
         pos = webotsObj.getField('translation').getSFVec3f()
-        x, y, elevation = self.coordinateSystem.positionToScenic(pos)
+        x, y, z = self.coordinateSystem.positionToScenic(pos)
         rot = webotsObj.getField('rotation').getSFRotation()
         heading = self.coordinateSystem.rotationToScenic(rot)
         lx, ly, lz, ax, ay, az = webotsObj.getVelocity()
         vx, vy, vz = self.coordinateSystem.positionToScenic((lx, ly, lz))
-        velocity = (vx, vy)
+        velocity = (vx, vy, vz)
         speed = math.hypot(*velocity)
+        angularSpeed = math.hypot(ax, ay, az)
 
         values = dict(
-            position=Vector(x, y),
-            elevation=elevation,
+            position=Vector(x, y, z),
             heading=heading,
             velocity=velocity,
             speed=speed,
-            angularSpeed=ay,
+            angularSpeed=angularSpeed,
         )
 
         if hasattr(obj, 'battery'):
