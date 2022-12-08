@@ -23,7 +23,7 @@ __all__ = (
 	'RelativeHeading', 'ApparentHeading', 'RelativePosition',
 	'DistanceFrom', 'DistancePast', 'AngleTo', 'AngleFrom', 'Follow',
 	# Infix operators
-	'FieldAt', 'RelativeTo', 'OffsetAlong', 'CanSee',
+	'FieldAt', 'RelativeTo', 'OffsetAlong', 'CanSee', 'Until', 'Implies',
 	# Primitive types
 	'Vector', 'VectorField', 'PolygonalVectorField',
 	'Region', 'PointSetRegion', 'RectangularRegion', 'CircularRegion', 'SectorRegion',
@@ -48,7 +48,9 @@ __all__ = (
 	# Internal APIs 	# TODO remove?
 	'PropertyDefault', 'Behavior', 'Monitor', 'makeTerminationAction',
 	'BlockConclusion', 'runTryInterrupt', 'wrapStarredValue', 'callWithStarArgs',
-	'Modifier', 'DynamicScenario'
+	'Modifier', 'DynamicScenario',
+	# Proposition Factories
+	'AtomicProposition', 'PropositionAnd', 'PropositionOr', 'PropositionNot',
 )
 
 # various Python types and functions used in the language but defined elsewhere
@@ -93,6 +95,7 @@ from scenic.core.errors import RuntimeParseError, InvalidScenarioError
 from scenic.core.vectors import OrientedVector
 from scenic.core.external_params import ExternalParameter
 import scenic.core.requirements as requirements
+import scenic.core.propositions as propositions
 from scenic.core.simulators import RejectSimulationException
 
 ### Internals
@@ -1106,3 +1109,24 @@ def filter(function, iterable):
 @distributionFunction
 def str(*args, **kwargs):
 	return builtins.str(*args, **kwargs)
+
+### Temporal Operators Factories
+
+def AtomicProposition(closure, *, line, syntaxId):
+	return propositions.Atomic(closure, syntaxId)
+def PropositionAnd(reqs, *, line, syntaxId):
+	return propositions.And(reqs, syntaxId)
+def PropositionOr(reqs, *, line, syntaxId):
+	return propositions.Or(reqs, syntaxId)
+def PropositionNot(req, *, line, syntaxId):
+	return propositions.Not(req, syntaxId)
+def Always(req, *, line, syntaxId):
+	return propositions.Always(req, syntaxId)
+def Eventually(req, *, line, syntaxId):
+	return propositions.Eventually(req, syntaxId)
+def Next(req, *, line, syntaxId):
+	return propositions.Next(req, syntaxId)
+def Until(lhs, rhs, *, line, syntaxId):
+	return propositions.Until(lhs, rhs, syntaxId)
+def Implies(lhs, rhs, *, line, syntaxId):
+	return propositions.Implies(lhs, rhs, syntaxId)

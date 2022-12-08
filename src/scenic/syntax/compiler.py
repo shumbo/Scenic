@@ -1020,20 +1020,6 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
         return self.generateInvocation(node, subRunner, ast.YieldFrom)
 
     @context(Context.TOP_LEVEL)
-    def visit_RequireAlways(self, node: s.RequireAlways):
-        condition = self.visit(node.cond)
-        return self.createRequirementLike(
-            "require_always", condition, node.lineno, node.name
-        )
-
-    @context(Context.TOP_LEVEL)
-    def visit_RequireEventually(self, node: s.RequireEventually):
-        condition = self.visit(node.cond)
-        return self.createRequirementLike(
-            "require_eventually", condition, node.lineno, node.name
-        )
-
-    @context(Context.TOP_LEVEL)
     def visit_Record(self, node: s.Record):
         value = self.visit(node.value)
         return self.createRequirementLike("record", value, node.lineno, node.name)
