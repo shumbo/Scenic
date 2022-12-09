@@ -182,6 +182,131 @@ class LocalFinder(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+# Proposition Constructors with Temporal Operators Support
+PROPOSITION_AND = "PropositionAnd"
+PROPOSITION_OR = "PropositionOr"
+PROPOSITION_NOT = "PropositionNot"
+ATOMIC_PROPOSITION = "AtomicProposition"
+PROPOSITION_FACTORY = (
+    PROPOSITION_AND,
+    PROPOSITION_OR,
+    PROPOSITION_NOT,
+    ATOMIC_PROPOSITION,
+)
+
+
+class PropositionTransformer(ast.NodeTransformer):
+    def __init__(self) -> None:
+        super().__init__()
+        self.propositionSyntax = []
+
+    def transform(self, node: ast.AST) -> ast.AST:
+        self.propositionSyntax = []
+        wrapped = self.visit(node)
+        if self.is_proposition_factory(wrapped):
+            return wrapped, self.propositionSyntax
+        newNode = self._create_atomic_proposition_factory(node)
+        return newNode, self.propositionSyntax
+
+    def _register_requirement_syntax(self, syntax):
+        """register requirement syntax for later use
+        returns an ID for retrieving the syntax
+
+        Args:
+                propositionSyntax (ast.Node): AST Node that represents the requirement
+
+        Returns:
+                int: generated requirement syntax ID
+        """
+        syntaxId = len(self.propositionSyntax)
+        self.propositionSyntax.append(syntax)
+        return syntaxId
+
+    def _create_atomic_proposition_factory(self, node):
+        """
+        Given an expression, create an atomic proposition factory.
+
+        Note: You must call `self.visit(node)` manually. This method does not make the surgeon visit the node.
+        """
+        lineNum = ast.Constant(node.lineno)
+        ast.copy_location(lineNum, node)
+
+        closure = ast.Lambda(noArgs, node)
+        ast.copy_location(closure, node)
+
+        syntaxId = self._register_requirement_syntax(node)
+        syntaxIdConst = ast.Constant(syntaxId)
+        ast.copy_location(syntaxIdConst, node)
+
+        ap = ast.Call(
+            func=ast.Name(id=ATOMIC_PROPOSITION, ctx=loadCtx),
+            args=[closure],
+            keywords=[
+                ast.keyword(arg="line", value=lineNum),
+                ast.keyword(arg="syntaxId", value=syntaxIdConst),
+            ],
+        )
+        ast.copy_location(ap, node)
+        return ap
+
+    def is_proposition_factory(self, node):
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in PROPOSITION_FACTORY
+        )
+
+    def visit_BoolOp(self, node: ast.BoolOp) -> ast.AST:
+        """Convert a BoolOp node (`and`, `or`) to a corresponding proposition factory"""
+        # 1. wrap each operand with a lambda function
+        operands = []
+        for operand in node.values:
+            o = self.visit(operand)
+            if self.is_proposition_factory(o):
+                # if the operand is already an temporal requirement factory, keep it
+                operands.append(self.visit(o))
+                continue
+            # if the operand is not an temporal requirement factory, make it an AP
+            closure = self._create_atomic_proposition_factory(o)
+            operands.append(closure)
+
+        # 2. create a function call and pass operands
+        boolOpToFunctionName = {
+            ast.Or: "PropositionOr",
+            ast.And: "PropositionAnd",
+        }
+        funcId = boolOpToFunctionName.get(type(node.op))
+        newNode = ast.Call(
+            func=ast.Name(id=funcId, ctx=ast.Load()),
+            # pass a list of operands as the first argument
+            args=[ast.copy_location(ast.List(elts=operands, ctx=ast.Load()), node)],
+            keywords=[],
+        )
+        return ast.copy_location(newNode, node)
+
+    def visit_UnaryOp(self, node):
+        # rewrite `not` in requirements into a proposition factory
+        if not isinstance(node.op, ast.Not):
+            return self.generic_visit(node)
+        lineNum = ast.Constant(node.lineno)
+        ast.copy_location(lineNum, node)
+
+        operand = node.operand
+
+        newOperand = (
+            operand
+            if self.is_proposition_factory(operand)
+            else self._create_atomic_proposition_factory(self.visit(operand))
+        )
+
+        newNode = ast.Call(
+            func=ast.Name(id=PROPOSITION_NOT, ctx=ast.Load()),
+            args=[newOperand],
+            keywords=[],
+        )
+        return ast.copy_location(newNode, node)
+
+
 def unquote(s: str) -> str:
     if (s[:3] == s[-3:]) and s.startswith(("'''", '"""')):
         return s[3:-3]

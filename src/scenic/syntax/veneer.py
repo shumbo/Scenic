@@ -1112,21 +1112,21 @@ def str(*args, **kwargs):
 
 ### Temporal Operators Factories
 
-def AtomicProposition(closure, *, line, syntaxId):
+def AtomicProposition(closure, syntaxId):
 	return propositions.Atomic(closure, syntaxId)
-def PropositionAnd(reqs, *, line, syntaxId):
-	return propositions.And(reqs, syntaxId)
-def PropositionOr(reqs, *, line, syntaxId):
-	return propositions.Or(reqs, syntaxId)
-def PropositionNot(req, *, line, syntaxId):
-	return propositions.Not(req, syntaxId)
-def Always(req, *, line, syntaxId):
-	return propositions.Always(req, syntaxId)
-def Eventually(req, *, line, syntaxId):
-	return propositions.Eventually(req, syntaxId)
-def Next(req, *, line, syntaxId):
-	return propositions.Next(req, syntaxId)
-def Until(lhs, rhs, *, line, syntaxId):
-	return propositions.Until(lhs, rhs, syntaxId)
-def Implies(lhs, rhs, *, line, syntaxId):
-	return propositions.Implies(lhs, rhs, syntaxId)
+def PropositionAnd(reqs):
+	return propositions.And(reqs)
+def PropositionOr(reqs):
+	return propositions.Or(reqs)
+def PropositionNot(req):
+	return propositions.Not(req)
+def Always(req):
+	return propositions.Always(req)
+def Eventually(req):
+	return propositions.Eventually(req)
+def Next(req):
+	return propositions.Next(req)
+def Until(lhs, rhs):
+	return propositions.Until(lhs, rhs)
+def Implies(lhs, rhs):
+	return propositions.Implies(lhs, rhs)

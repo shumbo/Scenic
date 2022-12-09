@@ -27,8 +27,7 @@ class PropositionMonitor:
 
 class PropositionNode:
 	"""Base class for temporal and non-temporal propositions"""
-	def __init__(self, syntax_id, ltl_node) -> None:
-		self.syntax_id = syntax_id
+	def __init__(self, ltl_node) -> None:
 		self.ltl_node = ltl_node
 
 		self.is_temporal = False
@@ -88,7 +87,7 @@ class PropositionNode:
 		return has_temporal_op
 
 class Atomic(PropositionNode):
-	def __init__(self, closure, syntax_id = None):
+	def __init__(self, closure, syntax_id):
 		ap = rv_ltl.Atomic(identifier=str(syntax_id))
 		super().__init__(syntax_id, ap)
 		self.closure = closure
@@ -104,36 +103,36 @@ class UnaryProposition(PropositionNode):
 		return [self.req]
 
 class Always(UnaryProposition):
-	def __init__(self, req: PropositionNode, syntax_id = None):
+	def __init__(self, req: PropositionNode):
 		ltl_node = rv_ltl.Always(req.ltl_node)
-		super().__init__(syntax_id, ltl_node)
+		super().__init__(ltl_node)
 		self.req = req
 		self.is_temporal = True
 	def __str__(self):
 		return f"(Always {str(self.req)})"
 
 class Eventually(UnaryProposition):
-	def __init__(self, req: PropositionNode, syntax_id = None):
+	def __init__(self, req: PropositionNode):
 		ltl_node = rv_ltl.Eventually(req.ltl_node)
-		super().__init__(syntax_id, ltl_node)
+		super().__init__(ltl_node)
 		self.req = req
 		self.is_temporal = True
 	def __str__(self):
 		return f"(Eventually {str(self.req)})"
 
 class Next(UnaryProposition):
-	def __init__(self, req: PropositionNode, syntax_id = None):
+	def __init__(self, req: PropositionNode):
 		ltl_node = rv_ltl.Next(req.ltl_node)
-		super().__init__(syntax_id, ltl_node)
+		super().__init__(ltl_node)
 		self.req = req
 		self.is_temporal = True
 	def __str__(self):
 		return f"(Next {str(self.req)})"
 
 class Not(UnaryProposition):
-	def __init__(self, req: PropositionNode, syntax_id = None):
+	def __init__(self, req: PropositionNode):
 		ltl_node = rv_ltl.Not(req.ltl_node)
-		super().__init__(syntax_id, ltl_node)
+		super().__init__(ltl_node)
 		self.req = req
 	def __str__(self):
 		return f"(Not {str(self.req)})"
@@ -141,9 +140,9 @@ class Not(UnaryProposition):
 		return not self.req.evaluate()
 
 class And(PropositionNode):
-	def __init__(self, reqs, syntax_id):
+	def __init__(self, reqs):
 		ltl_node = rv_ltl.And(*[req.ltl_node for req in reqs])
-		super().__init__(syntax_id, ltl_node)
+		super().__init__(ltl_node)
 		self.reqs = reqs
 	def __str__(self):
 		return " and ".join([f"{str(req)}" for req in self.reqs])
@@ -154,9 +153,9 @@ class And(PropositionNode):
 		return reduce(operator.and_, [node.evaluate() for node in self.reqs], True)
 
 class Or(PropositionNode):
-	def __init__(self, reqs, syntax_id):
+	def __init__(self, reqs):
 		ltl_node = rv_ltl.Or(*[req.ltl_node for req in reqs])
-		super().__init__(syntax_id, ltl_node)
+		super().__init__(ltl_node)
 		self.reqs = reqs
 	def __str__(self):
 		return " or ".join([f"{str(req)}" for req in self.reqs])
@@ -167,11 +166,11 @@ class Or(PropositionNode):
 		return reduce(operator.or_, [node.evaluate() for node in self.reqs], False)
 
 class Until(PropositionNode):
-	def __init__(self, lhs, rhs, syntax_id) -> None:
+	def __init__(self, lhs, rhs) -> None:
 		self.lhs = lhs
 		self.rhs = rhs
 		ltl_node = rv_ltl.Until(lhs.ltl_node, rhs.ltl_node)
-		super().__init__(syntax_id, ltl_node)
+		super().__init__(ltl_node)
 		self.is_temporal = True
 	def __str__(self):
 		return f"({self.lhs} until {self.rhs})"
@@ -180,11 +179,11 @@ class Until(PropositionNode):
 		return [self.lhs, self.rhs]
 
 class Implies(PropositionNode):
-	def __init__(self, lhs, rhs, syntax_id) -> None:
+	def __init__(self, lhs, rhs) -> None:
 		self.lhs = lhs
 		self.rhs = rhs
 		ltl_node = rv_ltl.Implies(lhs.ltl_node, rhs.ltl_node)
-		super().__init__(syntax_id, ltl_node)
+		super().__init__(ltl_node)
 	def __str__(self):
 		return f"({self.lhs} implies {self.rhs})"
 	@property
