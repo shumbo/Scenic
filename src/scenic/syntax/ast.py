@@ -102,7 +102,7 @@ class PropertyDef(AST):
     def __init__(
         self,
         property: str,
-        attributes: list[Union["Additive", "Dynamic"]],
+        attributes: list[Union["Additive", "Dynamic", "Final"]],
         value=ast.AST,
         *args: any,
         **kwargs: any
@@ -127,6 +127,12 @@ class Dynamic(AST):
     def __init__(self, *args: any, **kwargs: any) -> None:
         super().__init__(*args, **kwargs)
 
+
+class Final(AST):
+    keyword = "final"
+
+    def __init__(self, *args: any, **kwargs: any) -> None:
+        super().__init__(*args, **kwargs)
 
 # behavior / monitor
 

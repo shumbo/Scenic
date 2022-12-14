@@ -768,6 +768,7 @@ scenic_class_property_stmt:
 scenic_class_property_attribute: &&(
       "additive" { s.Additive(LOCATIONS) }
     | "dynamic" { s.Dynamic(LOCATIONS) }
+    | "final" { s.Final(LOCATIONS) }
 )
 
 # Multiline Specifiers

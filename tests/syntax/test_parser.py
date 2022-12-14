@@ -237,7 +237,7 @@ class TestClass:
         mod = parse_string_helper(
             """
             class C:
-                property[additive, dynamic]: value
+                property[additive, dynamic, final]: value
             """
         )
         stmt = mod.body[0]
@@ -249,7 +249,7 @@ class TestClass:
                 body=[
                     PropertyDef(
                         "property",
-                        [Additive(), Dynamic()],
+                        [Additive(), Dynamic(), Final()],
                         Name("value", Load()),
                     )
                 ],
