@@ -252,6 +252,10 @@ class DynamicScenario(Invocable):
     def objects(self):
         return tuple(self._objects)
 
+    @property
+    def _sampledObjects(self):
+        return self.objects
+
     def _bindTo(self, scene):
         """Bind this scenario to a sampled scene when starting a new simulation."""
         self._ego = scene.egoObject

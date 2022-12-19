@@ -705,8 +705,7 @@ def RelativeTo(X, Y):
 		<heading> relative to <heading>
 		with <property> <value> relative to <oriented point | heading> 
 	"""
-	xf, yf = isA(X, VectorField), isA(Y, VectorField)
-	if xf or yf:
+	if (xf := isA(X, VectorField)) or (yf := isA(Y, VectorField)):
 		if xf and yf and X.valueType != Y.valueType:
 			raise RuntimeParseError('"X relative to Y" with X, Y fields of different types')
 		fieldType = X.valueType if xf else Y.valueType
@@ -716,15 +715,7 @@ def RelativeTo(X, Y):
 			xp = X[pos] if xf else toType(X, fieldType, error)
 			yp = Y[pos] if yf else toType(Y, fieldType, error)
 			return yp + xp
-		return DelayedArgument({'position'}, helper)
-	# elif isinstance(Y, Object) or isinstance(Y, OrientedPoint):
-	# 	if not isinstance(X, float):
-	# 		raise RuntimeParseError('"X relative to Y" with Y an object or oriented point, but X not a float')
-	# 	# return X + Y.prop # TODO: @Matthew Need context for which property?
-	# 	def helper(context, spec):
-	# 		breakpoint()
-	# 		print("hi")
-	# 	return DelayedArgument({'parentOrientation'}, value=helper)
+		return DelayedArgument({'position'}, helper) 
 	else:
 		if isinstance(X, OrientedPoint):	# TODO too strict?
 			if isinstance(Y, OrientedPoint):
@@ -868,17 +859,20 @@ def CanSee(X, Y):
 		<point> can see <vector>
 	"""
 	if not isinstance(X, Point):
-		raise RuntimeParseError('"X can see Y" with X not a Point')
+		raise RuntimeParseError('"X can see Y" with X not a Point, OrientedPoint, or Scenic Object')
 
-	# if currentScenario is None:
-	# 	raise RuntimeError("CanSee resolved before sample time.")
+	assert currentScenario is not None
 
-	# occluding_objects = currentScenario.objects
+	if currentScenario._sampledObjects is None:
+		raise RuntimeParseError('"X can see Y" cannot be evaluated before sample time')
 
-	# for obj in occluding_objects:
-	# 	assert not needsSampling(obj)
+	for obj in currentScenario._sampledObjects:
+		assert not needsSampling(obj)
 
-	return X.canSee(Y)
+	occluding_objects = {obj for obj in currentScenario._sampledObjects if obj.occluding \
+						 and X is not obj and Y is not obj}
+
+	return X.canSee(Y, occludingObjects=occluding_objects)
 
 ### Specifiers
 

@@ -186,6 +186,7 @@ class Scenario(_ScenarioPickleMixin):
 			if obj is not egoObject:
 				ordered.append(obj)
 		self.objects = (egoObject,) + tuple(ordered) if egoObject else tuple(ordered)
+		self._sampledObjects = None
 		self.egoObject = egoObject
 		self.params = dict(params)
 		self.externalParams = tuple(externalParams)
@@ -308,6 +309,7 @@ class Scenario(_ScenarioPickleMixin):
 				continue
 			rejection = None
 			ego = sample[self.egoObject]
+			self._sampledObjects = (sample[obj] for obj in objects)
 
 			# Normalize types of some built-in properties
 			for obj in objects:
