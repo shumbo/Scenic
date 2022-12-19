@@ -705,7 +705,8 @@ def RelativeTo(X, Y):
 		<heading> relative to <heading>
 		with <property> <value> relative to <oriented point | heading> 
 	"""
-	if (xf := isA(X, VectorField)) or (yf := isA(Y, VectorField)):
+	xf, yf = isA(X, VectorField), isA(Y, VectorField)
+	if xf or yf:
 		if xf and yf and X.valueType != Y.valueType:
 			raise RuntimeParseError('"X relative to Y" with X, Y fields of different types')
 		fieldType = X.valueType if xf else Y.valueType
@@ -715,7 +716,15 @@ def RelativeTo(X, Y):
 			xp = X[pos] if xf else toType(X, fieldType, error)
 			yp = Y[pos] if yf else toType(Y, fieldType, error)
 			return yp + xp
-		return DelayedArgument({'position'}, helper) 
+		return DelayedArgument({'position'}, helper)
+	# elif isinstance(Y, Object) or isinstance(Y, OrientedPoint):
+	# 	if not isinstance(X, float):
+	# 		raise RuntimeParseError('"X relative to Y" with Y an object or oriented point, but X not a float')
+	# 	# return X + Y.prop # TODO: @Matthew Need context for which property?
+	# 	def helper(context, spec):
+	# 		breakpoint()
+	# 		print("hi")
+	# 	return DelayedArgument({'parentOrientation'}, value=helper)
 	else:
 		if isinstance(X, OrientedPoint):	# TODO too strict?
 			if isinstance(Y, OrientedPoint):
