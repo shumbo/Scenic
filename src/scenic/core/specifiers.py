@@ -14,7 +14,7 @@ class Specifier:
 
 	Any optionally-specified properties are evaluated as attributes of the primary value.
 	"""
-	def __init__(self, priorities, value, deps=None):
+	def __init__(self, name, priorities, value, deps=None):
 		if not isinstance(priorities, dict):
 			priorities = {priorities: -1}
 		self.priorities = priorities
@@ -26,6 +26,7 @@ class Specifier:
 			if p in deps:
 				raise RuntimeParseError(f'specifier for property {p} depends on itself')
 		self.requiredProperties = deps
+		self.name = name
 
 	def applyTo(self, obj, properties):
 		"""Apply specifier to an object"""
@@ -44,14 +45,14 @@ class Specifier:
 				obj._specify(prop, val)
 
 	def __str__(self):
-		return f'<Specifier of {self.priorities}>'
+		return f'<{self.name} Specifier for {self.priorities}>'
 
 class ModifyingSpecifier(Specifier):
-	def __init__(self, priorities, value, modifiable_props, deps=None):
+	def __init__(self, name, priorities, value, modifiable_props, deps=None):
 		# modifiable_props keeps track of what properties specified by this specifier
 		# can be modified.
 		self.modifiable_props = modifiable_props
-		super().__init__(priorities, value, deps)
+		super().__init__(name, priorities, value, deps)
 
 ## Support for property defaults
 
@@ -97,4 +98,4 @@ class PropertyDefault:
 			val = DelayedArgument(allReqs, concatenator, _internal=True) # TODO: @Matthew Change to dicts
 		else:
 			val = DelayedArgument(self.requiredProperties, self.value, _internal=True)
-		return Specifier({prop: -1}, val)
+		return Specifier("PropertyDefault", {prop: -1}, val)

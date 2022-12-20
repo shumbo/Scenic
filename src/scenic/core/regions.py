@@ -648,7 +648,7 @@ class _MeshRegion(Region):
 		return super().difference(other)
 
 	def findOn(self, point, on_direction):
-		""" Find the nearest point in the region with the same x,y value.
+		""" Find the nearest point in the region following the on_direction.
 		Returns None if no such points exist.
 		"""
 		# Get first point hit in both directions of ray

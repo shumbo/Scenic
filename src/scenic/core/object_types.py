@@ -92,7 +92,7 @@ class Constructible(Samplable):
 		# Resolve and apply specifiers
 		specifiers = list(args)
 		for prop, val in kwargs.items():	# kwargs supported for internal use
-			specifiers.append(Specifier({prop: 1}, val))
+			specifiers.append(Specifier("Internal(Kwargs)", {prop: 1}, val))
 
 		# Declare properties dictionary which maps properties to the specifier
 		# that will specify that property.
@@ -110,7 +110,15 @@ class Constructible(Samplable):
 		defs = self.__class__._defaults
 		finals = self.__class__._finalProperties
 
-		# TODO: @Matthew Check for incompatible specifiers used with modifying specifier (itself or `at`)
+		# Check for incompatible specifier combinations
+		specifier_names = [spec.name for spec in specifiers]
+
+		if "On" in specifier_names:
+			if "At" in specifier_names:
+				raise RuntimeParseError(f'Cannot use "On" specifier to modify "At" specifier')
+
+			if collections.Counter(specifier_names)["On"] > 1:
+				raise RuntimeParseError(f'Cannot use "On" specifier to modify "On" specifier')
 
 		# Split the specifiers into two groups, normal and modifying. Normal specifiers set all relevant properties
 		# first. Then modifying specifiers can modify or set additional properties
