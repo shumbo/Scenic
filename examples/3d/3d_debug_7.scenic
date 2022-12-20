@@ -43,4 +43,4 @@ obj_4 = new Object at test_point,
     facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
     with viewAngles (120 deg, 90 deg)
 
-require obj_2 can see test_point
+require (obj_2 can see test_point)

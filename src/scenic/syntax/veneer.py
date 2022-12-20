@@ -178,7 +178,20 @@ def deactivate():
 	else:
 		currentScenario = scenarioStack[-1]
 
-# Object creation
+# Instance/Object creation
+def registerInstance(inst):
+	"""Add a Scenic instance to the global list of created objects.
+
+	This is called by the Point/OrientedPoint constructor.
+	"""
+	if evaluatingRequirement:
+		raise RuntimeParseError('tried to create an instance inside a requirement')
+	elif currentBehavior is not None:
+		raise RuntimeParseError('tried to create an instance inside a behavior')
+	elif currentScenario:
+		assert not evaluatingRequirement
+		assert isinstance(inst, Constructible)
+		currentScenario._registerInstance(inst)
 
 def registerObject(obj):
 	"""Add a Scenic object to the global list of created objects.
@@ -191,7 +204,7 @@ def registerObject(obj):
 		raise RuntimeParseError('tried to create an object inside a behavior')
 	elif activity > 0 or currentScenario:
 		assert not evaluatingRequirement
-		assert isinstance(obj, Constructible)
+		assert isinstance(obj, Object)
 		currentScenario._registerObject(obj)
 		if currentSimulation:
 			currentSimulation.createObject(obj)
@@ -272,7 +285,7 @@ def simulationInProgress():
 # Requirements
 
 @contextmanager
-def executeInRequirement(scenario, boundEgo):
+def executeInRequirement(scenario, boundEgo, values):
 	global evaluatingRequirement, currentScenario
 	assert activity == 0
 	assert not evaluatingRequirement
@@ -284,6 +297,9 @@ def executeInRequirement(scenario, boundEgo):
 		assert currentScenario is scenario
 		clearScenario = False
 	oldEgo = currentScenario._ego
+
+	currentScenario._sampledObjects = (values[obj] for obj in currentScenario.objects)
+
 	if boundEgo:
 		currentScenario._ego = boundEgo
 	try:
@@ -295,6 +311,7 @@ def executeInRequirement(scenario, boundEgo):
 	finally:
 		evaluatingRequirement = False
 		currentScenario._ego = oldEgo
+		currentScenario._sampledObjects = currentScenario.objects
 		if clearScenario:
 			currentScenario = None
 

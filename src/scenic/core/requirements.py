@@ -63,6 +63,12 @@ class PendingRequirement:
             if needsLazyEvaluation(value):
                 raise InvalidScenarioError(f'{ty} on line {line} uses value {value}'
                                            ' undefined outside of object definition')
+
+        # If this requirement contains the CanSee specifier, we will need to sample all objects
+        # to meet the dependencies.
+        if "CanSee" in bindings:
+            deps.update(scenario.objects)
+
         if ego is not None:
             assert isinstance(ego, Samplable)
             deps.add(ego)
@@ -78,7 +84,7 @@ class PendingRequirement:
             boundEgo = None if ego is None else values[ego]
             # evaluate requirement condition, reporting errors on the correct line
             import scenic.syntax.veneer as veneer
-            with veneer.executeInRequirement(scenario, boundEgo):
+            with veneer.executeInRequirement(scenario, boundEgo, values):
                 result = condition()
                 assert not needsSampling(result)
                 if needsLazyEvaluation(result):

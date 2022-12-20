@@ -171,7 +171,7 @@ class Scenario(_ScenarioPickleMixin):
 	A compiled Scenic scenario, from which scenes can be sampled.
 	"""
 	def __init__(self, workspace, simulator,
-				 objects, egoObject,
+				 instances, objects, egoObject,
 				 params, externalParams,
 				 requirements, requirementDeps,
 				 monitors, behaviorNamespaces,
@@ -185,8 +185,9 @@ class Scenario(_ScenarioPickleMixin):
 		for obj in objects:
 			if obj is not egoObject:
 				ordered.append(obj)
+		assert set(objects).issubset(set(instances))
+		self._instances = tuple(instances)
 		self.objects = (egoObject,) + tuple(ordered) if egoObject else tuple(ordered)
-		self._sampledObjects = None
 		self.egoObject = egoObject
 		self.params = dict(params)
 		self.externalParams = tuple(externalParams)
@@ -213,7 +214,7 @@ class Scenario(_ScenarioPickleMixin):
 			for value in namespace.values():
 				if isinstance(value, Samplable):
 					behaviorDeps.append(value)
-		self.dependencies = self.objects + paramDeps + tuple(requirementDeps) + tuple(behaviorDeps)
+		self.dependencies = self._instances + paramDeps + tuple(requirementDeps) + tuple(behaviorDeps)
 
 		self.validate()
 
@@ -309,7 +310,6 @@ class Scenario(_ScenarioPickleMixin):
 				continue
 			rejection = None
 			ego = sample[self.egoObject]
-			self._sampledObjects = (sample[obj] for obj in objects)
 
 			# Normalize types of some built-in properties
 			for obj in objects:
@@ -324,7 +324,31 @@ class Scenario(_ScenarioPickleMixin):
 					raise InvalidScenarioError(
 						f'behavior {behavior} of Object {obj} is not a behavior')
 
-			# Check built-in requirements
+			# Check built-in requirements for instances
+			for i in range(len(self._instances)):
+				vi = sample[self._instances[i]]
+
+				# Require that the observing entity, if one has been specified,
+				# can see the instance.
+				if vi.observingEntity is not None:
+					observing_entity = sample[vi.observingEntity]
+					occluding_objects = {sample[obj] for obj in objects \
+										 if sample[obj] is not observing_entity \
+										 and sample[obj] is not vi and obj.occluding}
+					if not observing_entity.canSee(vi, occludingObjects=occluding_objects):
+						rejection = 'instance visibility (from observing entity)'
+						break
+				# Require that the non-observing entity, if one has been specified,
+				# can see the instance.
+				if vi.nonObservingEntity is not None:
+					non_observing_entity = sample[vi.nonObservingEntity]
+					occluding_objects = {sample[obj] for obj in objects \
+										 if sample[obj] is not non_observing_entity \
+										 and sample[obj] is not vi and obj.occluding}
+					if non_observing_entity.canSee(vi, occludingObjects=occluding_objects):
+						rejection = 'instance visibility (from non-observing entity)'
+
+			# Check built-in requirements for objects
 			for i in range(len(objects)):
 				vi = sample[objects[i]]
 				# Require object to be contained in the workspace/valid region
@@ -340,25 +364,7 @@ class Scenario(_ScenarioPickleMixin):
 					if not ego.canSee(vi, occludingObjects=occluding_objects):
 						rejection = 'object visibility (from ego)'
 						break
-				# Require that the observing entity, if one has been specified,
-				# can see the object.
-				if vi.observingEntity is not None:
-					observing_entity = sample[vi.observingEntity]
-					occluding_objects = {sample[obj] for obj in objects \
-										 if sample[obj] is not observing_entity \
-										 and sample[obj] is not vi and obj.occluding}
-					if not observing_entity.canSee(vi, occludingObjects=occluding_objects):
-						rejection = 'object visibility (from observing entity)'
-						break
-				# Require that the non-observing entity, if one has been specified,
-				# can see the object.
-				if vi.nonObservingEntity is not None:
-					non_observing_entity = sample[vi.nonObservingEntity]
-					occluding_objects = {sample[obj] for obj in objects \
-										 if sample[obj] is not non_observing_entity \
-										 and sample[obj] is not vi and obj.occluding}
-					if non_observing_entity.canSee(vi, occludingObjects=occluding_objects):
-						rejection = 'object visibility (from non-observing entity)'
+
 						break
 				# Require object to not intersect another object
 				if not vi.allowCollisions:

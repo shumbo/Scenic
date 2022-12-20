@@ -186,7 +186,9 @@ class DynamicScenario(Invocable):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._ego = None
+        self._instances = []
         self._objects = []      # ordered for reproducibility
+        self._sampledObjects = self._objects
         self._externalParameters = []
         self._pendingRequirements = defaultdict(list)
         self._requirements = []
@@ -251,10 +253,6 @@ class DynamicScenario(Invocable):
     @property
     def objects(self):
         return tuple(self._objects)
-
-    @property
-    def _sampledObjects(self):
-        return self.objects
 
     def _bindTo(self, scene):
         """Bind this scenario to a sampled scene when starting a new simulation."""
@@ -477,6 +475,7 @@ class DynamicScenario(Invocable):
         return agents
 
     def _inherit(self, other):
+        self._instances.extend(other._instances)
         self._objects.extend(other._objects)
         self._agents.extend(other._agents)
         self._globalParameters.update(other._globalParameters)
@@ -484,7 +483,11 @@ class DynamicScenario(Invocable):
         self._requirements.extend(other._requirements)
         self._behaviors.extend(other._behaviors)
 
+    def _registerInstance(self, inst):
+        self._instances.append(inst)
+
     def _registerObject(self, obj):
+        self._registerInstance(obj)
         self._objects.append(obj)
         if getattr(obj, 'behavior', None) is not None:
             self._agents.append(obj)
@@ -564,7 +567,7 @@ class DynamicScenario(Invocable):
 
         from scenic.core.scenarios import Scenario
         scenario = Scenario(workspace, self._simulatorFactory,
-                            self._objects, self._ego,
+                            self._instances, self._objects, self._ego,
                             self._globalParameters, self._externalParameters,
                             self._requirements, self._requirementDeps,
                             self._monitors, self._behaviorNamespaces,
