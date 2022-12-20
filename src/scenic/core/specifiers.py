@@ -33,7 +33,7 @@ class Specifier:
 		self.requiredProperties = deps
 		self.name = name
 
-	def applyTo(self, obj, properties):
+	def applyTo(self, obj, properties, overriding=False):
 		"""Apply specifier to an object"""
 		val = valueInContext(self.value, obj)
 
@@ -42,7 +42,7 @@ class Specifier:
 		for prop in properties:
 			dist_val = toDistribution(val[prop])
 			assert not needsLazyEvaluation(dist_val)
-			obj._specify(prop, dist_val)
+			obj._specify(prop, dist_val, overriding=overriding)
 
 	def __str__(self):
 		return f'<{self.name} Specifier for {self.priorities}>'

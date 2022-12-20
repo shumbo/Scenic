@@ -94,6 +94,21 @@ class Constructible(Samplable):
 		for prop, val in kwargs.items():	# kwargs supported for internal use
 			specifiers.append(Specifier("Internal(Kwargs)", {prop: 1}, {prop: val}))
 
+		# Apply specifiers
+		self._applySpecifiers(specifiers)
+
+		# Set up dependencies
+		deps = []
+		for prop in self.properties:
+			assert hasattr(self, prop)
+			val = getattr(self, prop)
+			deps.append(val)
+		super().__init__(deps)
+
+		# Possibly register this object
+		self._register()
+
+	def _applySpecifiers(self, specifiers, defs=None, overriding=False):
 		# Declare properties dictionary which maps properties to the specifier
 		# that will specify that property.
 		properties = dict()
@@ -106,8 +121,11 @@ class Constructible(Samplable):
 		# been set.
 		priorities = dict()
 
-		# Extract default property values dictionary and set of final properties
-		defs = self.__class__._defaults
+		# Extract default property values dictionary and set of final properties,
+		# unless defs is overriden.
+		if defs is None:
+			defs = self.__class__._defaults
+
 		finals = self.__class__._finalProperties
 
 		# Check for incompatible specifier combinations
@@ -140,7 +158,6 @@ class Constructible(Samplable):
 				# Check if this is a final property has been specified. If so, throw an assertion or error,
 				# depending on whether or not this object is internal.
 				if prop in finals:
-					assert not _internal
 					raise RuntimeParseError(f'property "{prop}" cannot be directly specified')
 
 
@@ -268,7 +285,7 @@ class Constructible(Samplable):
 		self.properties = set()		# will be filled by calls to _specify below
 		self._evaluated = DefaultIdentityDict()		# temporary cache for lazily-evaluated values
 		for spec in order:
-			spec.applyTo(self, actual_props[spec])
+			spec.applyTo(self, actual_props[spec], overriding=overriding)
 		del self._evaluated
 		self._constProps = frozenset({
 			prop for prop in _defaultedProperties
@@ -279,18 +296,7 @@ class Constructible(Samplable):
 		assert all(self._mod_tracker)
 		del self._mod_tracker
 
-		# Set up dependencies
-		deps = []
-		for prop in properties:
-			assert hasattr(self, prop)
-			val = getattr(self, prop)
-			deps.append(val)
-		super().__init__(deps)
-
-		# Possibly register this object
-		self._register()
-
-	def _specify(self, prop, value):
+	def _specify(self, prop, value, overriding=False):
 		if prop in self.properties:
 			# We have already specified this property. Check if we can modify it and otherwise
 			# raise an assert.
@@ -313,8 +319,8 @@ class Constructible(Samplable):
 		if prop in ['yaw', 'pitch', 'roll']:
 			value = normalizeAngle(value)
 
-		# Check if this property is already an attribute
-		if hasattr(self, prop) and prop not in self.properties:
+		# Check if this property is already an attribute, unless we are overriding
+		if hasattr(self, prop) and prop not in self.properties and not overriding:
 			raise RuntimeParseError(f"Property {prop} would overwrite an attribute with the same name.")
 
 		self.properties.add(prop)
@@ -333,8 +339,8 @@ class Constructible(Samplable):
 				if prop not in self.properties:
 					raise RuntimeParseError(f'object has no property "{prop}" to override')
 				oldVals[prop] = getattr(self, prop)
-		defs = { prop: Specifier(prop, getattr(self, prop)) for prop in self.properties }
-		self._applySpecifiers(specifiers, defs=defs)
+		defs = { prop: Specifier("OverrideDefault", {prop: -1}, {prop: getattr(self, prop)}) for prop in self.properties }
+		self._applySpecifiers(list(specifiers), defs=defs, overriding=True)
 		return oldVals
 
 	def _revert(self, oldVals):
@@ -707,13 +713,13 @@ class Object(OrientedPoint, _RotatedRectangle):
 
 		self._relations = []
 
-	def _specify(self, prop, value):
+	def _specify(self, prop, value, overriding=False):
 		# Normalize types of some built-in properties
 		if prop == 'behavior':
 			import scenic.syntax.veneer as veneer	# TODO improve?
 			value = toType(value, veneer.Behavior,
 			               f'"behavior" of {self} not a behavior')
-		super()._specify(prop, value)
+		super()._specify(prop, value, overriding=overriding)
 
 	def _register(self):
 		import scenic.syntax.veneer as veneer	# TODO improve?
