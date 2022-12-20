@@ -33,11 +33,10 @@ def test_circular_in():
 
 def test_circular_lazy():
     ego = sampleEgoFrom("""
-        vf = VectorField("Foo", lambda pos: 2 * pos.x)
-        x = 0 relative to vf
-        ego = new Object at Range(-1, 1) @ 0, with foo CircularRegion(0@0, x)
+        x = relative heading of 30 deg from Range(31,60) deg
+        ego = new Object at x @ 0, with foo CircularRegion(0@0, x)
     """)
-    assert ego.foo.radius == 2 * ego.position.x
+    assert ego.foo.radius == ego.position.x
 
 # PolygonalRegion
 
