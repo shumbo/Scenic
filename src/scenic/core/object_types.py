@@ -678,9 +678,10 @@ class Object(OrientedPoint, _RotatedRectangle):
 		'baseOffset': PropertyDefault(('height',), {}, lambda self: Vector(0, 0, -self.height/2)),
 		'contactTolerance': 1e-4,
 		'onDirection': Vector(0,0,1),
-		'velocity': PropertyDefault(('speed', 'heading'), {'dynamic'},
-			                  lambda self: Vector(0, self.speed).rotatedBy(self.heading)),
+		'velocity': PropertyDefault((), {'dynamic'},
+			                  lambda self: Vector(0, 0, 0)),
 		'speed': PropertyDefault((), {'dynamic'}, lambda self: 0),
+		'angularVelocity': PropertyDefault((), {'dynamic'}, lambda self: Vector(0, 0, 0)),
 		'angularSpeed': PropertyDefault((), {'dynamic'}, lambda self: 0),
 		'min_top_z': 0.4,
 		'occupiedSpace': PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation', 'onDirection'), \
