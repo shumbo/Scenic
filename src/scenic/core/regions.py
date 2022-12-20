@@ -11,6 +11,7 @@ from abc import ABC
 
 import numpy
 import scipy
+import shapely
 import shapely.geometry
 import shapely.ops
 import shapely.prepared
@@ -300,12 +301,26 @@ class IntersectionRegion(Region):
 	@staticmethod
 	def genericSampler(intersection):
 		regs = intersection.regions
-		point = regs[0].uniformPointInner()
-		for region in regs[1:]:
-			if not region.containsPoint(point):
-				raise RejectionException(
-					f'sampling intersection of Regions {regs[0]} and {region}')
-		return point
+
+		# Get a candidate point from each region
+		points = [reg.uniformPointInner() for reg in regs]
+
+		# Filter all points that aren't contained in all regions
+		for region in regs:
+			points = [point for point in points if region.containsPoint(point)]
+
+		# If no points remain, reject. Otherwise return one at random.
+		if len(points) == 0:
+			raise RejectionException(f'sampling intersection of Regions {regs}')
+
+		return random.choice(points)
+
+		# point = regs[0].uniformPointInner()
+		# for region in regs[1:]:
+		# 	if not region.containsPoint(point):
+		# 		raise RejectionException(
+		# 			f'sampling intersection of Regions {regs[0]} and {region}')
+		# return point
 
 	def isEquivalentTo(self, other):
 		if type(other) is not IntersectionRegion:
@@ -510,11 +525,9 @@ class _MeshRegion(Region):
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
 
-		elif toPolygon(other) is not None:
-			# Other region is a polygon.
-			# We can extrude it to cover the entire mesh vertically
+		elif isinstance(other_polygon := toPolygon(other),shapely.geometry.polygon.Polygon):
+			# Other region is a polygon, which we can extrude it to cover the entire mesh vertically
 			# and then take the intersection.
-			other_polygon = toPolygon(other)
 
 			# Determine the mesh's vertical bounds, and extrude the polygon to have height equal to the mesh
 			# (plus a little extra).
