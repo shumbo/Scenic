@@ -92,7 +92,7 @@ class Constructible(Samplable):
 		# Resolve and apply specifiers
 		specifiers = list(args)
 		for prop, val in kwargs.items():	# kwargs supported for internal use
-			specifiers.append(Specifier("Internal(Kwargs)", {prop: 1}, val))
+			specifiers.append(Specifier("Internal(Kwargs)", {prop: 1}, {prop: val}))
 
 		# Declare properties dictionary which maps properties to the specifier
 		# that will specify that property.

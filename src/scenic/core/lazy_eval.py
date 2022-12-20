@@ -198,4 +198,7 @@ def requiredProperties(thing):
 
 def needsLazyEvaluation(thing):
 	"""Whether the given value requires lazy evaluation."""
+	if isinstance(thing, dict):
+		return any([needsLazyEvaluation(val) for val in thing.values()])
+
 	return isinstance(thing, DelayedArgument) or requiredProperties(thing)

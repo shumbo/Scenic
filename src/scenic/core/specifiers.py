@@ -15,16 +15,21 @@ class Specifier:
 	Any optionally-specified properties are evaluated as attributes of the primary value.
 	"""
 	def __init__(self, name, priorities, value, deps=None):
-		if not isinstance(priorities, dict):
-			priorities = {priorities: -1}
+		assert isinstance(priorities, dict)
+		assert isinstance(value, dict) or isinstance(value, DelayedArgument)
+
 		self.priorities = priorities
 		self.value = value
+
 		if deps is None:
 			deps = set()
+
 		deps |= requiredProperties(self.value)
+
 		for p in priorities:
 			if p in deps:
 				raise RuntimeParseError(f'specifier for property {p} depends on itself')
+
 		self.requiredProperties = deps
 		self.name = name
 
@@ -32,17 +37,12 @@ class Specifier:
 		"""Apply specifier to an object"""
 		val = valueInContext(self.value, obj)
 
-		if isinstance(val, dict):
-			for prop in properties:
-				dist_val = toDistribution(val[prop])
-				assert not needsLazyEvaluation(dist_val)
-				obj._specify(prop, dist_val)
-		else:
-			assert len(self.priorities) == 1
-			val = toDistribution(val)
-			assert not needsLazyEvaluation(val)
-			for prop in self.priorities:
-				obj._specify(prop, val)
+		assert isinstance(val, dict)
+
+		for prop in properties:
+			dist_val = toDistribution(val[prop])
+			assert not needsLazyEvaluation(dist_val)
+			obj._specify(prop, dist_val)
 
 	def __str__(self):
 		return f'<{self.name} Specifier for {self.priorities}>'
@@ -68,6 +68,7 @@ class PropertyDefault:
 				return True
 			else:
 				return default
+
 		self.isAdditive = enabled('additive', False)
 		self.isDynamic = enabled('dynamic', False)
 		self.isFinal = enabled('final', False)
@@ -98,4 +99,5 @@ class PropertyDefault:
 			val = DelayedArgument(allReqs, concatenator, _internal=True) # TODO: @Matthew Change to dicts
 		else:
 			val = DelayedArgument(self.requiredProperties, self.value, _internal=True)
-		return Specifier("PropertyDefault", {prop: -1}, val)
+
+		return Specifier("PropertyDefault", {prop: -1}, {prop: val})
