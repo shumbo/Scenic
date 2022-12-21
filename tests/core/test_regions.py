@@ -1,5 +1,6 @@
 
 import pytest
+import math
 import shapely.geometry
 
 from scenic.core.regions import *
@@ -81,6 +82,89 @@ def test_polygon_sampling():
     assert sum(1 <= y <= 2 for y in ys) <= 870
     assert sum(x >= 1.5 for x in xs) >= 1250
     assert sum(y >= 1.5 for y in ys) >= 1250
+
+def test_mesh_operation_blender():
+    r1 = BoxRegion(position=(0,0,0), dimensions=(1,1,1), engine="blender")
+    r2 = BoxRegion(position=(0,0,0), dimensions=(2,2,2), engine="blender")
+
+    r = r1.intersect(r2)
+
+def test_mesh_operation_scad():
+    r1 = BoxRegion(position=(0,0,0), dimensions=(1,1,1), engine="scad")
+    r2 = BoxRegion(position=(0,0,0), dimensions=(2,2,2), engine="scad")
+
+    r = r1.intersect(r2)
+
+def test_mesh_volume_region_sampling():
+    r = BoxRegion(position=(0,0,0), dimensions=(2,2,2))
+    pts = [r.uniformPointInner() for _ in range(3000)]
+
+    for x, y, z in pts:
+        assert -1 <= x <= 1
+        assert -1 <= y <= 1
+        assert -1 <= z <= 1
+
+def test_mesh_surface_region_sampling():
+    r = BoxRegion(position=(0,0,0), dimensions=(2,2,2)).getSurfaceRegion()
+    pts = [r.uniformPointInner() for _ in range(3000)]
+
+    for x, y, z in pts:
+        assert  x == 1 or x == -1 or \
+                y == 1 or y == -1 or \
+                z == 1 or z == -1
+
+def test_mesh_region_distribution():
+    sampleSceneFrom("""
+        position = (Range(-5,5), Range(-5,5), Range(-5,5))
+        radius = Range(1,5)
+        dimensions = (2*radius, 2*radius, 2*radius)
+        rotation = (Range(0,360), Range(0,360), Range(0,360))
+
+        region = SpheroidRegion(position=position, dimensions=dimensions, rotation=rotation)
+
+        ego = new Object in region
+    """)
+
+def test_mesh_polygon_intersection():
+    r1 = BoxRegion(position=(0,0,0), dimensions=(3,3,2))
+    r2 = CircularRegion((0,0), 1, resolution=64)
+
+    r = r1.intersect(r2)
+
+    assert isinstance(r, MeshVolumeRegion)
+
+    v_pts = list(trimesh.sample.volume_mesh(r.mesh, 3000))
+    s_pts = [r.getSurfaceRegion().uniformPointInner() for _ in range(3000)]
+
+    for x, y, z in v_pts:
+        assert math.hypot(x, y) <= 1
+        assert -1 <= z <= 1
+
+    for x, y, z in s_pts:
+        on_side = math.hypot(x, y) == pytest.approx(1, abs=1e-4)
+        on_top_bottom = z == -1 or z == 1
+
+        assert on_side or on_top_bottom
+
+def test_mesh_polygons_intersection():
+    p1 = shapely.geometry.Polygon(
+        [(1,1), (1,2), (2,2), (2,1)]
+    )
+    r1 = PolygonalRegion(polygon=p1)
+
+    p2 = shapely.geometry.Polygon(
+        [(-2,-2), (-2,-1), (-1,-1), (-1,-2)]
+    )
+    r2 = PolygonalRegion(polygon=p2)
+
+    r3 = BoxRegion(dimensions=(5,3,5))
+
+    r = r3.intersect(r1.union(r2))
+
+    assert isinstance(r, MeshVolumeRegion)
+
+def test_mesh_line_strings_intersection():
+    assert False
 
 def test_view_region_construction():
     sampleSceneFrom("""

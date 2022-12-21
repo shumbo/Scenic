@@ -28,7 +28,7 @@ from scenic.core.vectors import Vector, OrientedVector, VectorDistribution, Vect
 from scenic.core.geometry import _RotatedRectangle
 from scenic.core.geometry import sin, cos, hypot, findMinMax, pointIsInCone, averageVectors
 from scenic.core.geometry import headingOfSegment, triangulatePolygon, plotPolygon, polygonUnion
-from scenic.core.type_support import toVector, toScalar
+from scenic.core.type_support import toVector, toScalar, toOrientation
 from scenic.core.utils import cached, cached_property
 
 ###################################################################################################
@@ -315,13 +315,6 @@ class IntersectionRegion(Region):
 
 		return random.choice(points)
 
-		# point = regs[0].uniformPointInner()
-		# for region in regs[1:]:
-		# 	if not region.containsPoint(point):
-		# 		raise RejectionException(
-		# 			f'sampling intersection of Regions {regs[0]} and {region}')
-		# return point
-
 	def isEquivalentTo(self, other):
 		if type(other) is not IntersectionRegion:
 			return False
@@ -439,10 +432,11 @@ class _MeshRegion(Region):
 	  	tolerance=1e-8, center_mesh=True, engine="blender", additional_deps=[]):
 		# Copy the mesh and parameters
 		self._mesh = mesh.copy()
-		self.dimensions = toDistribution(dimensions)
-		self.position = toDistribution(position)
-		self.rotation = toDistribution(rotation)
-		self.orientation = orientation
+		self.dimensions = None if dimensions is None else toVector(dimensions)
+		self.position = None if position is None else toVector(position)
+		self.rotation = None if rotation is None else toOrientation(rotation)
+		self.orientation = None if orientation is None else toDistribution(orientation)
+		self.on_direction = toVector(on_direction)
 		self.tolerance = tolerance
 		self.center_mesh = center_mesh
 		self.engine = engine
@@ -459,8 +453,8 @@ class _MeshRegion(Region):
 			self.mesh.vertices -= self.mesh.bounding_box.center_mass
 
 		# If dimensions are provided, scale mesh to those dimension
-		if dimensions is not None:
-			scale = self.mesh.extents / numpy.array(dimensions)
+		if self.dimensions is not None:
+			scale = self.mesh.extents / numpy.array(self.dimensions)
 
 			scale_matrix = numpy.eye(4)
 			scale_matrix[:3, :3] /= scale
@@ -468,22 +462,20 @@ class _MeshRegion(Region):
 			self.mesh.apply_transform(scale_matrix)
 
 		# If rotation is provided, apply rotation
-		if rotation is not None:
-			rotation_matrix = quaternion_matrix((rotation.w, rotation.x, rotation.y, rotation.z))
+		if self.rotation is not None:
+			rotation_matrix = quaternion_matrix((self.rotation.w, self.rotation.x, self.rotation.y, self.rotation.z))
 			self.mesh.apply_transform(rotation_matrix)
 
 		# If position is provided, translate mesh.
-		if position is not None:
-			position_matrix = translation_matrix(position)
+		if self.position is not None:
+			position_matrix = translation_matrix(self.position)
 			self.mesh.apply_transform(position_matrix)
 
 		# Set default orientation to one inferred from face norms if none is provided.
-		if orientation is None:
+		if self.orientation is None:
 			self.orientation = VectorField("DefaultSurfaceVectorField", lambda pos: self.getFlatOrientation(pos))
 		else:
 			self.orientation = orientation
-
-		self.on_direction = toVector(on_direction)
 
 	## API Methods ##
 	# Mesh Access #
@@ -524,16 +516,30 @@ class _MeshRegion(Region):
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
 
-		elif isinstance(other_polygon := toPolygon(other),shapely.geometry.polygon.Polygon):
-			# Other region is a polygon, which we can extrude it to cover the entire mesh vertically
+		other_polygon = toPolygon(other)
+
+		if isinstance(other_polygon, (shapely.geometry.polygon.Polygon, shapely.geometry.multipolygon.MultiPolygon)):
+			# Other region is one or more polygons, which we can extrude it to cover the entire mesh vertically
 			# and then take the intersection.
+
+			# Extract a list of the polygons
+			if isinstance(other_polygon, shapely.geometry.polygon.Polygon):
+				polygons = [other_polygon]
+			else:
+				polygons = list(other_polygon.geoms)
+
+			print(polygons)
 
 			# Determine the mesh's vertical bounds, and extrude the polygon to have height equal to the mesh
 			# (plus a little extra).
 			vertical_bounds = (self.mesh.bounds[0][2], self.mesh.bounds[1][2])
 			polygon_height = vertical_bounds[1] - vertical_bounds[0] + 1
 
-			polygon_mesh = trimesh.creation.extrude_polygon(polygon=other_polygon, height=polygon_height)
+			vf = [trimesh.creation.triangulate_polygon(p) for p in polygons]
+
+			v, f = trimesh.util.append_faces([i[0] for i in vf], [i[1] for i in vf])
+
+			polygon_mesh = trimesh.creation.extrude_triangulation(v, f, height=polygon_height)
 
 			# Translate the polygon mesh vertically so it covers the main mesh.
 			polygon_z_pos = (vertical_bounds[1] + vertical_bounds[0])/2
@@ -544,7 +550,6 @@ class _MeshRegion(Region):
 				new_mesh = self.mesh.intersection(polygon_mesh, engine=self.engine)
 			except CalledProcessError:
 				return EmptyRegion("EmptyMesh")
-
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
@@ -952,12 +957,14 @@ class MeshVolumeRegion(_MeshRegion):
 	def sampleGiven(self, value):
 		return MeshVolumeRegion(mesh=self._mesh, name=self.name, \
 			dimensions=value[self.dimensions], position=value[self.position], rotation=value[self.rotation], \
-			orientation=self.orientation, tolerance=self.tolerance, center_mesh=self.center_mesh, engine=self.engine)
+			orientation=self.orientation, on_direction=self.on_direction, tolerance=self.tolerance, \
+			center_mesh=self.center_mesh, engine=self.engine)
 
 	## Utility Methods ##
 	def getSurfaceRegion(self):
 		""" Return a region equivalent to this one except as a MeshSurfaceRegion"""
-		return MeshSurfaceRegion(self.mesh, self.name, center_mesh=False)
+		return MeshSurfaceRegion(self.mesh, self.name, orientation=self.orientation, on_direction=self.on_direction, \
+			tolerance=self.tolerance, center_mesh=False, engine=self.engine)
 
 	def getVolumeRegion(self):
 		""" Returns this object, as it is already a MeshVolumeRegion"""
@@ -1026,12 +1033,14 @@ class MeshSurfaceRegion(_MeshRegion):
 	def sampleGiven(self, value):
 		return MeshSurfaceRegion(mesh=self._mesh, name=self.name, \
 			dimensions=value[self.dimensions], position=value[self.position], rotation=value[self.rotation], \
-			orientation=self.orientation, tolerance=self.tolerance, center_mesh=self.center_mesh, engine=self.engine)
+			orientation=self.orientation, on_direction=self.on_direction, tolerance=self.tolerance, \
+			center_mesh=self.center_mesh, engine=self.engine)
 
 	## Utility Methods ##
 	def getVolumeRegion(self):
 		""" Return a region equivalent to this one except as a MeshVolumeRegion"""
-		return MeshVolumeRegion(self.mesh, self.name, center_mesh=False)
+		return MeshVolumeRegion(self.mesh, self.name, orientation=self.orientation, on_direction=self.on_direction, \
+			tolerance=self.tolerance, center_mesh=False, engine=self.engine)
 
 	def getSurfaceRegion(self):
 		return self
