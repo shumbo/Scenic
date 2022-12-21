@@ -348,8 +348,7 @@ class DifferenceRegion(Region):
 			if not isinstance(diff, DifferenceRegion):
 				diff.orientation = value[self.orientation]
 				return diff
-		return DifferenceRegion(regionA, regionB, orientation=value[self.orientation],
-								sampler=self.sampler, name=self.name)
+		return DifferenceRegion(regionA, regionB, sampler=self.sampler, name=self.name)
 
 	def evaluateInner(self, context, modifying):
 		regionA = valueInContext(self.regionA, context, modifying)

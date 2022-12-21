@@ -43,7 +43,7 @@ __all__ = (
 	'Point', 'OrientedPoint', 'Object',
 	# Specifiers
 	'With',
-	'At', 'In', 'ContainedIn', 'On', 'Beyond', 'VisibleFrom', 'VisibleSpec', 'NotVisibleSpec',
+	'At', 'In', 'ContainedIn', 'On', 'Beyond', 'VisibleFrom', 'NotVisibleFrom', 'VisibleSpec', 'NotVisibleSpec',
 	'OffsetBy', 'OffsetAlongSpec',
 	'Facing', 'ApparentlyFacing', 'FacingToward', 'FacingDirectlyToward', 'FacingAwayFrom', 'FacingDirectlyAwayFrom',
 	'LeftSpec', 'RightSpec', 'Ahead', 'Behind', 'Above', 'Below',

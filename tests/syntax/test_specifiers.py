@@ -443,6 +443,18 @@ def test_not_visible():
         pos = sampleEgo(scenario, maxIterations=50).position
         assert pos.x < 100 or pos.y < 200 or pos.distanceTo(base) > 10
 
+def test_not_visible_from():
+    scenario = compileScenic("""
+        workspace = Workspace(RectangularRegion(100@205, 0, 20, 12))
+        ego = new Object at 100 @ 200, facing -45 deg,
+                     with visibleDistance 10, with viewAngle 90 deg
+        ego = new Object not visible from ego
+    """)
+    base = Vector(100, 200)
+    for i in range(20):
+        pos = sampleEgo(scenario, maxIterations=50).position
+        assert pos.x < 100 or pos.y < 200 or pos.distanceTo(base) > 10
+
 ## Position specifiers optionally specifying heading
 
 # In

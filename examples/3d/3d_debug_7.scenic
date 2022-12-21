@@ -26,12 +26,12 @@ obj_2 = new Object visible from obj_1,
     facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
     with viewAngles (120 deg, 90 deg)
 
-#obj_3 = new Object not visible from obj_2,
-#    with width 5,
-#    with length 5,
-#    with height 5,
-#    facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
-#    with viewAngles (120 deg, 90 deg)
+obj_3 = new Object not visible from obj_2,
+   with width 5,
+   with length 5,
+   with height 5,
+   facing (Range(0,360) deg, Range(0,360) deg, Range(0,360) deg),
+   with viewAngles (120 deg, 90 deg)
 
 test_point = new Point visible from obj_2
 
