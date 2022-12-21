@@ -2,6 +2,7 @@
 import pytest
 import math
 import random
+import numpy
 
 from scenic.core.errors import RuntimeParseError, InvalidScenarioError
 from tests.utils import compileScenic, sampleScene, sampleEgo, sampleEgoFrom, sampleParamP
@@ -348,12 +349,41 @@ def test_reproducibility():
     seeds = [random.randint(0, 100000) for i in range(10)]
     for seed in seeds:
         random.seed(seed)
+        numpy.random.seed(seed)
         baseScene, baseIterations = scenario.generate(maxIterations=200)
         for j in range(20):
             random.seed(seed)
+            numpy.random.seed(seed)
             scene, iterations = scenario.generate(maxIterations=200)
             assert len(scene.objects) == len(baseScene.objects)
             for obj, baseObj in zip(scene.objects, baseScene.objects):
+                assert obj.heading == baseObj.heading
+            assert scene.params['foo'] == baseScene.params['foo']
+            assert iterations == baseIterations
+
+@pytest.mark.slow
+def test_reproducibility_3d():
+    scenario = compileScenic(
+        'ego = new Object\n'
+        'workspace = Workspace(SpheroidRegion(dimensions=(25,15,10)))\n'
+        'obj_1 = new Object in workspace, facing Range(0, 360) deg\n'
+        'obj_2 = new Object in workspace, facing (Range(0, 360) deg, Range(0, 360) deg, Range(0, 360) deg)\n'
+        'param foo = Uniform(1, 4, 9, 16, 25, 36)\n'
+        'x = Range(0, 1)\n'
+        'require x > 0.8'
+    )
+    seeds = [random.randint(0, 100) for i in range(10)]
+    for seed in seeds:
+        random.seed(seed)
+        numpy.random.seed(seed)
+        baseScene, baseIterations = scenario.generate(maxIterations=200)
+        for j in range(5):
+            random.seed(seed)
+            numpy.random.seed(seed)
+            scene, iterations = scenario.generate(maxIterations=200)
+            assert len(scene.objects) == len(baseScene.objects)
+            for obj, baseObj in zip(scene.objects, baseScene.objects):
+                assert obj.position == obj.position
                 assert obj.heading == baseObj.heading
             assert scene.params['foo'] == baseScene.params['foo']
             assert iterations == baseIterations

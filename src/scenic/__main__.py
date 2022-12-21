@@ -6,6 +6,7 @@ import sys
 import time
 import argparse
 import random
+import numpy
 
 if sys.version_info >= (3, 8):
     from importlib import metadata
@@ -110,6 +111,7 @@ translator.usePruning = not args.no_pruning
 if args.seed is not None and args.verbosity >= 1:
     print(f'Using random seed = {args.seed}')
     random.seed(args.seed)
+    numpy.random.seed(args.seed)
 
 # Load scenario from file
 if args.verbosity >= 1:
