@@ -557,6 +557,10 @@ class _MeshRegion(Region):
 				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
 
 		if isinstance(self, MeshVolumeRegion) and isinstance(other_polygon, (shapely.geometry.linestring.LineString, shapely.geometry.multilinestring.MultiLineString)):
+			# Other region is one or more line segments. We can divide each line segment into pieces that are entirely inside/outside
+			# the mesh. Then we can construct a new Polyline region using only the line segments that are entirely inside.
+
+			# Extract a list of the points defining the line segments.
 			if isinstance(other_polygon, shapely.geometry.linestring.LineString):
 				points_lists = [other_polygon.coords]
 			else:
