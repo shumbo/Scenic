@@ -1276,8 +1276,8 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 
 		# Check if this ray is within our view cone.
 		if (not (-viewAngles[0]/2 <= azimuth <= viewAngles[0]/2)) or \
-		   (not (-viewAngles[1]/2 <= altitude <= viewAngles[1]/2)):
-		   return False
+			(not (-viewAngles[1]/2 <= altitude <= viewAngles[1]/2)):
+			return False
 
 		candidate_ray_list = np.array([candidate_ray])
 
