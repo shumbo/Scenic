@@ -139,6 +139,8 @@ def test_mesh_polygon_intersection():
     for x, y, z in v_pts:
         assert math.hypot(x, y) <= 1
         assert -1 <= z <= 1
+        assert r1.containsPoint((x,y,z))
+        assert r2.containsPoint((x,y,z))
 
     for x, y, z in s_pts:
         on_side = math.hypot(x, y) == pytest.approx(1, abs=1e-4)
@@ -164,7 +166,28 @@ def test_mesh_polygons_intersection():
     assert isinstance(r, MeshVolumeRegion)
 
 def test_mesh_line_strings_intersection():
-    assert False
+    point_lists = []
+
+    for y in range(-5,6,2):
+        point_lists.append([])
+        
+        for x in range(-5,6,2):
+            target_list = point_lists[-1]
+
+            target_list.append(numpy.array((x,y,0)))
+            target_list.append(numpy.array((x,y+1,0)))
+            target_list.append(numpy.array((x+1,y+1,0)))
+            target_list.append(numpy.array((x+1,y,0)))
+
+    r1 = PolylineRegion(polyline=shapely.ops.linemerge(point_lists))
+    r2 = SpheroidRegion(dimensions=(5,5,5))
+
+    r = r1.intersect(r2)
+
+    for point in [r.uniformPointInner() for _ in range(3000)]:
+        assert r.containsPoint(point)
+        assert r1.containsPoint(point)
+        assert r2.containsPoint(point)
 
 def test_view_region_construction():
     sampleSceneFrom("""

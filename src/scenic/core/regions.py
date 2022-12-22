@@ -528,8 +528,6 @@ class _MeshRegion(Region):
 			else:
 				polygons = list(other_polygon.geoms)
 
-			print(polygons)
-
 			# Determine the mesh's vertical bounds, and extrude the polygon to have height equal to the mesh
 			# (plus a little extra).
 			vertical_bounds = (self.mesh.bounds[0][2], self.mesh.bounds[1][2])
@@ -557,6 +555,73 @@ class _MeshRegion(Region):
 				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
+
+		if isinstance(self, MeshVolumeRegion) and isinstance(other_polygon, (shapely.geometry.linestring.LineString, shapely.geometry.multilinestring.MultiLineString)):
+			if isinstance(other_polygon, shapely.geometry.linestring.LineString):
+				points_lists = [other_polygon.coords]
+			else:
+				points_lists = [ls.coords for ls in other_polygon.geoms]
+
+			# Extract lines from region
+			lines = []
+			for point_list in points_lists:
+				vertices = [numpy.array(toVector(coords)) for coords in point_list]
+				segments = [(v_iter-1, v_iter) for v_iter in range(1,len(vertices))]
+
+				lines.append((vertices, segments))
+
+			# Split lines anytime they cross the mesh boundaries
+			refined_lines = []
+
+			for vertices, segments in lines:
+				refined_vertices = []
+
+				for line_iter, line in enumerate(segments):
+					source = vertices[line[0]]
+					dest = vertices[line[1]]
+					ray = dest - source
+
+					if line_iter == 0:
+						refined_vertices.append(source)
+
+					ray = ray/numpy.linalg.norm(ray)
+
+					intersections = self.mesh.ray.intersects_location(ray_origins=[source],ray_directions=[ray])[0]
+
+					inner_points = sorted(intersections, key=lambda pos: numpy.linalg.norm(source-pos))
+
+					for point in inner_points:
+						if numpy.linalg.norm(point-source) < numpy.linalg.norm(dest-source):
+							refined_vertices.append(point)
+
+					refined_vertices.append(dest)
+
+				refined_segments = [(v_iter-1, v_iter) for v_iter in range(1,len(refined_vertices))]
+
+				refined_lines.append((refined_vertices, refined_segments))
+
+			# Keep only lines and vertices for line segments in the mesh. Also converts them
+			# to shapely's point format.
+			internal_lines = []
+
+			for vertices, segments in refined_lines:
+				for segment in segments:
+					source = vertices[segment[0]]
+					dest = vertices[segment[1]]
+
+					midpoint = (source + dest)/2
+
+					if self.containsPoint(midpoint):
+						internal_lines.append((source, dest))
+
+			merged_lines = shapely.ops.linemerge(internal_lines)
+
+			# Check if merged lines is empty. If so, return the EmptyRegion. Otherwise, 
+			# transform merged lines back into a polyline region.
+			if merged_lines:
+				return PolylineRegion(polyline=shapely.ops.linemerge(internal_lines))
+			else:
+				return EmptyRegion("Empty mesh-polyline merge")
 
 		# Don't know how to compute this intersection, fall back to default behavior.
 		return super().intersect(other, triedReversed)
@@ -840,8 +905,7 @@ class MeshVolumeRegion(_MeshRegion):
 		elif not triedReversed:
 			return other.intersects(self)
 
-		raise NotImplementedError("Cannot check intersection of MeshRegion with " +
-			type(other) + ".")
+		raise NotImplementedError(f"Cannot check intersection of MeshRegion with {type(other)}.")
 
 	def containsPoint(self, point):
 		"""Check if this region's volume contains a point."""
@@ -1023,6 +1087,8 @@ class MeshSurfaceRegion(_MeshRegion):
 
 	def distanceTo(self, point):
 		""" Get the minimum distance from this object to the specified point."""
+		point = toVector(point, "Could not convert 'point' to vector.")
+
 		pq = trimesh.proximity.ProximityQuery(self.mesh)
 
 		dist = abs(pq.signed_distance([point.coordinates])[0])
@@ -1347,10 +1413,11 @@ class CircularRegion(Region):
 		return super().intersects(other, triedReversed)
 
 	def containsPoint(self, point):
-		point = point.toVector()
+		point = toVector((point[0], point[1], 0))
 		return point.distanceTo(self.center) <= self.radius
 
 	def distanceTo(self, point):
+		point = toVector(point)
 		return max(0, point.distanceTo(self.center) - self.radius)
 
 	def uniformPointInner(self):
@@ -1516,8 +1583,10 @@ class PolylineRegion(Region):
 		else:
 			self.usingDefaultOrientation = False
 		super().__init__(name, orientation=orientation)
+
 		if points is not None:
-			points = tuple(pt[:2] for pt in points)
+			points = [toVector(pt) for pt in points]
+			points = tuple(pt.coordinates for pt in points)
 			if len(points) < 2:
 				raise RuntimeError('tried to create PolylineRegion with < 2 points')
 			self.points = points
@@ -1537,6 +1606,7 @@ class PolylineRegion(Region):
 			self.points = None
 		else:
 			raise RuntimeError('must specify points or polyline for PolylineRegion')
+
 		if not self.lineString.is_valid:
 			raise RuntimeError('tried to create PolylineRegion with '
 							   f'invalid LineString {self.lineString}')
