@@ -3,7 +3,7 @@ import math
 import pytest
 
 from scenic.core.errors import TokenParseError, ASTParseError, RuntimeParseError
-from tests.utils import compileScenic, sampleScene
+from tests.utils import compileScenic, sampleScene, sampleEgoFrom, sampleEgoActions
 
 
 def test_old_constructor_statement():
@@ -57,6 +57,43 @@ def test_property_inheritance():
     ego = scene.egoObject
     assert type(ego).__name__ == 'Bar'
     assert ego.flubber == 7
+
+def test_attribute_additive():
+    """Additive properties"""
+    ego = sampleEgoFrom("""
+        class Parent:
+            foo[additive]: 1
+        class Child(Parent):
+            foo[additive]: 2
+        ego = new Child
+    """)
+    assert ego.foo == (2, 1)
+
+def test_attribute_final_override():
+    """Properties marked as `final` cannot be overwritten"""
+    with pytest.raises(RuntimeParseError) as excinfo:
+        compileScenic(
+            """
+                class Parent():
+                    one[final]: 1
+                class Child(Parent):
+                    one: 2
+                ego = new Object at (1,1,1)
+            """
+        )
+    assert "property cannot be overridden" in str(excinfo.value)
+
+def test_attribute_final_specifier():
+    """Properties marked as `final` cannot be specified"""
+    with pytest.raises(RuntimeParseError) as excinfo:
+        compileScenic(
+            """
+                class MyObject():
+                    one[final]: 1
+                ego = new MyObject with one 2
+            """
+        )
+    assert "cannot be directly specified" in str(excinfo.value)
 
 def test_isinstance_issubclass():
     scenario = compileScenic("""
