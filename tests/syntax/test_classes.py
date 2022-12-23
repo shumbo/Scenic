@@ -69,6 +69,19 @@ def test_attribute_additive():
     """)
     assert ego.foo == (2, 1)
 
+def test_attribute_dynamic():
+    """
+    Test dynamic properties
+    Since there isn't a easy way to test dynamic properties, assert that the internal flag is set to True
+    """
+    ego = sampleEgoFrom("""
+        class CLS:
+            foo[dynamic]: 1
+        ego = new CLS
+    """)
+    # FIXME(shun): Write a proper test to check that the property is dynamic
+    assert ego._scenic_properties["foo"].isDynamic
+
 def test_attribute_final_override():
     """Properties marked as `final` cannot be overwritten"""
     with pytest.raises(RuntimeParseError) as excinfo:
