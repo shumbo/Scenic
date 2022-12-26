@@ -74,6 +74,10 @@ class WebotsCoordinateSystem:
         return webotsRotation
 
     def orientationToScenic(self, webotsOrientation: list[float], offset: Orientation) -> Orientation:
+        # TODO(shun): Support other coordinate systems
+        if self.system != "ENU":
+            print("[Warning] Coordinate systems other than ENU is not fully supported")
+
         # webotsOrientation is a list of length 4 whose first three values are the normalized rotation axis and
         # the forth value is the rotation angle in radian
         angle = webotsOrientation[3]
