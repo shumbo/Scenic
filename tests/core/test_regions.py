@@ -165,6 +165,11 @@ def test_mesh_polygons_intersection():
 
     assert isinstance(r, MeshVolumeRegion)
 
+    for point in list(trimesh.sample.volume_mesh(r.mesh, 3000)):
+        assert r.containsPoint(point)
+        assert r1.containsPoint(point) or r2.containsPoint(point)
+        assert r3.containsPoint(point)
+
 def test_mesh_line_strings_intersection():
     point_lists = []
 
@@ -183,6 +188,8 @@ def test_mesh_line_strings_intersection():
     r2 = SpheroidRegion(dimensions=(5,5,5))
 
     r = r1.intersect(r2)
+
+    assert isinstance(r, PolylineRegion)
 
     for point in [r.uniformPointInner() for _ in range(3000)]:
         assert r.containsPoint(point)
