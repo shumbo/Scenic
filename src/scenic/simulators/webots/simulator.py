@@ -152,7 +152,6 @@ class WebotsSimulation(Simulation):
         velocity = (vx, vy, vz)
         speed = math.hypot(*velocity)
         angularSpeed = math.hypot(ax, ay, az)
-        angularVelocity = math.hypot(ax, ay, az)
 
         offsetOrientation = toOrientation(obj.orientationOffset)
         orientation = self.coordinateSystem.orientationToScenic(
