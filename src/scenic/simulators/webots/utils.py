@@ -4,8 +4,10 @@ import abc
 import math
 
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 from scenic.core.geometry import normalizeAngle
+from scenic.core.vectors import Orientation
 
 ## Coordinate system transformations
 
@@ -19,6 +21,7 @@ class WebotsCoordinateSystem:
     .. _WorldInfo.coordinateSystem: https://cyberbotics.com/doc/reference/worldinfo
     """
     def __init__(self, system='ENU'):
+        self.system = system
         axisMap = (system.find('E'), system.find('N'), system.find('U'))
         if len(system) != 3 or -1 in axisMap:
             raise RuntimeError('unknown kind of Webots coordinate system')
@@ -54,9 +57,30 @@ class WebotsCoordinateSystem:
             return None
         return normalizeAngle(angle)
 
-    def rotationFromScenic(self, heading):
-        """Convert a Scenic heading to a Webots rotation vector."""
-        return self.upAxis + [heading]
+    def orientationFromScenic(self, orientation: Orientation, offset: Orientation) -> list[float]:
+        # TODO(shun): Support other coordinate systems
+        if self.system != "ENU":
+            print("[Warning] Coordinate systems other than ENU is not fully supported")
+
+        target = orientation * offset
+        r = R.from_quat(target.q)
+        rotvec = r.as_rotvec()
+        if rotvec.tolist() == [0, 0, 0]:
+            webotsRotation = [1.0, 0.0, 0.0, 0.0]
+        else:
+            norm = np.linalg.norm(rotvec)
+            rotvec = rotvec / norm
+            webotsRotation = rotvec.tolist() + [norm]
+        return webotsRotation
+
+    def orientationToScenic(self, webotsOrientation: list[float], offset: Orientation) -> Orientation:
+        # webotsOrientation is a list of length 4 whose first three values are the normalized rotation axis and
+        # the forth value is the rotation angle in radian
+        angle = webotsOrientation[3]
+        rotvec = np.array(webotsOrientation[0:3]) * angle
+        target = Orientation(R.from_rotvec(rotvec.tolist()).as_quat())
+        orientation = target * offset.invertRotation()
+        return orientation
 
 ENU = WebotsCoordinateSystem('ENU') #: The ENU coordinate system (the Webots default).
 NUE = WebotsCoordinateSystem('NUE') #: The NUE coordinate system.

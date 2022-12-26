@@ -21,5 +21,5 @@ More detailed world models for particular types of scenarios are in submodules.
    world_parser
 """
 
-from .utils import scenicToWebotsPosition, scenicToWebotsRotation
+from .utils import ENU, NUE, EUN
 from .simulator import WebotsSimulator

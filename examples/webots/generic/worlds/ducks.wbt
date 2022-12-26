@@ -1,0 +1,63 @@
+#VRML_SIM R2023a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/objects/toys/protos/RubberDuck.proto"
+
+WorldInfo {
+  gravity 0
+  basicTimeStep 16
+  contactProperties [
+    ContactProperties {
+      coulombFriction [
+        0.8
+      ]
+    }
+  ]
+}
+Viewpoint {
+  orientation 0.1424102032183314 0.007108714113775679 -0.9897821983663688 3.0428388348023656
+  position 5.139500833021671 0.47002954163244004 1.658787367070536
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+DEF Duck_0 RubberDuck {
+  hidden linearVelocity_0 -1.1059686887426076e-07 -1.722443882874524e-07 0.2540886489195014
+  hidden angularVelocity_0 2.119988952326829e-06 -1.3612294862203937e-06 -2.880610043739674e-17
+  translation -4.203673350312146e-07 -6.546832221877594e-07 0.9657648475510386
+  rotation 4.787960357860797e-06 -8.764304275645002e-06 0.9999999999501312 1.0000000000419629
+  name "rubber duck(0)"
+  scale 4
+}
+DEF Duck_1 RubberDuck {
+  hidden linearVelocity_0 0.005214675650370232 -0.008250096883745964 0.0033193427987937714
+  hidden angularVelocity_0 0.0896158864163662 -0.009787356059908678 0.20287976133054156
+  translation 0.0034255900664567286 -1.0357126685695455 0.14621481722341673
+  rotation 0.9999987656025459 0.0003706955739658486 0.0015268851219943356 1.2639589594780352
+  name "rubber duck(1)"
+  scale 4
+}
+DEF Duck_2 RubberDuck {
+  hidden linearVelocity_0 -0.0015508418903679678 -0.007777248286016726 0.18105154704304918
+  hidden angularVelocity_0 0.2216464176759843 -0.04124344572403477 -0.00012972053980677477
+  translation -0.024406354241046688 0.9700320243530273 0.38749827243534335
+  rotation 0.9192185703550331 -0.0925849722931645 -0.3827077773183127 0.3736532297666702
+  scale 4
+  name "rubber duck(2)"
+}
+DEF Duck_3 RubberDuck {
+  hidden linearVelocity_0 -0.0015508418903679678 -0.007777248286016726 0.18105154704304918
+  hidden angularVelocity_0 0.2216464176759843 -0.04124344572403477 -0.00012972053980677477
+  translation -0.024406354241046688 0.9700320243530273 0.38749827243534335
+  rotation 0.9192185703550331 -0.0925849722931645 -0.3827077773183127 0.3736532297666702
+  scale 4
+  name "rubber duck(3)"
+}
+Robot {
+  name "Supervisor"
+  controller "scenic_supervisor"
+  customData "../../../ducks.scenic"
+  supervisor TRUE
+}
