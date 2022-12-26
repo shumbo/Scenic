@@ -10,7 +10,8 @@ behavior Push():
     while True:
         take ApplyForceAction((1, 0, 0), relative=True)
         print("ego is facing", ego.yaw, ego.pitch, ego.roll)
-        print("ego elevation", ego.elevation)
+        print("ego's elevation", ego.elevation)
+        print("ego's angular velocity", ego.angularVelocity)
 
 class Duck(WebotsObject):
     webotsType: 'Duck'
