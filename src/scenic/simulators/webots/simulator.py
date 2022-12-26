@@ -20,6 +20,7 @@ import math
 from scenic.core.simulators import Simulator, Simulation, Action
 from scenic.core.vectors import Vector
 from scenic.simulators.webots.utils import WebotsCoordinateSystem, ENU
+from scenic.core.type_support import toOrientation
 
 class WebotsSimulator(Simulator):
     """`Simulator` object for Webots.
@@ -99,11 +100,13 @@ class WebotsSimulation(Simulation):
                 obj.position + obj.positionOffset
             )
             webotsObj.getField('translation').setSFVec3f(pos)
-            # heading
-            rot = self.coordinateSystem.rotationFromScenic(
-                obj.heading + obj.rotationOffset
+
+            # orientation
+            offsetOrientation = toOrientation(obj.orientationOffset)
+            webotsObj.getField("rotation").setSFRotation(
+                self.coordinateSystem.orientationFromScenic(obj.orientation, offsetOrientation)
             )
-            webotsObj.getField('rotation').setSFRotation(rot)
+
             # battery
             battery = getattr(obj, 'battery', None)
             if battery:
@@ -144,20 +147,28 @@ class WebotsSimulation(Simulation):
 
         pos = webotsObj.getField('translation').getSFVec3f()
         x, y, z = self.coordinateSystem.positionToScenic(pos)
-        rot = webotsObj.getField('rotation').getSFRotation()
-        heading = self.coordinateSystem.rotationToScenic(rot)
         lx, ly, lz, ax, ay, az = webotsObj.getVelocity()
         vx, vy, vz = self.coordinateSystem.positionToScenic((lx, ly, lz))
         velocity = (vx, vy, vz)
         speed = math.hypot(*velocity)
         angularSpeed = math.hypot(ax, ay, az)
 
+        offsetOrientation = toOrientation(obj.orientationOffset)
+        orientation = self.coordinateSystem.orientationToScenic(
+            webotsObj.getField('rotation').getSFRotation(),
+            offsetOrientation,
+        )
+
         values = dict(
             position=Vector(x, y, z),
-            heading=heading,
             velocity=velocity,
             speed=speed,
             angularSpeed=angularSpeed,
+            angularVelocity=Vector(ax, ay, az),
+            elevation=z,
+            yaw=orientation.yaw,
+            pitch=orientation.pitch,
+            roll=orientation.roll,
         )
 
         if hasattr(obj, 'battery'):
