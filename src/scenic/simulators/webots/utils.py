@@ -44,23 +44,10 @@ class WebotsCoordinateSystem:
         """Convert a Scenic position to a Webots position."""
         return list(self.invMult[i] * pos[self.invAxisMap[i]] for i in range(3))
 
-    def rotationToScenic(self, rot, tolerance2D=None):
-        """Convert a Webots rotation vector to a Scenic heading.
-
-        Assumes the object lies in the Webots horizontal plane, with a rotation axis
-        close to the up axis. If ``tolerance2D`` is given, returns ``None`` if the
-        orientation of the object is not sufficiently close to being 2D.
-        """
-        axis = np.array(rot[:3])
-        angle = rot[3]
-        if tolerance2D is not None and np.linalg.norm(axis - self.upAxis) > tolerance2D:
-            return None
-        return normalizeAngle(angle)
-
     def orientationFromScenic(self, orientation: Orientation, offset: Orientation) -> list[float]:
         # TODO(shun): Support other coordinate systems
         if self.system != "ENU":
-            print("[Warning] Coordinate systems other than ENU is not fully supported")
+            raise ValueError("Coordinate systems other than ENU is not fully supported")
 
         target = orientation * offset
         r = R.from_quat(target.q)
@@ -76,10 +63,10 @@ class WebotsCoordinateSystem:
     def orientationToScenic(self, webotsOrientation: list[float], offset: Orientation) -> Orientation:
         # TODO(shun): Support other coordinate systems
         if self.system != "ENU":
-            print("[Warning] Coordinate systems other than ENU is not fully supported")
+            raise ValueError("Coordinate systems other than ENU is not fully supported")
 
         # webotsOrientation is a list of length 4 whose first three values are the normalized rotation axis and
-        # the forth value is the rotation angle in radian
+        # the fourth value is the rotation angle in radian
         angle = webotsOrientation[3]
         rotvec = np.array(webotsOrientation[0:3]) * angle
         target = Orientation(R.from_rotvec(rotvec.tolist()).as_quat())
