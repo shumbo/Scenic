@@ -16,8 +16,14 @@ documentation for details.
 
 from collections import defaultdict
 import math
+import tempfile
+from os import path
+from textwrap import dedent
 
-from scenic.core.simulators import Simulator, Simulation, Action
+import trimesh
+from scenic.core.regions import MeshVolumeRegion
+
+from scenic.core.simulators import Simulator, Simulation
 from scenic.core.vectors import Vector
 from scenic.simulators.webots.utils import WebotsCoordinateSystem, ENU
 from scenic.core.type_support import toOrientation
@@ -65,21 +71,57 @@ class WebotsSimulation(Simulation):
         # Find Webots objects corresponding to Scenic objects
         self.webotsObjects = {}
         usedNames = defaultdict(lambda: 0)
+
+        # directory to store proto files for adhoc webots objects
+        tmpMeshDir = tempfile.mkdtemp()
+        # set to store
+        adhocObjectId = 1
+
         for obj in self.objects:
+            # make sure `obj` is a Webots object
             if not hasattr(obj, 'webotsName'):
                 continue    # not a Webots object
-            if obj.webotsName:
-                name = obj.webotsName
+            
+            # get a name of the corresponding webots object
+            name = None
+            if obj.webotsAdhoc:
+                # dynamically generate object from Scenic object mesh
+                if not hasattr(obj.shape, "mesh"):
+                    raise RuntimeError(f'Cannot dynamically instantiate shape without mesh')
+                
+                objFilePath = path.join(tmpMeshDir, f"{adhocObjectId}.obj")
+
+                objectRawMesh = obj.shape.mesh
+                objectScaledMesh = MeshVolumeRegion(mesh=objectRawMesh, dimensions=(obj.width, obj.length, obj.height)).mesh
+
+                trimesh.exchange.export.export_mesh(objectScaledMesh, objFilePath)
+
+                name = f"SCENIC_ADHOC_{adhocObjectId}"
+                
+                rootNode = supervisor.getRoot()
+                rootChildrenField = rootNode.getField("children")
+
+                rootChildrenField.importMFNodeFromString(-1, dedent(f"""
+                DEF {name} ScenicObject {{
+                    url "{objFilePath}"
+                    density {obj.density}
+                }}
+                """))
+                adhocObjectId += 1
             else:
-                ty = obj.webotsType
-                if not ty:
-                    raise RuntimeError(f'object {obj} has no webotsName or webotsType')
-                nextID = usedNames[ty]
-                usedNames[ty] += 1
-                if nextID == 0 and supervisor.getFromDef(ty):
-                    name = ty
+                if obj.webotsName:
+                    name = obj.webotsName
                 else:
-                    name = f'{ty}_{nextID}'
+                    ty = obj.webotsType
+                    if not ty:
+                        raise RuntimeError(f'object {obj} has no webotsName or webotsType')
+                    nextID = usedNames[ty]
+                    usedNames[ty] += 1
+                    if nextID == 0 and supervisor.getFromDef(ty):
+                        name = ty
+                    else:
+                        name = f'{ty}_{nextID}'
+
             webotsObj = supervisor.getFromDef(name)
             if webotsObj is None:
                 raise RuntimeError(f'Webots object {name} does not exist in world')
