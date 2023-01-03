@@ -29,13 +29,6 @@ PROTO ScenicObject [
     }
     physics Physics {
       density IS density
-      centerOfMass [
-        0 0 0
-      ]
-      damping Damping {
-        linear 0.5
-        angular 0.5
-      }
     }
   }
 }
