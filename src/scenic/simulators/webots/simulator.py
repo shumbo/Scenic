@@ -104,7 +104,6 @@ class WebotsSimulation(Simulation):
                 rootChildrenField.importMFNodeFromString(-1, dedent(f"""
                 DEF {name} ScenicObject {{
                     url "{objFilePath}"
-                    density {obj.density}
                 }}
                 """))
                 adhocObjectId += 1
@@ -148,6 +147,11 @@ class WebotsSimulation(Simulation):
             webotsObj.getField("rotation").setSFRotation(
                 self.coordinateSystem.orientationFromScenic(obj.orientation, offsetOrientation)
             )
+
+            # density
+            densityField = webotsObj.getField("density")
+            if densityField is not None and hasattr(obj, "density") and obj.density is not None:
+                densityField.setSFFloat(float(obj.density))
 
             # battery
             battery = getattr(obj, 'battery', None)
@@ -201,6 +205,11 @@ class WebotsSimulation(Simulation):
             offsetOrientation,
         )
 
+        densityField = webotsObj.getField("density")
+        density = None
+        if densityField is not None:
+            density = densityField.getSFFloat()
+
         values = dict(
             position=Vector(x, y, z),
             velocity=velocity,
@@ -211,6 +220,7 @@ class WebotsSimulation(Simulation):
             yaw=orientation.yaw,
             pitch=orientation.pitch,
             roll=orientation.roll,
+            density=density,
         )
 
         if hasattr(obj, 'battery'):

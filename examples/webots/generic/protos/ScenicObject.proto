@@ -8,7 +8,7 @@ PROTO ScenicObject [
   field SFString name "solid"
   field SFVec3f angularVelocity 0 0 0
   field MFString url ""
-  field SFFloat density 1 # kg / m^3.
+  field SFFloat density 1000 # kg / m^3
 ]
 {
   Solid {

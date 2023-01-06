@@ -41,7 +41,6 @@ class WebotsObject:
         requireVisible (bool): Default value ``False`` (overriding the default
             from `Object`).
         webotsAdhoc (bool): Whether to generate a webots object ad-hoc at runtime.
-        density (float): Density of this object. Only used when webotsAdhoc is True.
         webotsName (str): 'DEF' name of the Webots node to use for this object.
         webotsType (str): If ``webotsName`` is not set, the first available
             node with 'DEF' name consisting of this string followed by '_0',
@@ -59,6 +58,8 @@ class WebotsObject:
         orientationOffset (tuple[float, float, float]): Offset to add when computing the object's
             orientation in Webots; for objects whose front is not aligned with the
             Webots North axis.
+        density (float): Density of this object. The corresponding Webots object
+            must have the `density` field.
 
     .. _Supervisor API: https://www.cyberbotics.com/doc/reference/supervisor?tab-language=python
     """
@@ -67,7 +68,6 @@ class WebotsObject:
     requireVisible: False
 
     webotsAdhoc: False
-    density: 1000 # kg/m^3
 
     webotsName: None
     webotsType: None
@@ -79,6 +79,8 @@ class WebotsObject:
     positionOffset: (0, 0, 0)
     rotationOffset: 0
     orientationOffset: (0, 0, 0)
+
+    density[dynamic]: None # kg/m^3
 
 class Ground(WebotsObject):
     """Special kind of object representing a (possibly irregular) ground surface.
