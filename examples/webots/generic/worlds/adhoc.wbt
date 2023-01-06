@@ -26,6 +26,6 @@ TexturedBackgroundLight {
 Robot {
   name "Supervisor"
   controller "scenic_supervisor"
-  customData "../../../adhoc.scenic"
+  customData "../../../adhoc_advanced.scenic"
   supervisor TRUE
 }

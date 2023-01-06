@@ -1,5 +1,5 @@
 """
-Generate Webots objects ad-hoc
+Generate a simple scene with ad-hoc Webots objects
 """
 
 model scenic.simulators.webots.model
