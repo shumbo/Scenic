@@ -367,6 +367,8 @@ class ScenicModule(types.ModuleType):
 # register the meta path finder
 sys.meta_path.insert(0, ScenicMetaFinder())
 
+### Translation phase two to four are done by the parser & compiler
+
 ### TRANSLATION PHASE FIVE: AST compilation
 
 def compileTranslatedTree(tree, filename):
