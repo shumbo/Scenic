@@ -4,7 +4,6 @@ import itertools
 from typing import Callable, Literal, Optional, Tuple, List, Union
 
 import scenic.syntax.ast as s
-import scenic.syntax.veneer as veneer
 from scenic.core.errors import getText
 
 
@@ -43,8 +42,6 @@ def compileScenicAST(
 
 
 # constants
-
-api = set(veneer.__all__)
 
 temporaryName = "_Scenic_temporary_name"
 behaviorArgName = "_Scenic_current_behavior"
