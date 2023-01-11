@@ -318,7 +318,14 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
         return len(self.requirements) - 1
 
     def visit_Name(self, node: ast.Name) -> any:
-        from scenic.syntax.translator import builtinNames, trackedNames, behaviorArgName
+        # from scenic.syntax.translator import builtinNames, trackedNames, behaviorArgName
+
+        behaviorArgName = '_Scenic_current_behavior'
+        trackedNames = { 'ego', 'workspace' }
+
+        globalParametersName = 'globalParameters'
+        builtinNames = { globalParametersName }
+
 
         if node.id in builtinNames:
             if not isinstance(node.ctx, ast.Load):
