@@ -4,7 +4,9 @@ import itertools
 from typing import Callable, Literal, Optional, Tuple, List, Union
 
 import scenic.syntax.ast as s
+import scenic.syntax.veneer as veneer
 from scenic.core.errors import getText
+
 
 # exposed functions
 
@@ -42,6 +44,8 @@ def compileScenicAST(
 
 # constants
 
+api = set(veneer.__all__)
+
 temporaryName = "_Scenic_temporary_name"
 behaviorArgName = "_Scenic_current_behavior"
 checkPreconditionsName = "checkPreconditions"
@@ -59,6 +63,11 @@ returnFlag = ast.Attribute(
 finishedFlag = ast.Attribute(
     ast.Name("BlockConclusion", ast.Load()), "FINISHED", ast.Load()
 )
+
+trackedNames = {"ego", "workspace"}
+globalParametersName = "globalParameters"
+builtinNames = {globalParametersName}
+
 
 # shorthands for convenience
 
@@ -318,15 +327,6 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
         return len(self.requirements) - 1
 
     def visit_Name(self, node: ast.Name) -> any:
-        # from scenic.syntax.translator import builtinNames, trackedNames, behaviorArgName
-
-        behaviorArgName = '_Scenic_current_behavior'
-        trackedNames = { 'ego', 'workspace' }
-
-        globalParametersName = 'globalParameters'
-        builtinNames = { globalParametersName }
-
-
         if node.id in builtinNames:
             if not isinstance(node.ctx, ast.Load):
                 raise self.makeSyntaxError(f'unexpected keyword "{node.id}"', node)
@@ -1292,14 +1292,18 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
             keywords=[],
         )
 
-    def visit_FacingDirectlyTowardSpecifier(self, node: s.FacingDirectlyTowardSpecifier):
+    def visit_FacingDirectlyTowardSpecifier(
+        self, node: s.FacingDirectlyTowardSpecifier
+    ):
         return ast.Call(
             func=ast.Name(id="FacingDirectlyToward", ctx=loadCtx),
             args=[self.visit(node.position)],
             keywords=[],
         )
 
-    def visit_FacingDirectlyAwayFromSpecifier(self, node: s.FacingDirectlyAwayFromSpecifier):
+    def visit_FacingDirectlyAwayFromSpecifier(
+        self, node: s.FacingDirectlyAwayFromSpecifier
+    ):
         return ast.Call(
             func=ast.Name(id="FacingDirectlyAwayFrom", ctx=loadCtx),
             args=[self.visit(node.position)],

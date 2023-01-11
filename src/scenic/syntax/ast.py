@@ -134,6 +134,7 @@ class Final(AST):
     def __init__(self, *args: any, **kwargs: any) -> None:
         super().__init__(*args, **kwargs)
 
+
 # behavior / monitor
 
 
@@ -590,13 +591,16 @@ class Behind(AST):
     def __init__(self, *args: any, **kwargs: any) -> None:
         super().__init__(*args, **kwargs)
 
+
 class Above(AST):
     def __init__(self, *args: any, **kwargs: any) -> None:
         super().__init__(*args, **kwargs)
 
+
 class Below(AST):
     def __init__(self, *args: any, **kwargs: any) -> None:
         super().__init__(*args, **kwargs)
+
 
 class BeyondSpecifier(AST):
     __match_args__ = ("position", "offset", "base")
@@ -646,6 +650,7 @@ class InSpecifier(AST):
         self.region = region
         self._fields = ["region"]
 
+
 class OnSpecifier(AST):
     __match_args__ = ("region",)
 
@@ -654,6 +659,7 @@ class OnSpecifier(AST):
         self.region = region
         self._fields = ["region"]
 
+
 class ContainedInSpecifier(AST):
     __match_args__ = ("region",)
 
@@ -661,6 +667,7 @@ class ContainedInSpecifier(AST):
         super().__init__(*args, **kwargs)
         self.region = region
         self._fields = ["region"]
+
 
 class FollowingSpecifier(AST):
     __match_args__ = ("field", "distance", "base")
@@ -697,6 +704,7 @@ class FacingTowardSpecifier(AST):
         self.position = position
         self._fields = ["position"]
 
+
 class FacingAwayFromSpecifier(AST):
     __match_args__ = ("position",)
 
@@ -704,6 +712,7 @@ class FacingAwayFromSpecifier(AST):
         super().__init__(*args, **kwargs)
         self.position = position
         self._fields = ["position"]
+
 
 class FacingDirectlyTowardSpecifier(AST):
     __match_args__ = ("position",)
@@ -713,6 +722,7 @@ class FacingDirectlyTowardSpecifier(AST):
         self.position = position
         self._fields = ["position"]
 
+
 class FacingDirectlyAwayFromSpecifier(AST):
     __match_args__ = ("position",)
 
@@ -720,6 +730,7 @@ class FacingDirectlyAwayFromSpecifier(AST):
         super().__init__(*args, **kwargs)
         self.position = position
         self._fields = ["position"]
+
 
 class ApparentlyFacingSpecifier(AST):
     __match_args__ = ("heading", "base")
@@ -818,6 +829,7 @@ class AngleFromOp(AST):
         self.base = base
         self._fields = ["target", "base"]
 
+
 class AltitudeFromOp(AST):
     __match_args__ = ("target", "base")
 
@@ -832,6 +844,7 @@ class AltitudeFromOp(AST):
         self.target = target
         self.base = base
         self._fields = ["target", "base"]
+
 
 class FollowOp(AST):
     __match_args__ = ("target", "base", "distance")
