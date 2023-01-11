@@ -4,6 +4,7 @@ import pytest
 
 from scenic.syntax.ast import *
 from scenic.syntax.compiler import compileScenicAST
+from tests.utils import compileScenic, sampleEgoFrom, sampleSceneFrom
 
 
 def makeLocations(lineno=1, col_offset=0, end_lineno=1, end_col_offset=0):
@@ -469,7 +470,7 @@ class TestCompiler:
             compileScenicAST(
                 Param(
                     [parameter("p1", Name("v1")), parameter("p1", Constant(1))],
-                    **makeLocations()
+                    **makeLocations(),
                 )
             )
 
@@ -1820,3 +1821,88 @@ class TestCompiler:
                 assert True
             case _:
                 assert False
+
+
+# Test cases inherited from the old translator for checking edge cases
+
+templates = [
+    """
+ego = new Object with length 2, {continuation}
+{indent}with width 3, {continuation}
+{indent}at 10@20
+""",
+    """
+ego = new Object with length 2, {continuation}
+{indent}with width 3, at 10@20
+""",
+    """
+ego = new Object with length 2, {continuation}
+{indent}#with width 2,{continuation}
+{indent}with width 3
+""",
+    """
+ego = new Object with length 2, {continuation}
+# with width 2,{continuation}
+# blah {continuation}
+{indent}with width 3
+""",
+]
+
+
+@pytest.mark.parametrize("template", templates)
+@pytest.mark.parametrize("continuation", ("", "\\", "# comment"))
+@pytest.mark.parametrize("indent", ("  ", "    ", "             "))
+@pytest.mark.parametrize("gap", ("", "\n", "# comment\n", "\n# comment\n"))
+def test_specifier_layout(template, continuation, indent, gap):
+    """Test legal specifier layouts, with and without line continuations."""
+    preamble = template.format(continuation=continuation, indent=indent)
+    program = preamble + gap + "new Object at 20@20"
+    print("TESTING PROGRAM:", program)
+    compileScenic(program)
+
+
+def test_dangling_specifier_list():
+    with pytest.raises(SyntaxError):
+        compileScenic("ego = new Object with width 4,")
+    with pytest.raises(SyntaxError):
+        compileScenic("ego = new Object with width 4,   # comment")
+
+
+def test_constructor_ended_by_paren():
+    compileScenic(
+        """
+        ego = new Object
+        x = (new Object at 5@5)
+        mutate ego, x
+    """
+    )
+
+
+def test_semicolon_separating_statements():
+    compileScenic(
+        """
+        ego = new Object
+        param p = distance to 3@4; require ego.position.x >= 0
+    """
+    )
+
+
+def test_list_comprehension():
+    scene = sampleSceneFrom(
+        """
+        xs = [3*i + Range(0, 1) for i in range(10)]
+        [(new Object at x@0) for x in xs]
+        ego = new Object at -4@2
+    """
+    )
+    assert len(scene.objects) == 11
+    assert scene.objects[2].position.x - scene.objects[1].position.x != pytest.approx(3)
+
+
+def test_incipit_as_name():
+    """Incipits of operators are not keywords and can be used as names.
+    Here we try 'distance' from 'distance from X' and 'offset' from 'X offset by Y'.
+    """
+    for name in ("distance", "offset"):
+        ego = sampleEgoFrom(f"{name} = 4\n" f"ego = new Object at {name} @ 0")
+        assert tuple(ego.position) == (4, 0, 0)
