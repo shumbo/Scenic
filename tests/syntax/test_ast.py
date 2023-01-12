@@ -2,7 +2,7 @@
 import ast
 import sys
 
-from scenic.syntax.translator import LocalFinder
+from scenic.syntax.compiler import LocalFinder
 from tests.utils import compileScenic, sampleEgoFrom, sampleParamPFrom
 
 def test_method_of_expr():
