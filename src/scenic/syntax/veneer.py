@@ -94,7 +94,7 @@ from scenic.core.distributions import (RejectionException, Distribution,
 									   needsSampling, canUnpackDistributions, distributionFunction)
 from scenic.core.type_support import (isA, toType, toTypes, toScalar, toHeading, toVector,
 									  evaluateRequiringEqualTypes, underlyingType, toOrientation,
-									  canCoerce, coerce)
+									  canCoerce, coerce, Heading)
 from scenic.core.geometry import normalizeAngle, apparentHeadingAtPoint
 from scenic.core.object_types import Constructible
 from scenic.core.specifiers import Specifier, ModifyingSpecifier
@@ -717,13 +717,12 @@ def RelativeTo(X, Y):
 
 	Allowed forms:
 		F relative to G (with at least one a field, the other a field or heading)
+		<heading> relative to <heading>
 		<vector> relative to <oriented point> (and vice versa)
 		<vector> relative to <vector>
-		<heading> relative to <heading>
-		with <property> <value> relative to <oriented point | heading> 
 	"""
-	xf, yf = isA(X, VectorField), isA(Y, VectorField)
-	if xf or yf:
+	if isA(X, VectorField) or isA(Y, VectorField):
+		xf, yf = isA(X, VectorField), isA(Y, VectorField)
 		if xf and yf and X.valueType != Y.valueType:
 			raise RuntimeParseError('"X relative to Y" with X, Y fields of different types')
 		fieldType = X.valueType if xf else Y.valueType
@@ -734,28 +733,31 @@ def RelativeTo(X, Y):
 			yp = Y[pos] if yf else toType(Y, fieldType, error)
 			return yp + xp
 		return DelayedArgument({'position'}, helper)
-	# elif isinstance(Y, Object) or isinstance(Y, OrientedPoint):
-	# 	if not isinstance(X, float):
-	# 		raise RuntimeParseError('"X relative to Y" with Y an object or oriented point, but X not a float')
-	# 	# return X + Y.prop # TODO: @Matthew Need context for which property?
-	# 	def helper(context, spec):
-	# 		breakpoint()
-	# 		print("hi")
-	# 	return DelayedArgument({'parentOrientation'}, value=helper)
+
+	elif isinstance(X, OrientedPoint):
+		if isinstance(Y, OrientedPoint):
+			raise RuntimeParseError('"X relative to Y" with X, Y both oriented points')
+		Y = toVector(Y, '"X relative to Y" with X an oriented point but Y not a vector')
+		return X.relativize(Y)
+
+	elif isinstance(Y, OrientedPoint):
+		X = toVector(X, '"X relative to Y" with Y an oriented point but X not a vector')
+		return Y.relativize(X)
+
+	elif canCoerce(X, Vector):
+		xf = toVector(X)
+		yf = toVector(Y, '"X relative to Y" with X a vector but Y not a vector')
+
+		return xf + yf
+
+	elif canCoerce(X, Heading):
+		xf = toHeading(X)
+		yf = toHeading(Y, '"X relative to Y" with X a heading but Y not a heading')
+
+		return xf + yf
+
 	else:
-		if isinstance(X, OrientedPoint):	# TODO too strict?
-			if isinstance(Y, OrientedPoint):
-				raise RuntimeParseError('"X relative to Y" with X, Y both oriented points')
-			Y = toVector(Y, '"X relative to Y" with X an oriented point but Y not a vector')
-			return X.relativize(Y)
-		elif isinstance(Y, OrientedPoint):
-			X = toVector(X, '"X relative to Y" with Y an oriented point but X not a vector')
-			return Y.relativize(X)
-		else:
-			X = toTypes(X, (Vector, Orientation), '"X relative to Y" with X neither a vector nor orientation')
-			Y = toTypes(Y, (Vector, Orientation), '"X relative to Y" with Y neither a vector nor orientation')
-			return evaluateRequiringEqualTypes(lambda: Y + X, X, Y,
-											   '"X relative to Y" with vector and orientation')
+		raise RuntimeParseError('"X relative to Y" with X and/or Y not in an allowed form')
 
 def OffsetAlong(X, H, Y, specs=None):
 	"""The 'X offset along H by Y' polymorphic operator.
