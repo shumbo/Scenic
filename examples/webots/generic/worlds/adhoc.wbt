@@ -3,6 +3,7 @@
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 IMPORTABLE EXTERNPROTO "../protos/ScenicObject.proto"
+IMPORTABLE EXTERNPROTO "../protos/ScenicObjectWithPhysics.proto"
 
 WorldInfo {
   gravity 0
@@ -26,6 +27,6 @@ TexturedBackgroundLight {
 Robot {
   name "Supervisor"
   controller "scenic_supervisor"
-  customData "../../../adhoc_advanced.scenic"
+  customData "../../../adhoc_simple.scenic"
   supervisor TRUE
 }
