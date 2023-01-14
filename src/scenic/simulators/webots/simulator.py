@@ -207,7 +207,9 @@ class WebotsSimulation(Simulation):
 
         densityField = webotsObj.getField("density")
         density = None
-        if densityField is not None:
+        # Workaround for this issue (https://github.com/cyberbotics/webots/issues/5646)
+        import ctypes
+        if not isinstance(densityField._ref, ctypes.c_void_p):
             density = densityField.getSFFloat()
 
         values = dict(
