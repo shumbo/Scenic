@@ -151,7 +151,7 @@ def coerce(thing, ty, error='wrong type'):
 			if isinstance(thing, TupleDistribution) and len(thing) == 3:
 				return thing    # no coercion necessary
 			elif vt is float:
-				return TupleDistribution(thing, 0, 0)
+				return thing #return TupleDistribution(thing, 0, 0)
 
 		if get_type_origin(vt) is typing.Union:
 			possibleTypes = get_type_args(vt)

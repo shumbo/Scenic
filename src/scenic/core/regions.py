@@ -8,6 +8,7 @@ import math
 import random
 import itertools
 from abc import ABC
+import warnings
 
 import numpy
 import scipy
@@ -305,15 +306,12 @@ class IntersectionRegion(Region):
 		# Get a candidate point from each region
 		points = [reg.uniformPointInner() for reg in regs]
 
-		# Filter all points that aren't contained in all regions
-		for region in regs:
-			points = [point for point in points if region.containsPoint(point)]
+		# Check each point for containment each region.
+		for point in points:
+			if all(region.containsPoint(point) for region in regs):
+				return point
 
-		# If no points remain, reject. Otherwise return one at random.
-		if len(points) == 0:
-			raise RejectionException(f'sampling intersection of Regions {regs}')
-
-		return random.choice(points)
+		raise RejectionException(f'sampling intersection of Regions {regs}')
 
 	def isEquivalentTo(self, other):
 		if type(other) is not IntersectionRegion:
@@ -1589,8 +1587,13 @@ class PolylineRegion(Region):
 		super().__init__(name, orientation=orientation)
 
 		if points is not None:
-			points = [toVector(pt) for pt in points]
-			points = tuple(pt.coordinates for pt in points)
+			points = tuple(toVector(pt).coordinates for pt in points)
+
+			if any(point[2] != 0 for point in points):
+				warnings.warn("'points' passed to PolylineRegion contain non 0 z component values. These will be replaced with 0.")
+
+			points = tuple((x,y,0) for x,y,_ in points)
+
 			if len(points) < 2:
 				raise RuntimeError('tried to create PolylineRegion with < 2 points')
 			self.points = points
@@ -2065,12 +2068,19 @@ class PointSetRegion(Region):
 
 	def __init__(self, name, points, kdTree=None, orientation=None, tolerance=1e-6):
 		super().__init__(name, orientation=orientation)
-		self.points = tuple(points)
-		for point in self.points:
+
+		if kdTree is not None:
+			warnings.warn("Passing a kdTree to the PointSetRegion is deprecated."
+				"The value will be ignored and the parameter removed in future versions.",
+				DeprecationWarning)
+
+		for point in points:
 			if needsSampling(point):
 				raise RuntimeError('only fixed PointSetRegions are supported')
+		
+		self.points = tuple(toVector(point).coordinates for point in points)
 		import scipy.spatial	# slow import not often needed
-		self.kdTree = scipy.spatial.KDTree(self.points) if kdTree is None else kdTree
+		self.kdTree = scipy.spatial.KDTree(self.points)
 		self.orientation = orientation
 		self.tolerance = tolerance
 
@@ -2081,10 +2091,8 @@ class PointSetRegion(Region):
 		def sampler(intRegion):
 			o = intRegion.regions[1]
 			center, radius = o.circumcircle
-			# TODO: @Matthew ValueError: Searching for 3d point in 2d KDTree
-			# Better way to fix this? 
 			possibles = (Vector(*self.kdTree.data[i])
-						 for i in self.kdTree.query_ball_point(center[:2], radius))
+						 for i in self.kdTree.query_ball_point(center, radius))
 			intersection = [p for p in possibles if o.containsPoint(p)]
 			if len(intersection) == 0:
 				raise RejectionException(f'empty intersection of Regions {self} and {o}')
