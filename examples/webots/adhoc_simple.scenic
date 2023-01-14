@@ -17,9 +17,10 @@ class AdhocCone(WebotsObject):
   density: 500
 
 class AdhocSphere(WebotsObject):
-  webotsAdhoc: True
+  webotsAdhoc: {
+    "physics": False
+  }
   shape: MeshShape(trimesh.creation.icosphere(radius=0.5))
-  density: 200
 
 ego = new AdhocBox at (0, 0, 0)
 cone = new AdhocCone at (0, 2, 0)
