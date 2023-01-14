@@ -19,6 +19,7 @@ import math
 import tempfile
 from os import path
 from textwrap import dedent
+import ctypes
 
 import trimesh
 from scenic.core.regions import MeshVolumeRegion
@@ -101,11 +102,23 @@ class WebotsSimulation(Simulation):
                 rootNode = supervisor.getRoot()
                 rootChildrenField = rootNode.getField("children")
 
-                rootChildrenField.importMFNodeFromString(-1, dedent(f"""
-                DEF {name} ScenicObject {{
-                    url "{objFilePath}"
-                }}
-                """))
+                protoDef = ""
+                if isPhysicsEnabled(obj):
+                    protoDef = dedent(f"""
+                        DEF {name} ScenicObjectWithPhysics {{
+                            url "{objFilePath}"
+                        }}
+                        """
+                    )
+                else:
+                    protoDef = dedent(f"""
+                        DEF {name} ScenicObject {{
+                            url "{objFilePath}"
+                        }}
+                        """
+                    )
+
+                rootChildrenField.importMFNodeFromString(-1, protoDef)
                 adhocObjectId += 1
             else:
                 if obj.webotsName:
@@ -150,7 +163,7 @@ class WebotsSimulation(Simulation):
 
             # density
             densityField = webotsObj.getField("density")
-            if densityField is not None and hasattr(obj, "density") and obj.density is not None:
+            if densityField is not None and not isinstance(densityField._ref, ctypes.c_void_p) and hasattr(obj, "density") and obj.density is not None:
                 densityField.setSFFloat(float(obj.density))
 
             # battery
@@ -208,7 +221,6 @@ class WebotsSimulation(Simulation):
         densityField = webotsObj.getField("density")
         density = None
         # Workaround for this issue (https://github.com/cyberbotics/webots/issues/5646)
-        import ctypes
         if not isinstance(densityField._ref, ctypes.c_void_p):
             density = densityField.getSFFloat()
 
@@ -231,3 +243,10 @@ class WebotsSimulation(Simulation):
             values['battery'] = val
 
         return values
+
+def isPhysicsEnabled(webotsObject):
+    if isinstance(webotsObject.webotsAdhoc, bool):
+        return webotsObject
+    if isinstance(webotsObject.webotsAdhoc, dict):
+        return webotsObject.webotsAdhoc.get("physics", True)
+    raise RuntimeError(f"webotsAdhoc must be a boolean or dictionary")

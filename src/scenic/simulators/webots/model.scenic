@@ -40,7 +40,7 @@ class WebotsObject:
         elevation (float or None; dynamic): default ``None`` (see above).
         requireVisible (bool): Default value ``False`` (overriding the default
             from `Object`).
-        webotsAdhoc (bool): Whether to generate a webots object ad-hoc at runtime.
+        webotsAdhoc (bool | dict): Whether to generate a webots object ad-hoc at runtime.
         webotsName (str): 'DEF' name of the Webots node to use for this object.
         webotsType (str): If ``webotsName`` is not set, the first available
             node with 'DEF' name consisting of this string followed by '_0',
