@@ -176,6 +176,7 @@ class WebotsSimulation(Simulation):
                 field.setMFFloat(0, battery[0])
                 field.setMFFloat(1, battery[1])
                 field.setMFFloat(2, battery[2])
+
             # customData
             customData = getattr(obj, 'customData', None)
             if customData:

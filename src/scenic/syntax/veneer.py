@@ -30,7 +30,7 @@ __all__ = (
 	'FieldAt', 'RelativeTo', 'OffsetAlong', 'CanSee',
 	# Primitive types
 	'Vector', 'VectorField', 'PolygonalVectorField',
-	'MeshShape', 'BoxShape',
+	'MeshShape', 'BoxShape', 'CylinderShape', 'ConeShape', 'SpheroidShape',
 	'MeshVolumeRegion', 'MeshSurfaceRegion', 
 	'BoxRegion', 'SpheroidRegion',
 	'Region', 'PointSetRegion', 'RectangularRegion', 'CircularRegion', 'SectorRegion',
@@ -61,7 +61,7 @@ __all__ = (
 # various Python types and functions used in the language but defined elsewhere
 from scenic.core.geometry import sin, cos, hypot, max, min
 from scenic.core.vectors import Vector, VectorField, PolygonalVectorField
-from scenic.core.shapes import MeshShape, BoxShape
+from scenic.core.shapes import MeshShape, BoxShape, CylinderShape, ConeShape, SpheroidShape
 from scenic.core.regions import (Region, PointSetRegion, RectangularRegion,
 	CircularRegion, SectorRegion, PolygonalRegion, PolylineRegion,
 	everywhere, nowhere,
@@ -1185,7 +1185,7 @@ def Facing(heading):
 def FacingToward(pos):
 	"""The 'facing toward <vector>' specifier.
 
-	Specifies the yaw and pitch angle with priorities 1 and 3 respectively, depends on position.
+	Specifies the yaw angle with priority 1, depends on position.
 	and 'pitch'.
 	"""
 	pos = toVector(pos, 'specifier "facing toward X" with X not a vector')
@@ -1194,8 +1194,8 @@ def FacingToward(pos):
 		inverseQuat = context.parentOrientation.invertRotation()
 		rotated = direction.applyRotation(inverseQuat)
 		sphericalCoords = rotated.cartesianToSpherical() # Ignore the rho, sphericalCoords[0]
-		return {'yaw': sphericalCoords[1], 'pitch': sphericalCoords[2]}
-	return Specifier("FacingToward", {'yaw': 1, 'pitch': 3}, DelayedArgument({'position', 'parentOrientation'}, helper))
+		return {'yaw': sphericalCoords[1]}
+	return Specifier("FacingToward", {'yaw': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 
 def FacingDirectlyToward(pos):
 	"""The 'facing directly toward <vector>' specifier.
@@ -1229,8 +1229,8 @@ def FacingAwayFrom(pos):
 		inverseQuat = context.parentOrientation.invertRotation()
 		rotated = direction.applyRotation(inverseQuat)
 		sphericalCoords = rotated.cartesianToSpherical()
-		return {'yaw': sphericalCoords[1], 'pitch': sphericalCoords[2]}
-	return Specifier("FacingAwayFrom", {'yaw': 1, 'pitch': 3}, DelayedArgument({'position', 'parentOrientation'}, helper))
+		return {'yaw': sphericalCoords[1]}
+	return Specifier("FacingAwayFrom", {'yaw': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 
 def FacingDirectlyAwayFrom(pos):
 	"""The 'facing directly away from <vector>' specifier. 

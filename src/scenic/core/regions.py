@@ -429,7 +429,10 @@ class _MeshRegion(Region):
 	def __init__(self, mesh, name=None, dimensions=None, position=None, rotation=None, orientation=None, on_direction=(0,0,1), \
 	  	tolerance=1e-8, center_mesh=True, engine="blender", additional_deps=[]):
 		# Copy the mesh and parameters
-		self._mesh = mesh.copy()
+		if needsSampling(mesh):
+			self._mesh = mesh
+		else:
+			self._mesh = mesh.copy()
 		self.dimensions = None if dimensions is None else toVector(dimensions)
 		self.position = None if position is None else toVector(position)
 		self.rotation = None if rotation is None else toOrientation(rotation)
@@ -440,7 +443,7 @@ class _MeshRegion(Region):
 		self.engine = engine
 
 		# Initialize superclass with samplables
-		super().__init__(name, self.dimensions, self.position, self.rotation, orientation=orientation, *additional_deps)
+		super().__init__(name, self._mesh, self.dimensions, self.position, self.rotation, orientation=orientation, *additional_deps)
 
 		# If sampling is needed, delay transformations
 		if needsSampling(self):
@@ -774,6 +777,9 @@ class MeshVolumeRegion(_MeshRegion):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 
+		if needsSampling(self):
+			return
+
 		# Ensure the mesh is watertight so volume is well defined
 		if not self._mesh.is_volume:
 			raise ValueError("A MeshVolumeRegion cannot be defined with a mesh that does not have a well defined volume.")
@@ -1021,7 +1027,7 @@ class MeshVolumeRegion(_MeshRegion):
 
 	## Sampling Methods ##
 	def sampleGiven(self, value):
-		return MeshVolumeRegion(mesh=self._mesh, name=self.name, \
+		return MeshVolumeRegion(mesh=value[self._mesh], name=self.name, \
 			dimensions=value[self.dimensions], position=value[self.position], rotation=value[self.rotation], \
 			orientation=self.orientation, on_direction=self.on_direction, tolerance=self.tolerance, \
 			center_mesh=self.center_mesh, engine=self.engine)
@@ -1099,7 +1105,7 @@ class MeshSurfaceRegion(_MeshRegion):
 
 	## Sampling Methods ##
 	def sampleGiven(self, value):
-		return MeshSurfaceRegion(mesh=self._mesh, name=self.name, \
+		return MeshSurfaceRegion(mesh=value[self._mesh], name=self.name, \
 			dimensions=value[self.dimensions], position=value[self.position], rotation=value[self.rotation], \
 			orientation=self.orientation, on_direction=self.on_direction, tolerance=self.tolerance, \
 			center_mesh=self.center_mesh, engine=self.engine)
