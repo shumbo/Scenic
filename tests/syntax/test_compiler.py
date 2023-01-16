@@ -17,8 +17,7 @@ def makeLocations(lineno=1, col_offset=0, end_lineno=1, end_col_offset=0):
 
 class TestPropositionTransformer:
     def test_atomic(self):
-        node, syntax, _ = PropositionTransformer().transform(Name("A", lineno=1))
-        assert len(syntax) == 1
+        node, _ = PropositionTransformer().transform(Name("A", lineno=1))
         match node:
             case Call(Name("AtomicProposition"), [Lambda(arguments(), Name("A"))]):
                 assert True
@@ -33,12 +32,9 @@ class TestPropositionTransformer:
         ],
     )
     def test_boolop_basic(self, op, factory):
-        node, syntax, _ = PropositionTransformer().transform(
+        node, _ = PropositionTransformer().transform(
             BoolOp(op, [Name("A", lineno=1), Name("B", lineno=1)])
         )
-
-        # two atomic proposition syntax should be registered (A and B)
-        assert len(syntax) == 2
 
         match node:
             case Call(
@@ -63,15 +59,13 @@ class TestPropositionTransformer:
                 assert False
 
     def test_boolop_nested(self):
-        node, syntax, _ = PropositionTransformer().transform(
+        node, _ = PropositionTransformer().transform(
             # A and not B
             BoolOp(
                 And(),
                 [Name("A", lineno=1), UnaryOp(Not(), Name("B", lineno=1), lineno=1)],
             )
         )
-
-        assert len(syntax) == 2
 
         match node:
             case Call(
@@ -101,11 +95,9 @@ class TestPropositionTransformer:
                 assert False
 
     def test_unaryop_not(self):
-        node, syntax, _ = PropositionTransformer().transform(
+        node, _ = PropositionTransformer().transform(
             UnaryOp(Not(), Name("A", lineno=1), lineno=1)
         )
-
-        assert len(syntax) == 1
 
         match node:
             case Call(
@@ -122,17 +114,10 @@ class TestPropositionTransformer:
                 assert False
 
     def test_unaryop_other(self):
-        node, syntax, _ = PropositionTransformer().transform(
+        node, _ = PropositionTransformer().transform(
             # +x
             UnaryOp(UAdd(), Name("x"), lineno=1)
         )
-
-        # `+x` should be one atomic proposition
-        match syntax:
-            case [UnaryOp(UAdd(), Name("x"))]:
-                assert True
-            case _:
-                assert False
 
         # node should also be unchanged
         match node:
@@ -145,7 +130,7 @@ class TestPropositionTransformer:
                 assert False
 
     def test_until_op(self):
-        node, _, _ = PropositionTransformer().transform(
+        node, _ = PropositionTransformer().transform(
             UntilOp(Name("x"), Name("y"), lineno=1, col_offset=0)
         )
         match node:
@@ -167,7 +152,7 @@ class TestPropositionTransformer:
                 assert False
 
     def test_implies_op(self):
-        node, _, _ = PropositionTransformer().transform(ImpliesOp(Name("x"), Name("y")))
+        node, _ = PropositionTransformer().transform(ImpliesOp(Name("x"), Name("y")))
         match node:
             case Call(Name("Implies"), [Name("x"), Name("y")]):
                 assert True

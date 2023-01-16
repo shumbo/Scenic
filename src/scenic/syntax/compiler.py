@@ -210,7 +210,6 @@ class PropositionTransformer(ast.NodeTransformer):
     def __init__(self) -> None:
         super().__init__()
         self.nextSyntaxId = 0
-        self.propositionSyntax = []
 
     def transform(
         self, node: ast.AST, nextSyntaxId=0
@@ -224,13 +223,12 @@ class PropositionTransformer(ast.NodeTransformer):
         Returns:
             ast.AST: Transformed AST node
         """
-        self.propositionSyntax = []
         self.nextSyntaxId = nextSyntaxId
         wrapped = self.visit(ast.fix_missing_locations(node))
         if self.is_proposition_factory(wrapped):
-            return wrapped, self.propositionSyntax, self.nextSyntaxId
+            return wrapped, self.nextSyntaxId
         newNode = self._create_atomic_proposition_factory(node)
-        return newNode, self.propositionSyntax, self.nextSyntaxId
+        return newNode, self.nextSyntaxId
 
     def _register_requirement_syntax(self, syntax):
         """register requirement syntax for later use
@@ -244,8 +242,6 @@ class PropositionTransformer(ast.NodeTransformer):
         """
         syntaxId = self.nextSyntaxId
         self.nextSyntaxId += 1
-
-        self.propositionSyntax.append(syntax)
         return syntaxId
 
     def _create_atomic_proposition_factory(self, node):
@@ -1271,7 +1267,7 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
             name (Optional[str], optional): Optional name for requirements. Defaults to None.
             prob (Optional[float], optional): Optional probability for requirements. Defaults to None.
         """
-        newBody, _, self.nextSyntaxId = PropositionTransformer().transform(
+        newBody, self.nextSyntaxId = PropositionTransformer().transform(
             body, self.nextSyntaxId
         )
         newBody = self.visit(newBody)
