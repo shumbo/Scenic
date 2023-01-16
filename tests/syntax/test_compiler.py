@@ -154,7 +154,19 @@ class TestPropositionTransformer:
     def test_implies_op(self):
         node, _ = PropositionTransformer().transform(ImpliesOp(Name("x"), Name("y")))
         match node:
-            case Call(Name("Implies"), [Name("x"), Name("y")]):
+            case Call(
+                Name("Implies"),
+                [
+                    Call(
+                        Name("AtomicProposition"),
+                        [Lambda(arguments(), Name("x"))],
+                    ),
+                    Call(
+                        Name("AtomicProposition"),
+                        [Lambda(arguments(), Name("y"))],
+                    ),
+                ],
+            ):
                 assert True
             case _:
                 assert False
@@ -646,7 +658,7 @@ class TestCompiler:
                     [
                         Constant(0),  # reqId
                         Call(
-                            Name("AtomicProposition"), [Lambda(arguments(), Name("C"))]
+                            Name("AtomicProposition"), [Lambda(arguments(), )]
                         ),
                         Constant(2),  # lineno
                         Constant(name),  # name
@@ -663,7 +675,7 @@ class TestCompiler:
                 assert False
 
         match requirements:
-            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
+            case [Name("C")]:
                 assert True
             case _:
                 assert False
@@ -1249,7 +1261,7 @@ class TestCompiler:
             case _:
                 assert False
         match requirements:
-            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
+            case [Name("C")]:
                 assert True
             case _:
                 assert False
@@ -1276,7 +1288,7 @@ class TestCompiler:
             case _:
                 assert False
         match requirements:
-            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
+            case [Name("C")]:
                 assert True
             case _:
                 assert False
@@ -1304,7 +1316,7 @@ class TestCompiler:
             case _:
                 assert False
         match requirements:
-            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
+            case [Name("C")]:
                 assert True
             case _:
                 assert False
@@ -1334,7 +1346,7 @@ class TestCompiler:
                 assert False
 
         match requirements:
-            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
+            case [Name("C")]:
                 assert True
             case _:
                 assert False
@@ -1363,7 +1375,7 @@ class TestCompiler:
                 assert False
 
         match requirements:
-            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
+            case [Name("C")]:
                 assert True
             case _:
                 assert False

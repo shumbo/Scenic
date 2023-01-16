@@ -372,15 +372,15 @@ class PropositionTransformer(ast.NodeTransformer):
         )
 
     def visit_ImpliesOp(self, node: s.ImpliesOp):
-        left = self.visit(node.left)
-        if not self.is_proposition_factory(left):
-            left = self._create_atomic_proposition_factory(left)
-        right = self.visit(node.right)
-        if not self.is_proposition_factory(right):
-            right = self._create_atomic_proposition_factory(right)
+        hypothesis = self.visit(node.hypothesis)
+        if not self.is_proposition_factory(hypothesis):
+            hypothesis = self._create_atomic_proposition_factory(hypothesis)
+        conclusion = self.visit(node.conclusion)
+        if not self.is_proposition_factory(conclusion):
+            conclusion = self._create_atomic_proposition_factory(conclusion)
         return ast.Call(
             func=ast.Name(id="Implies", ctx=loadCtx),
-            args=[self.visit(left), self.visit(right)],
+            args=[self.visit(hypothesis), self.visit(conclusion)],
             keywords=[],
         )
 
