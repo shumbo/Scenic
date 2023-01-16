@@ -17,7 +17,7 @@ def makeLocations(lineno=1, col_offset=0, end_lineno=1, end_col_offset=0):
 
 class TestPropositionTransformer:
     def test_atomic(self):
-        node, syntax = PropositionTransformer().transform(Name("A", lineno=1))
+        node, syntax, _ = PropositionTransformer().transform(Name("A", lineno=1))
         assert len(syntax) == 1
         match node:
             case Call(Name("AtomicProposition"), [Lambda(arguments(), Name("A"))]):
@@ -33,7 +33,7 @@ class TestPropositionTransformer:
         ],
     )
     def test_boolop_basic(self, op, factory):
-        node, syntax = PropositionTransformer().transform(
+        node, syntax, _ = PropositionTransformer().transform(
             BoolOp(op, [Name("A", lineno=1), Name("B", lineno=1)])
         )
 
@@ -63,9 +63,12 @@ class TestPropositionTransformer:
                 assert False
 
     def test_boolop_nested(self):
-        node, syntax = PropositionTransformer().transform(
+        node, syntax, _ = PropositionTransformer().transform(
             # A and not B
-            BoolOp(And(), [Name("A", lineno=1), UnaryOp(Not(), Name("B", lineno=1), lineno=1)])
+            BoolOp(
+                And(),
+                [Name("A", lineno=1), UnaryOp(Not(), Name("B", lineno=1), lineno=1)],
+            )
         )
 
         assert len(syntax) == 2
@@ -91,15 +94,14 @@ class TestPropositionTransformer:
                             ),
                         ]
                     )
-                ]
+                ],
             ):
                 assert True
             case _:
                 assert False
 
-
     def test_unaryop_not(self):
-        node, syntax = PropositionTransformer().transform(
+        node, syntax, _ = PropositionTransformer().transform(
             UnaryOp(Not(), Name("A", lineno=1), lineno=1)
         )
 
@@ -120,7 +122,7 @@ class TestPropositionTransformer:
                 assert False
 
     def test_unaryop_other(self):
-        node, syntax = PropositionTransformer().transform(
+        node, syntax, _ = PropositionTransformer().transform(
             # +x
             UnaryOp(UAdd(), Name("x"), lineno=1)
         )
@@ -138,6 +140,36 @@ class TestPropositionTransformer:
                 Name("AtomicProposition"),
                 [Lambda(arguments(), UnaryOp(UAdd(), Name("x")))],
             ):
+                assert True
+            case _:
+                assert False
+
+    def test_until_op(self):
+        node, _, _ = PropositionTransformer().transform(
+            UntilOp(Name("x"), Name("y"), lineno=1, col_offset=0)
+        )
+        match node:
+            case Call(
+                Name("Until"),
+                [
+                    Call(
+                        Name("AtomicProposition"),
+                        [Lambda(arguments(), Name("x"))],
+                    ),
+                    Call(
+                        Name("AtomicProposition"),
+                        [Lambda(arguments(), Name("y"))],
+                    ),
+                ],
+            ):
+                assert True
+            case _:
+                assert False
+
+    def test_implies_op(self):
+        node, _, _ = PropositionTransformer().transform(ImpliesOp(Name("x"), Name("y")))
+        match node:
+            case Call(Name("Implies"), [Name("x"), Name("y")]):
                 assert True
             case _:
                 assert False
@@ -619,14 +651,18 @@ class TestCompiler:
         ],
     )
     def test_require(self, options, expected_name, expected_prob):
-        node, requirements = compileScenicAST(Require(Name("C"), lineno=2, **options))
+        node, requirements = compileScenicAST(
+            Require(Name("C", lineno=2), lineno=2, **options)
+        )
         match node:
             case Expr(
                 Call(
                     Name("require"),
                     [
                         Constant(0),  # reqId
-                        Lambda(body=Name("C")),  # requirement
+                        Call(
+                            Name("AtomicProposition"), [Lambda(arguments(), Name("C"))]
+                        ),
                         Constant(2),  # lineno
                         Constant(name),  # name
                     ],
@@ -642,7 +678,7 @@ class TestCompiler:
                 assert False
 
         match requirements:
-            case [Name("C")]:
+            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
                 assert True
             case _:
                 assert False
@@ -1209,14 +1245,16 @@ class TestCompiler:
                 assert False
 
     def test_record(self):
-        node, requirements = compileScenicAST(Record(Name("C"), lineno=2))
+        node, requirements = compileScenicAST(Record(Name("C", lineno=2), lineno=2))
         match node:
             case Expr(
                 Call(
                     Name("record"),
                     [
                         Constant(0),  # reqId
-                        Lambda(body=Name("C")),  # record value
+                        Call(
+                            Name("AtomicProposition"), [Lambda(arguments(), Name("C"))]
+                        ),
                         Constant(2),  # lineno
                         Constant(None),  # name
                     ],
@@ -1226,20 +1264,24 @@ class TestCompiler:
             case _:
                 assert False
         match requirements:
-            case [Name("C")]:
+            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
                 assert True
             case _:
                 assert False
 
     def test_record_initial(self):
-        node, requirements = compileScenicAST(RecordInitial(Name("C"), lineno=2))
+        node, requirements = compileScenicAST(
+            RecordInitial(Name("C", lineno=2), lineno=2)
+        )
         match node:
             case Expr(
                 Call(
                     Name("record_initial"),
                     [
                         Constant(0),  # reqId
-                        Lambda(body=Name("C")),  # record value
+                        Call(
+                            Name("AtomicProposition"), [Lambda(arguments(), Name("C"))]
+                        ),
                         Constant(2),  # lineno
                         Constant(None),  # name
                     ],
@@ -1249,20 +1291,25 @@ class TestCompiler:
             case _:
                 assert False
         match requirements:
-            case [Name("C")]:
+            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
                 assert True
             case _:
                 assert False
 
     def test_record_final(self):
-        node, requirements = compileScenicAST(RecordFinal(Name("C"), lineno=2))
+        node, requirements = compileScenicAST(
+            RecordFinal(Name("C", lineno=2), lineno=2)
+        )
         match node:
             case Expr(
                 Call(
                     Name("record_final"),
                     [
                         Constant(0),  # reqId
-                        Lambda(body=Name("C")),  # record value
+                        # transformed requirement
+                        Call(
+                            Name("AtomicProposition"), [Lambda(arguments(), Name("C"))]
+                        ),
                         Constant(2),  # lineno
                         Constant(None),  # name
                     ],
@@ -1272,13 +1319,15 @@ class TestCompiler:
             case _:
                 assert False
         match requirements:
-            case [Name("C")]:
+            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
                 assert True
             case _:
                 assert False
 
     def test_terminate_when(self):
-        node, requirements = compileScenicAST(TerminateWhen(Name("C"), lineno=2))
+        node, requirements = compileScenicAST(
+            TerminateWhen(Name("C", lineno=2), lineno=2)
+        )
 
         match node:
             case Expr(
@@ -1286,7 +1335,10 @@ class TestCompiler:
                     Name("terminate_when"),
                     [
                         Constant(0),  # reqId
-                        Lambda(body=Name("C")),  # requirement
+                        # transformed requirement
+                        Call(
+                            Name("AtomicProposition"), [Lambda(arguments(), Name("C"))]
+                        ),
                         Constant(2),  # lineno
                         Constant(None),  # name
                     ],
@@ -1297,14 +1349,14 @@ class TestCompiler:
                 assert False
 
         match requirements:
-            case [Name("C")]:
+            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
                 assert True
             case _:
                 assert False
 
     def test_terminate_simulation_when(self):
         node, requirements = compileScenicAST(
-            TerminateSimulationWhen(Name("C"), lineno=2)
+            TerminateSimulationWhen(Name("C", lineno=2), lineno=2)
         )
 
         match node:
@@ -1313,7 +1365,9 @@ class TestCompiler:
                     Name("terminate_simulation_when"),
                     [
                         Constant(0),  # reqId
-                        Lambda(body=Name("C")),  # requirement
+                        Call(
+                            Name("AtomicProposition"), [Lambda(arguments(), Name("C"))]
+                        ),
                         Constant(2),  # lineno
                         Constant(None),  # name
                     ],
@@ -1324,7 +1378,7 @@ class TestCompiler:
                 assert False
 
         match requirements:
-            case [Name("C")]:
+            case [Call(Name("AtomicProposition"), [Lambda(arguments(), Name("C"))])]:
                 assert True
             case _:
                 assert False
@@ -1608,21 +1662,6 @@ class TestCompiler:
                 assert False
 
     # Operators
-    def test_until_op(self):
-        node, _ = compileScenicAST(UntilOp(Name("x"), Name("y")))
-        match node:
-            case Call(Name("Until"), [Name("x"), Name("y")]):
-                assert True
-            case _:
-                assert False
-
-    def test_implies_op(self):
-        node, _ = compileScenicAST(ImpliesOp(Name("x"), Name("y")))
-        match node:
-            case Call(Name("Implies"), [Name("x"), Name("y")]):
-                assert True
-            case _:
-                assert False
 
     def test_relative_position_op(self):
         node, _ = compileScenicAST(RelativePositionOp(Name("X")))

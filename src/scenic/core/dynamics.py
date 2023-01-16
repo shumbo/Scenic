@@ -8,6 +8,8 @@ import sys
 import types
 import warnings
 
+import rv_ltl
+
 from scenic.core.distributions import Samplable, Options, toDistribution, needsSampling
 from scenic.core.errors import RuntimeParseError, InvalidScenarioError
 from scenic.core.lazy_eval import DelayedArgument, needsLazyEvaluation
@@ -195,8 +197,7 @@ class DynamicScenario(Invocable):
         self._agents = []
         self._monitors = []
         self._behaviors = []
-        self._alwaysRequirements = []
-        self._eventuallyRequirements = []
+        self._temporalRequirements = []
         self._terminationConditions = []
         self._terminateSimulationConditions = []
         self._recordedExprs = []
@@ -215,6 +216,8 @@ class DynamicScenario(Invocable):
         self._elapsedTime = 0
         self._eventuallySatisfied = None
         self._overrides = {}
+
+        self._requirementMonitors = None
 
     @classmethod
     def _dummy(cls, filename, namespace):
@@ -257,8 +260,7 @@ class DynamicScenario(Invocable):
         self._ego = scene.egoObject
         self._objects = list(scene.objects)
         self._agents = [obj for obj in scene.objects if obj.behavior is not None]
-        self._alwaysRequirements = scene.alwaysRequirements
-        self._eventuallyRequirements = scene.eventuallyRequirements
+        self._temporalRequirements = scene.temporalRequirements
         self._terminationConditions = scene.terminationConditions
         self._terminateSimulationConditions = scene.terminateSimulationConditions
         self._recordedExprs = scene.recordedExprs
@@ -309,8 +311,8 @@ class DynamicScenario(Invocable):
         if self._timeLimitIsInSeconds:
             self._timeLimitInSteps /= veneer.currentSimulation.timestep
 
-        # Keep track of which 'require eventually' conditions have been satisfied
-        self._eventuallySatisfied = { req: False for req in self._eventuallyRequirements }
+        # create monitors for each requirement used for this simulation
+        self._requirementMonitors = [r.toMonitor() for r in self._temporalRequirements]
 
         veneer.startScenario(self)
         with veneer.executeInScenario(self):
@@ -338,16 +340,11 @@ class DynamicScenario(Invocable):
         """
         super()._step()
 
-        # Check 'require always' and 'require eventually' conditions
-        for req in self._alwaysRequirements:
-            if not req.isTrue():
-                # always requirements should never be violated at time 0, since
-                # they are enforced during scene sampling
-                assert veneer.currentSimulation.currentTime > 0
-                raise RejectSimulationException(str(req))
-        for req in self._eventuallyRequirements:
-            if not self._eventuallySatisfied[req] and req.isTrue():
-                self._eventuallySatisfied[req] = True
+        # Check temporal requirements
+        for m in self._requirementMonitors:
+             result = m.value()
+             if result == rv_ltl.B4.FALSE:
+                 raise RejectSimulationException(str(m))
 
         # Check if we have reached the time limit, if any
         if self._timeLimitInSteps is not None and self._elapsedTime >= self._timeLimitInSteps:
@@ -385,7 +382,7 @@ class DynamicScenario(Invocable):
 
         # Check if any termination conditions apply
         for req in self._terminationConditions:
-            if req.isTrue():
+            if req.evaluate():
                 return self._stop(req)
 
         # Scenario will not terminate yet
@@ -395,9 +392,10 @@ class DynamicScenario(Invocable):
         """Stop the scenario's execution, for the given reason."""
         if not quiet:
             # Reject if we never satisfied a 'require eventually'
-            for req in self._eventuallyRequirements:
-                if not self._eventuallySatisfied[req] and not req.isTrue():
+            for req in self._requirementMonitors:
+                if req.lastValue.is_falsy:
                     raise RejectSimulationException(str(req))
+        self._requirementMonitors = None
 
         super()._stop(reason)
         veneer.endScenario(self, reason, quiet=quiet)
@@ -440,7 +438,7 @@ class DynamicScenario(Invocable):
     def _evaluateRecordedExprsAt(self, place):
         values = {}
         for rec in getattr(self, place):
-            values[rec.name] = rec.value()
+            values[rec.name] = rec.evaluate()
         for sub in self._subScenarios:
             subvals = sub._evaluateRecordedExprsAt(place)
             values.update(subvals)
@@ -461,7 +459,7 @@ class DynamicScenario(Invocable):
 
     def _checkSimulationTerminationConditions(self):
         for req in self._terminateSimulationConditions:
-            if req.isTrue():
+            if req.isTrue().is_truthy:
                 return req
         return None
 
@@ -493,9 +491,8 @@ class DynamicScenario(Invocable):
 
     def _addDynamicRequirement(self, ty, req, line, name):
         """Add a requirement defined during a dynamic simulation."""
-        assert ty is not RequirementType.require
         dreq = DynamicRequirement(ty, req, line, name)
-        self._registerCompiledRequirement(dreq)
+        self._temporalRequirements.append(dreq)
 
     def _compileRequirements(self):
         namespace = self._dummyNamespace if self._dummyNamespace else self.__dict__
@@ -511,10 +508,6 @@ class DynamicScenario(Invocable):
     def _registerCompiledRequirement(self, req):
         if req.ty is RequirementType.require:
             place = self._requirements
-        elif req.ty is RequirementType.requireAlways:
-            place = self._alwaysRequirements
-        elif req.ty is RequirementType.requireEventually:
-            place = self._eventuallyRequirements
         elif req.ty is RequirementType.terminateWhen:
             place = self._terminationConditions
         elif req.ty is RequirementType.terminateSimulationWhen:

@@ -278,6 +278,18 @@ class Always(AST):
         self.value = value
         self._fields = ["value"]
 
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.value,),
+            {
+                "lineno": self.lineno,
+                "end_lineno": self.end_lineno,
+                "col_offset": self.col_offset,
+                "end_col_offset": self.end_col_offset,
+            },
+        )
+
 
 class Eventually(AST):
     __match_args__ = ("value",)
@@ -287,6 +299,18 @@ class Eventually(AST):
         self.value = value
         self._fields = ["value"]
 
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.value,),
+            {
+                "lineno": self.lineno,
+                "end_lineno": self.end_lineno,
+                "col_offset": self.col_offset,
+                "end_col_offset": self.end_col_offset,
+            },
+        )
+
 
 class Next(AST):
     __match_args__ = ("value",)
@@ -295,6 +319,18 @@ class Next(AST):
         super().__init__(*args, **kwargs)
         self.value = value
         self._fields = ["value"]
+
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.value,),
+            {
+                "lineno": self.lineno,
+                "end_lineno": self.end_lineno,
+                "col_offset": self.col_offset,
+                "end_col_offset": self.end_col_offset,
+            },
+        )
 
 
 class Record(AST):
@@ -703,6 +739,18 @@ class ImpliesOp(AST):
         self.conclusion = conclusion
         self._fields = ["hypothesis", "conclusion"]
 
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.hypothesis, self.conclusion),
+            {
+                "lineno": self.lineno,
+                "end_lineno": self.end_lineno,
+                "col_offset": self.col_offset,
+                "end_col_offset": self.end_col_offset,
+            },
+        )
+
 
 class UntilOp(AST):
     __match_args__ = ("left", "right")
@@ -714,6 +762,18 @@ class UntilOp(AST):
         self.left = left
         self.right = right
         self._fields = ["left", "right"]
+
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.left, self.right),
+            {
+                "lineno": self.lineno,
+                "end_lineno": self.end_lineno,
+                "col_offset": self.col_offset,
+                "end_col_offset": self.end_col_offset,
+            },
+        )
 
 
 class RelativePositionOp(AST):

@@ -10,7 +10,7 @@ __all__ = (
 	# Primitive statements and functions
 	'ego', 'workspace',
 	'new', 'require', 'resample', 'param', 'globalParameters', 'mutate', 'verbosePrint',
-	'localPath', 'model', 'simulator', 'simulation', 'require_always', 'require_eventually',
+	'localPath', 'model', 'simulator', 'simulation',
 	'terminate_when', 'terminate_simulation_when', 'terminate_after', 'in_initial_scenario',
 	'override',
 	'record', 'record_initial', 'record_final',
@@ -51,6 +51,7 @@ __all__ = (
 	'Modifier', 'DynamicScenario',
 	# Proposition Factories
 	'AtomicProposition', 'PropositionAnd', 'PropositionOr', 'PropositionNot',
+	'Always', 'Eventually', 'Next',
 )
 
 # various Python types and functions used in the language but defined elsewhere
@@ -421,15 +422,21 @@ def require(reqID, req, line, name, prob=1):
 		name = f'requirement on line {line}'
 	if evaluatingRequirement:
 		raise RuntimeParseError('tried to create a requirement inside a requirement')
+	if req.has_temporal_operator and prob != 1:
+		raise RuntimeParseError('requirements with temporal operators must have probability of 1')
 	if currentSimulation is not None:	# requirement being evaluated at runtime
-		if prob >= 1 or random.random() <= prob:
-			result = req()
-			assert not needsSampling(result)
-			if needsLazyEvaluation(result):
-				raise RuntimeParseError(f'requirement on line {line} uses value'
+		if req.has_temporal_operator:
+			# support monitors on dynamic requirements and create dynamic requirements
+			currentScenario._addDynamicRequirement(requirements.RequirementType.require, req, line, name)
+		else:
+			if prob >= 1 or random.random() <= prob:
+				result = req.evaluate()
+				assert not needsSampling(result)
+				if needsLazyEvaluation(result):
+					raise RuntimeParseError(f'requirement on line {line} uses value'
 										' undefined outside of object definition')
-			if not result:
-				raise RejectSimulationException(name)
+				if not result:
+					raise RejectSimulationException(name)
 	else:	# requirement being defined at compile time
 		currentScenario._addRequirement(requirements.RequirementType.require,
                                         reqID, req, line, name, prob)

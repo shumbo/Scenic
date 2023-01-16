@@ -4,6 +4,8 @@ import random
 import time
 import sys
 
+import rv_ltl
+
 from scenic.core.distributions import (Samplable, ConstantSamplable, RejectionException,
                                        needsSampling)
 from scenic.core.lazy_eval import needsLazyEvaluation
@@ -92,16 +94,14 @@ class Scene(_ScenarioPickleMixin):
 		workspace (:obj:`~scenic.core.workspaces.Workspace`): Workspace for the scenario.
 	"""
 	def __init__(self, workspace, objects, egoObject, params,
-				 alwaysReqs=(), eventuallyReqs=(),
-				 terminationConds=(), termSimulationConds=(),
+				 temporalReqs=(),terminationConds=(), termSimulationConds=(),
 				 recordedExprs=(), recordedInitialExprs=(), recordedFinalExprs=(),
 				 monitors=(), behaviorNamespaces={}, dynamicScenario=None):
 		self.workspace = workspace
 		self.objects = tuple(objects)
 		self.egoObject = egoObject
 		self.params = params
-		self.alwaysRequirements = tuple(alwaysReqs)
-		self.eventuallyRequirements = tuple(eventuallyReqs)
+		self.temporalRequirements = tuple(temporalReqs)
 		self.terminationConditions = tuple(terminationConds)
 		self.terminateSimulationConditions = tuple(termSimulationConds)
 		self.recordedExprs = tuple(recordedExprs)
@@ -178,11 +178,9 @@ class Scenario(_ScenarioPickleMixin):
 
 		staticReqs, alwaysReqs, terminationConds = [], [], []
 		self.requirements = tuple(dynamicScenario._requirements)	# TODO clean up
-		self.alwaysRequirements = tuple(dynamicScenario._alwaysRequirements)
-		self.eventuallyRequirements = tuple(dynamicScenario._eventuallyRequirements)
 		self.terminationConditions = tuple(dynamicScenario._terminationConditions)
 		self.terminateSimulationConditions = tuple(dynamicScenario._terminateSimulationConditions)
-		self.initialRequirements = self.requirements + self.alwaysRequirements
+		self.initialRequirements = self.requirements
 		assert all(req.constrainsSampling for req in self.initialRequirements)
 		self.recordedExprs = tuple(dynamicScenario._recordedExprs)
 		self.recordedInitialExprs = tuple(dynamicScenario._recordedInitialExprs)
@@ -328,7 +326,7 @@ class Scenario(_ScenarioPickleMixin):
 				continue
 			# Check user-specified requirements
 			for req in activeReqs:
-				if not req.satisfiedBy(sample):
+				if req.satisfiedBy(sample) == rv_ltl.B4.FALSE:
 					rejection = str(req)
 					break
 
@@ -343,19 +341,18 @@ class Scenario(_ScenarioPickleMixin):
 		for modName, namespace in self.behaviorNamespaces.items():
 			sampledNamespace = { name: sample[value] for name, value in namespace.items() }
 			sampledNamespaces[modName] = (namespace, sampledNamespace, namespace.copy())
-		alwaysReqs = (BoundRequirement(req, sample) for req in self.alwaysRequirements)
-		eventuallyReqs = (BoundRequirement(req, sample) for req in self.eventuallyRequirements)
-		terminationConds = (BoundRequirement(req, sample)
-							for req in self.terminationConditions)
-		termSimulationConds = (BoundRequirement(req, sample)
+		temporalReqs = (BoundRequirement(req, sample, req.proposition) for req in self.requirements)
+		terminationConds = (BoundRequirement(req, sample, req.proposition)
+ 							for req in self.terminationConditions)
+		termSimulationConds = (BoundRequirement(req, sample, req.proposition)
 							   for req in self.terminateSimulationConditions)
-		recordedExprs = (BoundRequirement(req, sample) for req in self.recordedExprs)
-		recordedInitialExprs = (BoundRequirement(req, sample)
+		recordedExprs = (BoundRequirement(req, sample, req.proposition) for req in self.recordedExprs)
+		recordedInitialExprs = (BoundRequirement(req, sample, req.proposition)
 		                        for req in self.recordedInitialExprs)
-		recordedFinalExprs = (BoundRequirement(req, sample)
+		recordedFinalExprs = (BoundRequirement(req, sample, req.proposition)
 		                      for req in self.recordedFinalExprs)
 		scene = Scene(self.workspace, sampledObjects, ego, sampledParams,
-					  alwaysReqs, eventuallyReqs, terminationConds, termSimulationConds,
+					  temporalReqs, terminationConds, termSimulationConds,
 					  recordedExprs, recordedInitialExprs,recordedFinalExprs,
 					  self.monitors, sampledNamespaces, self.dynamicScenario)
 		return scene, iterations

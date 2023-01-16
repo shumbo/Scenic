@@ -1,4 +1,5 @@
 import ast
+from copy import copy
 from enum import IntFlag, auto
 import itertools
 from typing import Callable, Literal, Optional, Tuple, List, Union
@@ -187,38 +188,63 @@ PROPOSITION_AND = "PropositionAnd"
 PROPOSITION_OR = "PropositionOr"
 PROPOSITION_NOT = "PropositionNot"
 ATOMIC_PROPOSITION = "AtomicProposition"
+ALWAYS = "Always"
+EVENTUALLY = "Eventually"
+NEXT = "Next"
+UNTIL = "Until"
+IMPLIES = "Implies"
 PROPOSITION_FACTORY = (
     PROPOSITION_AND,
     PROPOSITION_OR,
     PROPOSITION_NOT,
     ATOMIC_PROPOSITION,
+    ALWAYS,
+    EVENTUALLY,
+    NEXT,
+    UNTIL,
+    IMPLIES,
 )
 
 
 class PropositionTransformer(ast.NodeTransformer):
     def __init__(self) -> None:
         super().__init__()
+        self.nextSyntaxId = 0
         self.propositionSyntax = []
 
-    def transform(self, node: ast.AST) -> ast.AST:
+    def transform(
+        self, node: ast.AST, nextSyntaxId=0
+    ) -> Tuple[ast.AST, list[ast.AST], int]:
+        """`transform` takes an AST node and apply transformations needed for temporal evaluation
+
+        Args:
+            node (ast.AST): AST node to perform proposition transformation
+            nextSyntaxId (int, optional): Assign syntax ids starting at this number. Defaults to 0.
+
+        Returns:
+            ast.AST: Transformed AST node
+        """
         self.propositionSyntax = []
-        wrapped = self.visit(node)
+        self.nextSyntaxId = nextSyntaxId
+        wrapped = self.visit(ast.fix_missing_locations(node))
         if self.is_proposition_factory(wrapped):
-            return wrapped, self.propositionSyntax
+            return wrapped, self.propositionSyntax, self.nextSyntaxId
         newNode = self._create_atomic_proposition_factory(node)
-        return newNode, self.propositionSyntax
+        return newNode, self.propositionSyntax, self.nextSyntaxId
 
     def _register_requirement_syntax(self, syntax):
         """register requirement syntax for later use
         returns an ID for retrieving the syntax
 
         Args:
-                propositionSyntax (ast.Node): AST Node that represents the requirement
+            propositionSyntax (ast.Node): AST Node that represents the requirement
 
         Returns:
-                int: generated requirement syntax ID
+            int: generated requirement syntax ID
         """
-        syntaxId = len(self.propositionSyntax)
+        syntaxId = self.nextSyntaxId
+        self.nextSyntaxId += 1
+
         self.propositionSyntax.append(syntax)
         return syntaxId
 
@@ -242,7 +268,6 @@ class PropositionTransformer(ast.NodeTransformer):
             func=ast.Name(id=ATOMIC_PROPOSITION, ctx=loadCtx),
             args=[closure],
             keywords=[
-                ast.keyword(arg="line", value=lineNum),
                 ast.keyword(arg="syntaxId", value=syntaxIdConst),
             ],
         )
@@ -288,15 +313,16 @@ class PropositionTransformer(ast.NodeTransformer):
         # rewrite `not` in requirements into a proposition factory
         if not isinstance(node.op, ast.Not):
             return self.generic_visit(node)
+
         lineNum = ast.Constant(node.lineno)
         ast.copy_location(lineNum, node)
 
-        operand = node.operand
+        operand = self.visit(node.operand)
 
         newOperand = (
             operand
             if self.is_proposition_factory(operand)
-            else self._create_atomic_proposition_factory(self.visit(operand))
+            else self._create_atomic_proposition_factory(operand)
         )
 
         newNode = ast.Call(
@@ -305,6 +331,62 @@ class PropositionTransformer(ast.NodeTransformer):
             keywords=[],
         )
         return ast.copy_location(newNode, node)
+
+    def visit_Always(self, node: s.Always):
+        value = self.visit(node.value)
+        if not self.is_proposition_factory(value):
+            value = self._create_atomic_proposition_factory(value)
+        return ast.Call(
+            func=ast.Name("Always", ctx=loadCtx),
+            args=[value],
+            keywords=[],
+        )
+
+    def visit_Eventually(self, node: s.Eventually):
+        value = self.visit(node.value)
+        if not self.is_proposition_factory(value):
+            value = self._create_atomic_proposition_factory(value)
+        return ast.Call(
+            func=ast.Name("Eventually", ctx=loadCtx),
+            args=[value],
+            keywords=[],
+        )
+
+    def visit_Next(self, node: s.Next):
+        value = self.visit(node.value)
+        if not self.is_proposition_factory(value):
+            value = self._create_atomic_proposition_factory(value)
+        return ast.Call(
+            func=ast.Name("Next", ctx=loadCtx),
+            args=[value],
+            keywords=[],
+        )
+
+    def visit_UntilOp(self, node: s.UntilOp):
+        left = self.visit(node.left)
+        if not self.is_proposition_factory(left):
+            left = self._create_atomic_proposition_factory(left)
+        right = self.visit(node.right)
+        if not self.is_proposition_factory(right):
+            right = self._create_atomic_proposition_factory(right)
+        return ast.Call(
+            func=ast.Name(id="Until", ctx=loadCtx),
+            args=[self.visit(left), self.visit(right)],
+            keywords=[],
+        )
+
+    def visit_ImpliesOp(self, node: s.ImpliesOp):
+        left = self.visit(node.left)
+        if not self.is_proposition_factory(left):
+            left = self._create_atomic_proposition_factory(left)
+        right = self.visit(node.right)
+        if not self.is_proposition_factory(right):
+            right = self._create_atomic_proposition_factory(right)
+        return ast.Call(
+            func=ast.Name(id="Implies", ctx=loadCtx),
+            args=[self.visit(left), self.visit(right)],
+            keywords=[],
+        )
 
 
 def unquote(s: str) -> str:
@@ -332,6 +414,7 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
         self.filename = None
 
         self.requirements = []
+        self.nextSyntaxId = 0
 
         self.inBehavior: bool = False
         "True if the transformer is processing behavior body"
@@ -1003,9 +1086,8 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
         )
 
     def visit_Require(self, node: s.Require):
-        condition = self.visit(node.cond)
         return self.createRequirementLike(
-            "require", condition, node.lineno, node.name, node.prob
+            "require", node.cond, node.lineno, node.name, node.prob
         )
 
     def visit_Override(self, node: s.Override):
@@ -1146,39 +1228,36 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
 
     @context(Context.TOP_LEVEL)
     def visit_Record(self, node: s.Record):
-        value = self.visit(node.value)
-        return self.createRequirementLike("record", value, node.lineno, node.name)
+        return self.createRequirementLike("record", node.value, node.lineno, node.name)
 
     @context(Context.TOP_LEVEL)
     def visit_RecordInitial(self, node: s.RecordInitial):
-        value = self.visit(node.value)
         return self.createRequirementLike(
-            "record_initial", value, node.lineno, node.name
+            "record_initial", node.value, node.lineno, node.name
         )
 
     @context(Context.TOP_LEVEL)
     def visit_RecordFinal(self, node: s.RecordFinal):
-        value = self.visit(node.value)
-        return self.createRequirementLike("record_final", value, node.lineno, node.name)
+        return self.createRequirementLike(
+            "record_final", node.value, node.lineno, node.name
+        )
 
     @context(Context.TOP_LEVEL)
     def visit_TerminateWhen(self, node: s.TerminateWhen):
-        condition = self.visit(node.cond)
         return self.createRequirementLike(
-            "terminate_when", condition, node.lineno, None
+            "terminate_when", node.cond, node.lineno, None
         )
 
     @context(Context.TOP_LEVEL)
     def visit_TerminateSimulationWhen(self, node: s.TerminateSimulationWhen):
-        condition = self.visit(node.cond)
         return self.createRequirementLike(
-            "terminate_simulation_when", condition, node.lineno
+            "terminate_simulation_when", node.cond, node.lineno
         )
 
     def createRequirementLike(
         self,
         functionName: str,
-        syntax: ast.AST,
+        body: ast.AST,
         lineno: int,
         name: Optional[str] = None,
         prob: Optional[float] = None,
@@ -1187,18 +1266,23 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
 
         Args:
             functionName (str): Name of the requirement-like function to call. Its signature must be `(reqId: int, body: () -> bool, lineno: int, name: str | None)`
-            syntax (ast.AST): AST node to evaluate for checking the condition
+            body (ast.AST): AST node to evaluate for checking the condition
             lineno (int): Line number in the source code
             name (Optional[str], optional): Optional name for requirements. Defaults to None.
             prob (Optional[float], optional): Optional probability for requirements. Defaults to None.
         """
-        syntax_id = self._register_requirement_syntax(syntax)
+        newBody, _, self.nextSyntaxId = PropositionTransformer().transform(
+            body, self.nextSyntaxId
+        )
+        newBody = self.visit(newBody)
+        requirementId = self._register_requirement_syntax(body)
+
         return ast.Expr(
             value=ast.Call(
                 func=ast.Name(functionName, loadCtx),
                 args=[
-                    ast.Constant(syntax_id),  # requirement ID
-                    ast.Lambda(args=noArgs, body=syntax),  # body
+                    ast.Constant(requirementId),  # requirement IDre
+                    newBody,  # body
                     ast.Constant(lineno),  # line number
                     ast.Constant(name),  # requirement name
                 ],
@@ -1382,20 +1466,6 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
 
     # Operators
 
-    def visit_UntilOp(self, node: s.UntilOp):
-        return ast.Call(
-            func=ast.Name(id="Until", ctx=loadCtx),
-            args=[self.visit(node.left), self.visit(node.right)],
-            keywords=[],
-        )
-
-    def visit_ImpliesOp(self, node: s.ImpliesOp):
-        return ast.Call(
-            func=ast.Name(id="Implies", ctx=loadCtx),
-            args=[self.visit(node.hypothesis), self.visit(node.conclusion)],
-            keywords=[],
-        )
-
     def visit_RelativePositionOp(self, node: s.RelativePositionOp):
         return ast.Call(
             func=ast.Name(id="RelativePosition", ctx=loadCtx),
@@ -1488,27 +1558,6 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
             keywords=[],
         )
 
-    def visit_Always(self, node: s.Always):
-        return ast.Call(
-            func=ast.Name("Always", ctx=loadCtx),
-            args=[self.visit(node.value)],
-            keywords=[],
-        )
-
-    def visit_Eventually(self, node: s.Eventually):
-        return ast.Call(
-            func=ast.Name("Eventually", ctx=loadCtx),
-            args=[self.visit(node.value)],
-            keywords=[],
-        )
-
-    def visit_Next(self, node: s.Next):
-        return ast.Call(
-            func=ast.Name("Next", ctx=loadCtx),
-            args=[self.visit(node.value)],
-            keywords=[],
-        )
-
     def visit_DegOp(self, node: s.DegOp):
         return ast.BinOp(
             left=self.visit(node.operand), op=ast.Mult(), right=ast.Constant(0.01745329)
@@ -1554,4 +1603,29 @@ class ScenicToPythonTransformer(ast.NodeTransformer):
                 self.visit(node.right),
             ],
             keywords=[],
+        )
+
+    def visit_Always(self, node: s.Always):
+        raise self.makeSyntaxError(
+            "`always` can only be used inside requirements", node
+        )
+
+    def visit_Eventually(self, node: s.Eventually):
+        raise self.makeSyntaxError(
+            "`always` can only be used inside requirements", node
+        )
+
+    def visit_Next(self, node: s.Next):
+        raise self.makeSyntaxError(
+            "`always` can only be used inside requirements", node
+        )
+
+    def visit_ImpliesOp(self, node: s.ImpliesOp):
+        raise self.makeSyntaxError(
+            "`always` can only be used inside requirements", node
+        )
+
+    def visit_UntilOp(self, node: s.UntilOp):
+        raise self.makeSyntaxError(
+            "`always` can only be used inside requirements", node
         )

@@ -406,8 +406,6 @@ functionStatements = {
 	recordStatement,
 }
 twoWordFunctionStatements = {
-	requireAlwaysStatement, requireEventuallyStatement,
-	terminateWhenStatement, terminateAfterStatement,
 	recordInitialStatement, recordFinalStatement,
 }
 threeWordFunctionStatements = { terminateSimulationWhenStatement }

@@ -41,7 +41,7 @@ class PropositionNode:
 		1. requirements with no temporal requirement
 		2. requirements with only one `always` operator on top-level
 		Returns:
-			None|int: returns syntax id that can be used for pruning, None if proposition cannot be used for pruning
+			bool: True if the requirement is one of the forms above. False otherwise.
 		"""
 		node = self
 
@@ -52,7 +52,7 @@ class PropositionNode:
 		# eligible if none of the nodes was temporal
 		eligible = all(not n.is_temporal for n in node.flatten())
 
-		return node.syntax_id if eligible else None
+		return eligible
 	
 	@property
 	def children(self) -> list["PropositionNode"]:
@@ -89,7 +89,8 @@ class PropositionNode:
 class Atomic(PropositionNode):
 	def __init__(self, closure, syntax_id):
 		ap = rv_ltl.Atomic(identifier=str(syntax_id))
-		super().__init__(syntax_id, ap)
+		super().__init__(ap)
+		self.syntax_id = syntax_id
 		self.closure = closure
 	def __str__(self):
 		return f"(AP syntax_id={self.syntax_id})" if self.syntax_id is not None else "(AP)"
