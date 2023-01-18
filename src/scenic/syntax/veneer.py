@@ -925,9 +925,6 @@ def In(region):
 
 	Specifies 'position', with no dependencies. Optionally specifies 'heading'
 	if the given Region has a :term:`preferred orientation`.
-	
-	If composed with 'on <X>', X must intersect the region. This specifies
-	position and orientation. 
 	"""
 	region = toType(region, Region, 'specifier "in R" with R not a Region')
 	pos = Region.uniformPointIn(region)
@@ -943,11 +940,8 @@ def ContainedIn(region):
 
 	Specifies 'position' and 'regionContainedIn', with no dependencies.
 	Optionally specifies 'heading' if the given Region has a :term:`preferred orientation`.
-	
-	If composed with 'on <X>', X must intersect the region. This specifies
-	position and orientation. 
 	"""
-	region = toType(region, Region, 'specifier "in R" with R not a Region')
+	region = toType(region, Region, 'specifier "contained in R" with R not a Region')
 	pos = Region.uniformPointIn(region)
 	props = {'position': 1, 'regionContainedIn': 1}
 	values = {'position': pos, 'regionContainedIn': region}

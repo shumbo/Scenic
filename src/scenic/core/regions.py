@@ -442,8 +442,11 @@ class _MeshRegion(Region):
 		self.center_mesh = center_mesh
 		self.engine = engine
 
+		if dimensions is not None:
+			print("DIMS:", self.dimensions)
+
 		# Initialize superclass with samplables
-		super().__init__(name, self._mesh, self.dimensions, self.position, self.rotation, orientation=orientation, *additional_deps)
+		super().__init__(name, self._mesh, self.dimensions, self.position, self.rotation, *additional_deps, orientation=orientation)
 
 		# If sampling is needed, delay transformations
 		if needsSampling(self):
@@ -725,6 +728,8 @@ class _MeshRegion(Region):
 		""" Find the nearest point in the region following the on_direction.
 		Returns None if no such points exist.
 		"""
+		assert not needsSampling(self)
+
 		# Get first point hit in both directions of ray
 		point = point.coordinates
 

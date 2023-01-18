@@ -14,4 +14,7 @@ scenario = scenic.scenarioFromFile(path)
 while True:
     scene, _ = scenario.generate()
     print('Starting new simulation...')
-    simulator.simulate(scene, verbosity=2)
+    sim_results = simulator.simulate(scene, verbosity=2).result
+
+    print(sim_results.records)
+    assert False

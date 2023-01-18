@@ -203,10 +203,13 @@ int main(int argc, char **argv) {
   printf("Default controller of the iRobot Create robot started...\n");
 
   init_devices();
-  srand(time(NULL));
 
   wb_led_set(leds[LED_ON], true);
   passive_wait(0.5);
+
+  unsigned int seed = atoi(wb_robot_get_custom_data());
+  printf("Robot controller seed is: %u\n", seed);
+  srand(seed);
 
   while (true) {
     if (is_there_a_virtual_wall()) {

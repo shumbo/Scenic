@@ -366,8 +366,10 @@ def test_reproducibility_3d():
     scenario = compileScenic(
         'ego = new Object\n'
         'workspace = Workspace(SpheroidRegion(dimensions=(25,15,10)))\n'
+        'region = BoxRegion(dimensions=(25,15,0.1))\n'
         'obj_1 = new Object in workspace, facing Range(0, 360) deg\n'
         'obj_2 = new Object in workspace, facing (Range(0, 360) deg, Range(0, 360) deg, Range(0, 360) deg)\n'
+        'obj_3 = new Object in workspace, on region\n'
         'param foo = Uniform(1, 4, 9, 16, 25, 36)\n'
         'x = Range(0, 1)\n'
         'require x > 0.8'

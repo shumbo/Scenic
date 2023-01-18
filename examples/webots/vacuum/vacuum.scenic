@@ -6,8 +6,10 @@ model scenic.simulators.webots.model
 
 import numpy as np
 import trimesh
+import random
 
-#TODO DENSITY NOT GETTING WRITTEN
+# TODO DENSITY NOT GETTING WRITTEN
+# TODO Assigning random seed inside `with x` statement breaks reproducibility
 
 ## Class Definitions ##
 
@@ -17,7 +19,6 @@ class Vacuum(WebotsObject):
 	width: 0.335
 	length: 0.335
 	height: 0.07
-	#contactTolerance: 0.1
 
 # Floor uses builtin Webots floor to keep Vacuum Sensors from breaking
 # Not actually linked to WebotsObject because Webots floor is 2D
@@ -82,7 +83,10 @@ class Toy(WebotsObject):
 	width: 0.1
 	length: 0.1
 	height: 0.1
-	density: 300
+	density: 100
+
+class BlockToy(Toy):
+	shape: BoxShape()
 
 ## Scene Layout ##
 
@@ -99,7 +103,8 @@ front_wall = new Wall at (0, wall_offset, 0.25), facing toward floor
 back_wall = new Wall at (0, -wall_offset, 0.25), facing toward floor
 
 # Place vacuum on floor
-ego = new Vacuum on floor.topSurface
+ego = new Vacuum on floor.topSurface,
+	with customData str(random.getrandbits(32))
 
 # Create a "safe zone" around the roomba so that it does not start stuck
 safe_zone = RectangularRegion(ego.position, 0, 1, 1)
@@ -138,3 +143,17 @@ new Toy on floor.topSurface
 new Toy on floor.topSurface
 new Toy on floor.topSurface
 new Toy on floor.topSurface
+
+# toy = new BlockToy on floor.topSurface
+# toy = new BlockToy on toy.topSurface
+# toy = new BlockToy on toy.topSurface
+# toy = new BlockToy on toy.topSurface
+
+# toy = new BlockToy on floor.topSurface
+# toy = new BlockToy on toy.topSurface
+# toy = new BlockToy on toy.topSurface
+# toy = new BlockToy on toy.topSurface
+
+## Simulation Setup ##
+terminate after 1*60 seconds
+record ego.position as VacuumPosition
