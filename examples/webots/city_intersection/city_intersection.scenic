@@ -15,6 +15,8 @@ class EgoCar(WebotsObject):
 	positionOffset: (-0.33, 0, -0.5)
 	orientationOffset: (90 deg, 0, 0)
 	yaw: Range(-5 deg, 5 deg)
+	viewAngles: (120 deg, 60 deg)
+	visibleDistance: 100
 
 class Prius(WebotsObject):
 	webotsName: "PRIUS"
@@ -65,7 +67,7 @@ crossing_road_right_lane = RectangularRegion(0@-2.5, 0, 160, 4, defaultZ=0.02)
 
 prius_lane = Uniform(crossing_road_left_lane, crossing_road_right_lane)
 
-new Prius on prius_lane, with regionContainedIn prius_lane
+new Prius on prius_lane, with regionContainedIn prius_lane#, visible from ego
 
 # Create a region composed of all 4 quadrants around the road
 top_right_quadrant = RectangularRegion(56@56, 0, 100, 100, defaultZ=0)
@@ -73,17 +75,22 @@ top_left_quadrant = RectangularRegion(-56@56, 0, 100, 100, defaultZ=0)
 bottom_right_quadrant = RectangularRegion(56@-56, 0, 100, 100, defaultZ=0)
 bottom_left_quadrant = RectangularRegion(-56@-56, 0, 100, 100, defaultZ=0)
 
-quadrant_polygon = shapely.ops.unary_union([top_right_quadrant.polygon, top_left_quadrant.polygon, bottom_right_quadrant.polygon, bottom_left_quadrant.polygon])
+quadrant_polygon = shapely.ops.unary_union([top_right_quadrant.polygon, top_left_quadrant.polygon])#, bottom_right_quadrant.polygon, bottom_left_quadrant.polygon])
 
 building_region = PolygonalRegion(polygon=quadrant_polygon)
 
 # TODO Add support interval support for lazy inradius so we can prune here!
 
-for _ in range(3):
+# Add buildings, some randomly, some designed to block visibility of the center road
+for _ in range(2):
 	new CommercialBuilding on building_region, with regionContainedIn building_region
 
 for _ in range(1):
 	new ResidentialBuilding on building_region, with regionContainedIn building_region
 
-for _ in range(2):
+for _ in range(1):
 	new GlassBuilding on building_region, with regionContainedIn building_region
+
+new ResidentialBuilding at (-36, -21, 20)
+new GlassBuilding at (15, -21, 56)
+new CommercialBuilding at (45, -21, 50)

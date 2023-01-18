@@ -9,7 +9,7 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/objects/buildings/protos/CommercialBuilding.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/objects/buildings/protos/BigGlassTower.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/objects/buildings/protos/ResidentialBuilding.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/vehicles/protos/toyota/ToyotaPriusSimple.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/vehicles/protos/toyota/ToyotaPrius.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023a/projects/objects/road/protos/RoadIntersection.proto"
 
 WorldInfo {
@@ -99,7 +99,7 @@ TexturedBackgroundLight {
 Robot {
   name "Supervisor"
   controller "scenic_supervisor"
-  customData "../../city_loop.scenic"
+  customData "../../city_intersection.scenic"
   supervisor TRUE
 }
 Fog {
@@ -162,7 +162,6 @@ DEF BUILDING_GLASS_1 BigGlassTower {
 DEF EGO BmwX5 {
   translation -10.76 -123.84 0.4
   name "EGO"
-  controller "autonomous_vehicle"
   sensorsSlotFront [
     SickLms291 {
       translation 0.06 0 0
@@ -292,7 +291,7 @@ DEF BUILDING_COMMERCIAL_2 CommercialBuilding {
   translation 155.5 -117.46 0
   name "BUILDING_COMMERCIAL(2)"
 }
-DEF PRIUS ToyotaPriusSimple {
+DEF PRIUS ToyotaPrius {
   translation 9.4 -125.41 0.4
   name "PRIUS"
 }

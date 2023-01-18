@@ -1085,7 +1085,7 @@ def VisibleFrom(base):
 	if not isinstance(base, Point):
 		raise RuntimeParseError('specifier "visible from O" with O not a Point')
 	# TODO: @Matthew Generalize uniformPointIn() for 3D regions
-	return Specifier("Visible/VisibleFrom", {'position': 1, 'observingEntity': 1}, 
+	return Specifier("Visible/VisibleFrom", {'position': 3, 'observingEntity': 1}, 
 					 {'position': Region.uniformPointIn(base.visibleRegion), 'observingEntity': base})
 
 def VisibleSpec():
@@ -1112,7 +1112,7 @@ def NotVisibleFrom(base):
 			region = _workspace.region
 		return {'position': Region.uniformPointIn(region.difference(base.visibleRegion)),
 				'nonObservingEntity': base}
-	return Specifier("NotVisible/NotVisibleFrom",{'position': 1, 'nonObservingEntity': 1}, 
+	return Specifier("NotVisible/NotVisibleFrom",{'position': 3, 'nonObservingEntity': 1}, 
 					 DelayedArgument({'regionContainedIn'}, helper))
 
 def NotVisibleSpec():
