@@ -1532,7 +1532,7 @@ class RectangularRegion(_RotatedRectangle, Region):
 		length (float): length of the rectangle.
 		name (str; optional): name for debugging.
 	"""
-	def __init__(self, position, heading, width, length, name=None):
+	def __init__(self, position, heading, width, length, name=None, defaultZ=0):
 		super().__init__(name, position, heading, width, length)
 		self.position = toVector(position, "position of RectangularRegion not a vector")
 		self.heading = toScalar(heading, "heading of RectangularRegion not a scalar")
@@ -1544,6 +1544,7 @@ class RectangularRegion(_RotatedRectangle, Region):
 		self.corners = tuple(self.position.offsetRotated(heading, Vector(*offset))
 			for offset in ((hw, hl), (-hw, hl), (-hw, -hl), (hw, -hl)))
 		self.circumcircle = (self.position, self.radius)
+		self.defaultZ = defaultZ
 
 	def sampleGiven(self, value):
 		return RectangularRegion(value[self.position], value[self.heading],
@@ -1562,7 +1563,7 @@ class RectangularRegion(_RotatedRectangle, Region):
 		hw, hl = self.hw, self.hl
 		rx = random.uniform(-hw, hw)
 		ry = random.uniform(-hl, hl)
-		pt = self.position.offsetRotated(self.heading, Vector(rx, ry))
+		pt = self.position.offsetRotated(self.heading, Vector(rx, ry, self.defaultZ))
 		return self.orient(pt)
 
 	def getAABB(self):
