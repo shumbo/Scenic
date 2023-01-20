@@ -19,7 +19,7 @@ class Duck(WebotsObject):
     length: 0.1
     orientationOffset: (90 deg, 0, 0)
 
-ego   = new Duck at (0, 0, 0), facing (0, 0, 0), with behavior Push
+ego   = new Duck at (0, 0, 0), facing (0, 0, 0), with behavior Push, with density 200
 duck1 = new Duck at (0, 1, 0), facing (90 deg, 0, 0) # yaw
 duck2 = new Duck at (0, 2, 0), facing (0, 90 deg, 0) # pitch
 duck3 = new Duck at (0, 3, 0), facing (0, 0, 90 deg) # roll
