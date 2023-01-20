@@ -17,4 +17,3 @@ while True:
     sim_results = simulator.simulate(scene, verbosity=2).result
 
     print(sim_results.records)
-    assert False

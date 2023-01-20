@@ -141,6 +141,9 @@ class WebotsSimulation(Simulation):
             obj.webotsObject = webotsObj
             obj.webotsName = name
 
+        # subtract 1 to get the number of adhoc objects in the world
+        self.adhocObjectCount = adhocObjectId - 1
+
         # Reset Webots simulation
         supervisor.simulationResetPhysics()
 
@@ -244,6 +247,17 @@ class WebotsSimulation(Simulation):
             values['battery'] = val
 
         return values
+
+    def destroy(self):
+        """Destroy adhoc objects generated at the beginning of the simulation"""
+        for i in range(1, self.adhocObjectCount + 1):
+            name = self._getAdhocObjectName(i)
+            node = self.supervisor.getFromDef(name)
+            node.remove()
+
+    def _getAdhocObjectName(self, i: int) -> str:
+        return f"SCENIC_ADHOC_{i}"
+
 
 def isPhysicsEnabled(webotsObject):
     if isinstance(webotsObject.webotsAdhoc, bool):
