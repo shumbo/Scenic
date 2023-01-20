@@ -10,7 +10,7 @@ __all__ = (
 	# Primitive statements and functions
 	'ego', 'workspace',
 	'new', 'require', 'resample', 'param', 'globalParameters', 'mutate', 'verbosePrint',
-	'localPath', 'model', 'simulator', 'simulation', 'require_always', 'require_eventually',
+	'localPath', 'model', 'simulator', 'simulation',
 	'terminate_when', 'terminate_simulation_when', 'terminate_after', 'in_initial_scenario',
 	'override',
 	'record', 'record_initial', 'record_final',
@@ -27,7 +27,7 @@ __all__ = (
 	'DistanceFrom', 'DistancePast', 'Follow',
 	'AngleTo', 'AngleFrom','AltitudeTo', 'AltitudeFrom',
 	# Infix operators
-	'FieldAt', 'RelativeTo', 'OffsetAlong', 'CanSee',
+	'FieldAt', 'RelativeTo', 'OffsetAlong', 'CanSee', 'Until', 'Implies',
 	# Primitive types
 	'Vector', 'VectorField', 'PolygonalVectorField',
 	'MeshShape', 'BoxShape',
@@ -55,7 +55,10 @@ __all__ = (
 	# Internal APIs 	# TODO remove?
 	'PropertyDefault', 'Behavior', 'Monitor', 'makeTerminationAction',
 	'BlockConclusion', 'runTryInterrupt', 'wrapStarredValue', 'callWithStarArgs',
-	'Modifier', 'DynamicScenario'
+	'Modifier', 'DynamicScenario',
+	# Proposition Factories
+	'AtomicProposition', 'PropositionAnd', 'PropositionOr', 'PropositionNot',
+	'Always', 'Eventually', 'Next',
 )
 
 # various Python types and functions used in the language but defined elsewhere
@@ -104,6 +107,7 @@ from scenic.core.errors import RuntimeParseError, InvalidScenarioError
 from scenic.core.vectors import Orientation, alwaysGlobalOrientation
 from scenic.core.external_params import ExternalParameter
 import scenic.core.requirements as requirements
+import scenic.core.propositions as propositions
 from scenic.core.simulators import RejectSimulationException
 
 ### Internals
@@ -446,15 +450,21 @@ def require(reqID, req, line, name, prob=1):
 		name = f'requirement on line {line}'
 	if evaluatingRequirement:
 		raise RuntimeParseError('tried to create a requirement inside a requirement')
+	if req.has_temporal_operator and prob != 1:
+		raise RuntimeParseError('requirements with temporal operators must have probability of 1')
 	if currentSimulation is not None:	# requirement being evaluated at runtime
-		if prob >= 1 or random.random() <= prob:
-			result = req()
-			assert not needsSampling(result)
-			if needsLazyEvaluation(result):
-				raise RuntimeParseError(f'requirement on line {line} uses value'
+		if req.has_temporal_operator:
+			# support monitors on dynamic requirements and create dynamic requirements
+			currentScenario._addDynamicRequirement(requirements.RequirementType.require, req, line, name)
+		else:
+			if prob >= 1 or random.random() <= prob:
+				result = req.evaluate()
+				assert not needsSampling(result)
+				if needsLazyEvaluation(result):
+					raise RuntimeParseError(f'requirement on line {line} uses value'
 										' undefined outside of object definition')
-			if not result:
-				raise RejectSimulationException(name)
+				if not result:
+					raise RejectSimulationException(name)
 	else:	# requirement being defined at compile time
 		currentScenario._addRequirement(requirements.RequirementType.require,
                                         reqID, req, line, name, prob)
@@ -1409,3 +1419,24 @@ def filter(function, iterable):
 @distributionFunction
 def str(*args, **kwargs):
 	return builtins.str(*args, **kwargs)
+
+### Temporal Operators Factories
+
+def AtomicProposition(closure, syntaxId):
+	return propositions.Atomic(closure, syntaxId)
+def PropositionAnd(reqs):
+	return propositions.And(reqs)
+def PropositionOr(reqs):
+	return propositions.Or(reqs)
+def PropositionNot(req):
+	return propositions.Not(req)
+def Always(req):
+	return propositions.Always(req)
+def Eventually(req):
+	return propositions.Eventually(req)
+def Next(req):
+	return propositions.Next(req)
+def Until(lhs, rhs):
+	return propositions.Until(lhs, rhs)
+def Implies(lhs, rhs):
+	return propositions.Implies(lhs, rhs)

@@ -277,28 +277,67 @@ class Require(AST):
         self._fields = ["cond", "prob", "name"]
 
 
-class RequireAlways(AST):
-    __match_args__ = ("cond", "name")
+class Always(AST):
+    __match_args__ = ("value",)
 
-    def __init__(
-        self, cond: ast.AST, name: Optional[str] = None, *args: any, **kwargs: any
-    ) -> None:
+    def __init__(self, value: ast.AST, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.cond = cond
-        self.name = name
-        self._fields = ["cond", "name"]
+        self.value = value
+        self._fields = ["value"]
+
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.value,),
+            {
+                "lineno": self.lineno,
+                "end_lineno": self.end_lineno,
+                "col_offset": self.col_offset,
+                "end_col_offset": self.end_col_offset,
+            },
+        )
 
 
-class RequireEventually(AST):
-    __match_args__ = ("cond", "name")
+class Eventually(AST):
+    __match_args__ = ("value",)
 
-    def __init__(
-        self, cond: ast.AST, name: Optional[str] = None, *args: any, **kwargs: any
-    ) -> None:
+    def __init__(self, value: ast.AST, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.cond = cond
-        self.name = name
-        self._fields = ["cond", "name"]
+        self.value = value
+        self._fields = ["value"]
+
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.value,),
+            {
+                "lineno": self.lineno,
+                "end_lineno": self.end_lineno,
+                "col_offset": self.col_offset,
+                "end_col_offset": self.end_col_offset,
+            },
+        )
+
+
+class Next(AST):
+    __match_args__ = ("value",)
+
+    def __init__(self, value: ast.AST, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.value = value
+        self._fields = ["value"]
+
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.value,),
+            {
+                "lineno": self.lineno,
+                "end_lineno": self.end_lineno,
+                "col_offset": self.col_offset,
+                "end_col_offset": self.end_col_offset,
+            },
+        )
 
 
 class Record(AST):
@@ -749,6 +788,56 @@ class ApparentlyFacingSpecifier(AST):
 
 
 # Operators
+
+
+class ImpliesOp(AST):
+    __match_args__ = ("hypothesis", "conclusion")
+
+    def __init__(
+        self, hypothesis: ast.AST, conclusion: ast.AST, *args: any, **kwargs: any
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.hypothesis = hypothesis
+        self.conclusion = conclusion
+        self._fields = ["hypothesis", "conclusion"]
+
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.hypothesis, self.conclusion),
+            {
+                "lineno": self.lineno,
+                "end_lineno": self.end_lineno,
+                "col_offset": self.col_offset,
+                "end_col_offset": self.end_col_offset,
+            },
+        )
+
+
+class UntilOp(AST):
+    __match_args__ = ("left", "right")
+
+    def __init__(
+        self, left: ast.AST, right: ast.AST, *args: any, **kwargs: any
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.left = left
+        self.right = right
+        self._fields = ["left", "right"]
+
+    def __reduce__(self):
+        return (
+            type(self),
+            (self.left, self.right),
+            {
+                "lineno": self.lineno,
+                "end_lineno": self.end_lineno,
+                "col_offset": self.col_offset,
+                "end_col_offset": self.end_col_offset,
+            },
+        )
+
+
 class RelativePositionOp(AST):
     __match_args__ = ("target", "base")
 
