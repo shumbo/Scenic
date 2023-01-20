@@ -339,7 +339,7 @@ def test_control_flow():
 @pytest.mark.slow
 def test_reproducibility():
     scenario = compileScenic(
-        'ego = new Object\n'
+        'ego = new Object with width Range(0.5, 1), with length Range(0.5,1)\n'
         'new Object offset by 0@3, facing Range(0, 360) deg\n'
         'new Object offset by 0@6, facing Range(0, 360) deg\n'
         'param foo = Uniform(1, 4, 9, 16, 25, 36)\n'
@@ -358,6 +358,8 @@ def test_reproducibility():
             assert len(scene.objects) == len(baseScene.objects)
             for obj, baseObj in zip(scene.objects, baseScene.objects):
                 assert obj.heading == baseObj.heading
+                assert obj.width == baseObj.width
+                assert obj.length == baseObj.length
             assert scene.params['foo'] == baseScene.params['foo']
             assert iterations == baseIterations
 
@@ -367,7 +369,7 @@ def test_reproducibility_3d():
         'ego = new Object\n'
         'workspace = Workspace(SpheroidRegion(dimensions=(25,15,10)))\n'
         'region = BoxRegion(dimensions=(25,15,0.1))\n'
-        'obj_1 = new Object in workspace, facing Range(0, 360) deg\n'
+        'obj_1 = new Object in workspace, facing Range(0, 360) deg, with width Range(0.5, 1), with length Range(0.5,1)\n'
         'obj_2 = new Object in workspace, facing (Range(0, 360) deg, Range(0, 360) deg, Range(0, 360) deg)\n'
         'obj_3 = new Object in workspace, on region\n'
         'param foo = Uniform(1, 4, 9, 16, 25, 36)\n'
@@ -387,6 +389,8 @@ def test_reproducibility_3d():
             for obj, baseObj in zip(scene.objects, baseScene.objects):
                 assert obj.position == obj.position
                 assert obj.heading == baseObj.heading
+                assert obj.width == baseObj.width
+                assert obj.length == baseObj.length
             assert scene.params['foo'] == baseScene.params['foo']
             assert iterations == baseIterations
 

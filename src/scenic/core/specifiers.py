@@ -30,7 +30,7 @@ class Specifier:
 			if p in deps:
 				raise RuntimeParseError(f'specifier for property {p} depends on itself')
 
-		self.requiredProperties = deps
+		self.requiredProperties = tuple(sorted(deps))
 		self.name = name
 
 	def applyTo(self, obj, properties, overriding=False):

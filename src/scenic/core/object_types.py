@@ -490,6 +490,7 @@ class Point(Constructible):
 		"position": PropertyDefault((), {'dynamic'}, lambda self: Vector(0, 0)),
 		"width": 0,
 		"length": 0,
+		"height": 0,
 		"baseOffset": Vector(0,0,0),
 		"contactTolerance": 0,
 		"visibleDistance": 50,

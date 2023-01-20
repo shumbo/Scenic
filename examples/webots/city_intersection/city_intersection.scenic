@@ -67,7 +67,7 @@ crossing_road_right_lane = RectangularRegion(0@-2.5, 0, 160, 4, defaultZ=0.02)
 
 prius_lane = Uniform(crossing_road_left_lane, crossing_road_right_lane)
 
-new Prius on prius_lane, with regionContainedIn prius_lane#, visible from ego
+new Prius on prius_lane, visible from ego, with regionContainedIn prius_lane
 
 # Create a region composed of all 4 quadrants around the road
 top_right_quadrant = RectangularRegion(56@56, 0, 100, 100, defaultZ=0)
