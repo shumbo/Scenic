@@ -165,8 +165,8 @@ class WebotsSimulation(Simulation):
             )
 
             # density
-            densityField = webotsObj.getField("density")
-            if densityField is not None and not isinstance(densityField._ref, ctypes.c_void_p) and hasattr(obj, "density") and obj.density is not None:
+            densityField = getFieldSafe(webotsObj, "density")
+            if densityField is not None and hasattr(obj, "density") and obj.density is not None:
                 densityField.setSFFloat(float(obj.density))
 
             # battery
@@ -222,10 +222,9 @@ class WebotsSimulation(Simulation):
             offsetOrientation,
         )
 
-        densityField = webotsObj.getField("density")
+        densityField = getFieldSafe(webotsObj, "density")
         density = None
-        # Workaround for this issue (https://github.com/cyberbotics/webots/issues/5646)
-        if not isinstance(densityField._ref, ctypes.c_void_p):
+        if densityField:
             density = densityField.getSFFloat()
 
         values = dict(
@@ -257,6 +256,42 @@ class WebotsSimulation(Simulation):
 
     def _getAdhocObjectName(self, i: int) -> str:
         return f"SCENIC_ADHOC_{i}"
+
+def f(x: int) -> int:
+    """_summary_
+
+    Args:
+        x (int): _description_
+
+    Returns:
+        int: _description_
+    """
+    return x + x
+
+def getFieldSafe(webotsObject, fieldName):
+    """Get field from webots object. Return null if no such field exists.
+    Needed to workaround this issue (https://github.com/cyberbotics/webots/issues/5646)
+
+    Args:
+        webotsObject: webots object
+        fieldName: name of the field to look for
+
+    Returns:
+        Field|None: Field object if the field with the given name exists. None otherwise.
+    """
+
+    field = webotsObject.getField(fieldName)
+    # this seems to always return some object, but return None if field is None
+    if field is None:
+        return None
+    
+    # if field is valid, it has a valid pointer
+    if isinstance(field._ref, ctypes.c_void_p) and field._ref.value is not None:
+        # then the field is valid and we return the reference
+        return field
+    
+    # if the pointer points to None, then the field does not exist on this object
+    return None
 
 
 def isPhysicsEnabled(webotsObject):
