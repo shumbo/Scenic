@@ -8,6 +8,11 @@ import numpy as np
 import trimesh
 import random
 
+param numToys = 0
+
+# TODO DENSITY NOT GETTING WRITTEN
+# TODO Assigning random seed inside `with x` statement breaks reproducibility
+
 ## Class Definitions ##
 
 class Vacuum(WebotsObject):
@@ -159,9 +164,19 @@ toy_stack = new BlockToy on toy_stack
 toy_stack = new BlockToy on toy_stack
 
 # Spawn some toys
-for _ in range(4):
-	new Toy on floor
+for _ in range(globalParameters.numToys):
+	new Toy on floor.topSurface
+
+# toy = new BlockToy on floor.topSurface
+# toy = new BlockToy on toy.topSurface
+# toy = new BlockToy on toy.topSurface
+# toy = new BlockToy on toy.topSurface
+
+# toy = new BlockToy on floor.topSurface
+# toy = new BlockToy on toy.topSurface
+# toy = new BlockToy on toy.topSurface
+# toy = new BlockToy on toy.topSurface
 
 ## Simulation Setup ##
 terminate after 1*60 seconds
-record ego.position as VacuumPosition
+record (ego.position.x, ego.position.y) as VacuumPosition
