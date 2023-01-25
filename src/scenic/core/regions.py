@@ -442,9 +442,6 @@ class _MeshRegion(Region):
 		self.center_mesh = center_mesh
 		self.engine = engine
 
-		if dimensions is not None:
-			print("DIMS:", self.dimensions)
-
 		# Initialize superclass with samplables
 		super().__init__(name, self._mesh, self.dimensions, self.position, self.rotation, *additional_deps, orientation=orientation)
 

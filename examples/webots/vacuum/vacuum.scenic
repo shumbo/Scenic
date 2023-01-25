@@ -8,9 +8,6 @@ import numpy as np
 import trimesh
 import random
 
-# TODO DENSITY NOT GETTING WRITTEN
-# TODO Assigning random seed inside `with x` statement breaks reproducibility
-
 ## Class Definitions ##
 
 class Vacuum(WebotsObject):
@@ -45,6 +42,7 @@ class DiningTable(WebotsObject):
 	length: Range(0.7, 1.5)
 	height: 0.75
 	density: 670 # Density of solid birch
+	color: [103, 71, 54]
 
 with open(localPath("meshes/dining_chair.obj"), "r") as mesh_file:
     dining_chair_mesh = trimesh.load(mesh_file, file_type="obj")
@@ -56,9 +54,12 @@ class DiningChair(WebotsObject):
 	length: 0.4
 	height: 1
 	density: 670 # Density of solid birch
+	positionStdDev: (0.05, 0.05 ,0)
+	orientationStdDev: (10 deg, 0, 0)
+	color: [103, 71, 54]
 
 with open(localPath("meshes/couch.obj"), "r") as mesh_file:
-    couch_mesh = trimesh.load(mesh_file, file_type="obj")
+	couch_mesh = trimesh.load(mesh_file, file_type="obj")
 
 class Couch(WebotsObject):
 	webotsAdhoc: {'physics': False}
@@ -66,9 +67,12 @@ class Couch(WebotsObject):
 	width: 2
 	length: 0.75
 	height: 0.75
+	positionStdDev: (0.05, 0.5 ,0)
+	orientationStdDev: (5 deg, 0, 0)
+	color: [51, 51, 255]
 
 with open(localPath("meshes/coffee_table.obj"), "r") as mesh_file:
-    coffee_table_mesh = trimesh.load(mesh_file, file_type="obj")
+	coffee_table_mesh = trimesh.load(mesh_file, file_type="obj")
 
 class CoffeeTable(WebotsObject):
 	webotsAdhoc: {'physics': False}
@@ -76,6 +80,9 @@ class CoffeeTable(WebotsObject):
 	width: 1.5
 	length: 0.5
 	height: 0.4
+	positionStdDev: (0.05, 0.05 ,0)
+	orientationStdDev: (5 deg, 0, 0)
+	color: [103, 71, 54]
 
 class Toy(WebotsObject):
 	webotsAdhoc: {'physics': True}
@@ -84,6 +91,7 @@ class Toy(WebotsObject):
 	length: 0.1
 	height: 0.1
 	density: 100
+	color: [255, 128, 0]
 
 class BlockToy(Toy):
 	shape: BoxShape()
@@ -103,11 +111,11 @@ front_wall = new Wall at (0, wall_offset, 0.25), facing toward floor
 back_wall = new Wall at (0, -wall_offset, 0.25), facing toward floor
 
 # Place vacuum on floor
-ego = new Vacuum on floor.topSurface,
+ego = new Vacuum on floor,
 	with customData str(random.getrandbits(32))
 
-# Create a "safe zone" around the roomba so that it does not start stuck
-safe_zone = RectangularRegion(ego.position, 0, 1, 1)
+# Create a "safe zone" around the vacuum so that it does not start stuck
+safe_zone = CircularRegion(ego.position, radius=1)
 
 # Create a dining room region where we will place dining room furniture
 dining_room_region = RectangularRegion(1.25 @ 0, 0, 2.5, 5).difference(safe_zone)
@@ -116,43 +124,43 @@ dining_room_region = RectangularRegion(1.25 @ 0, 0, 2.5, 5).difference(safe_zone
 dining_table = new DiningTable contained in dining_room_region, on floor,
 	facing Range(0, 360 deg)
 
-chair_1 = new DiningChair behind dining_table, on floor.topSurface,
+chair_1 = new DiningChair behind dining_table by -0.1, on floor,
 				facing toward dining_table, with regionContainedIn dining_room_region
-chair_2 = new DiningChair ahead of dining_table, on floor.topSurface,
+chair_2 = new DiningChair ahead of dining_table by -0.1, on floor,
 				facing toward dining_table, with regionContainedIn dining_room_region
-chair_3 = new DiningChair left of dining_table, on floor.topSurface,
+chair_3 = new DiningChair left of dining_table by -0.1, on floor,
 				facing toward dining_table, with regionContainedIn dining_room_region
+
+# Add some noise to the positions and yaw of the chairs around the table
+mutate chair_1
+mutate chair_2
+mutate chair_3
 
 fallen_orientation = Uniform((0, -90 deg, 0), (0, 90 deg, 0), (0, 0, -90 deg), (0, 0, 90 deg))
 
 chair_4 = new DiningChair contained in dining_room_region, facing fallen_orientation,
-				on floor.topSurface, with baseOffset(0,0,-0.2)
+				on floor, with baseOffset(0,0,-0.2)
 
 # Create a living room region where we will place living room furniture
 living_room_region = RectangularRegion(-1.25 @ 0, 0, 2.5, 5).difference(safe_zone)
 
-couch = new Couch ahead of left_wall by Range(0.335*0.95, 0.335*1.05),
-			on floor.topSurface, facing away from left_wall
+couch = new Couch ahead of left_wall by 0.335,
+			on floor, facing away from left_wall
 
-coffee_table = new CoffeeTable ahead of couch by Range(0.335*0.5, 0.335*0.6),
-			on floor.topSurface, facing away from couch
+coffee_table = new CoffeeTable ahead of couch by 0.336,
+			on floor, facing away from couch
+
+# Add some noise to the positions of the couch and coffee table
+mutate couch
+mutate coffee_table
+
+toy_stack = new BlockToy on floor
+toy_stack = new BlockToy on toy_stack
+toy_stack = new BlockToy on toy_stack
 
 # Spawn some toys
-new Toy on floor.topSurface
-new Toy on floor.topSurface
-new Toy on floor.topSurface
-new Toy on floor.topSurface
-new Toy on floor.topSurface
-
-# toy = new BlockToy on floor.topSurface
-# toy = new BlockToy on toy.topSurface
-# toy = new BlockToy on toy.topSurface
-# toy = new BlockToy on toy.topSurface
-
-# toy = new BlockToy on floor.topSurface
-# toy = new BlockToy on toy.topSurface
-# toy = new BlockToy on toy.topSurface
-# toy = new BlockToy on toy.topSurface
+for _ in range(4):
+	new Toy on floor
 
 ## Simulation Setup ##
 terminate after 1*60 seconds

@@ -65,6 +65,7 @@ class MeshShape(Shape):
 
         # Copy mesh and center vertices around origin
         self.mesh = mesh.copy()
+        self.mesh.vertices -= self.mesh.bounding_box.center_mass
 
         # If dimensions are not specified, infer them.
         if dimensions is None:

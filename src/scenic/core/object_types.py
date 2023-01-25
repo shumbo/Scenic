@@ -78,7 +78,12 @@ class Constructible(Samplable):
 		assert all(not needsLazyEvaluation(val) for val in props.values())
 		return cls(_internal=True, _constProps=constProps, **props)
 
-	def __init__(self, *args, _internal=False, _constProps=frozenset(), **kwargs):
+	@classmethod
+	def _withPropertiesDefaults(cls, props, constProps=frozenset()):
+		assert all(not needsLazyEvaluation(val) for val in props.values())
+		return cls(_register=False,_constProps=constProps, **props)
+
+	def __init__(self, *args, _internal=False, _constProps=frozenset(), _register=True, **kwargs):
 		if _internal:	# Object is being constructed internally; use fast path
 			assert not args
 			for prop, value in kwargs.items():
@@ -106,7 +111,8 @@ class Constructible(Samplable):
 		super().__init__(deps)
 
 		# Possibly register this object
-		self._register()
+		if _register:
+			self._register()
 
 	def _applySpecifiers(self, specifiers, defs=None, overriding=False):
 		# Declare properties dictionary which maps properties to the specifier
@@ -132,9 +138,6 @@ class Constructible(Samplable):
 		specifier_names = [spec.name for spec in specifiers]
 
 		if "On" in specifier_names:
-			if "At" in specifier_names:
-				raise RuntimeParseError(f'Cannot use "On" specifier to modify "At" specifier')
-
 			if collections.Counter(specifier_names)["On"] > 1:
 				raise RuntimeParseError(f'Cannot use "On" specifier to modify "On" specifier')
 
@@ -309,10 +312,10 @@ class Constructible(Samplable):
 				self._mod_tracker[prop] = False
 
 		# Normalize types of some built-in properties
-		if prop in ('position', 'velocity', 'cameraOffset'):
+		if prop in ('position', 'velocity', 'cameraOffset', 'positionStdDev', 'orientationStdDev'):
 			value = toVector(value, f'"{prop}" of {self} not a vector')
-		elif prop in ('width', 'length', 'visibleDistance', 'positionStdDev',
-		              'viewAngle', 'headingStdDev', 'speed', 'angularSpeed',
+		elif prop in ('width', 'length', 'visibleDistance',
+		              'viewAngle', 'speed', 'angularSpeed',
 		              'yaw', 'pitch', 'roll'):
 			value = toScalar(value, f'"{prop}" of {self} not a scalar')
 
@@ -359,10 +362,12 @@ class Constructible(Samplable):
 
 	def _copyWith(self, **overrides):
 		"""Copy this object, possibly overriding some of its properties."""
-		props = self._allProperties()
+		# Copy all properties except for dynamic final values, which will retain their default values
+		props = {prop: val for prop, val in self._allProperties().items() if prop not in set(self._finalProperties)}
+
 		props.update(overrides)
 		constProps = self._constProps.difference(overrides)
-		return self._withProperties(props, constProps=constProps)
+		return self._withPropertiesDefaults(props, constProps=constProps) #self._withProperties(props, constProps=constProps)
 
 	def dumpAsScenicCode(self, stream, skipConstProperties=True):
 		stream.write(f"new {self.__class__.__name__}")
@@ -428,12 +433,13 @@ class PositionMutator(Mutator):
 	Attributes:
 		stddev (float): standard deviation of noise
 	"""
-	def __init__(self, stddev):
-		self.stddev = stddev
+	def __init__(self, stddevs):
+		self.stddevs = stddevs
 
 	def appliedTo(self, obj):
-		stddev = self.stddev * obj.mutationScale
-		noise = Vector(random.gauss(0, stddev), random.gauss(0, stddev))
+		noise = Vector( random.gauss(0, self.stddevs[0]*obj.mutationScale), 
+						random.gauss(0, self.stddevs[1]*obj.mutationScale),
+						random.gauss(0, self.stddevs[2]*obj.mutationScale))
 		pos = obj.position + noise
 		return (obj._copyWith(position=pos), True)		# allow further mutation
 
@@ -445,19 +451,23 @@ class PositionMutator(Mutator):
 	def __hash__(self):
 		return hash(self.stddev)
 
-class HeadingMutator(Mutator):
+class OrientationMutator(Mutator):
 	"""Mutator adding Gaussian noise to ``heading``. Used by `OrientedPoint`.
 
 	Attributes:
 		stddev (float): standard deviation of noise
 	"""
-	def __init__(self, stddev):
-		self.stddev = stddev
+	def __init__(self, stddevs):
+		self.stddevs = stddevs
 
 	def appliedTo(self, obj):
-		noise = random.gauss(0, obj.mutationScale * self.stddev)
-		h = obj.heading + noise
-		return (obj._copyWith(heading=h), True)		# allow further mutation
+		yaw = obj.yaw + random.gauss(0, self.stddevs[0] * obj.mutationScale)
+		pitch = obj.pitch + random.gauss(0, self.stddevs[1] * obj.mutationScale)
+		roll = obj.roll + random.gauss(0, self.stddevs[2] * obj.mutationScale)
+
+		new_obj = obj._copyWith(yaw=yaw, pitch=pitch, roll=roll)
+
+		return (new_obj, True)		# allow further mutation
 
 	def __eq__(self, other):
 		if type(other) is not type(self):
@@ -500,8 +510,8 @@ class Point(Constructible):
 
 		"mutationScale": 0,
 		"mutator": PropertyDefault({'positionStdDev'}, {'additive'},
-								lambda self: PositionMutator(self.positionStdDev)),
-		"positionStdDev": 1,
+								lambda self: PositionMutator((self.positionStdDev))),
+		"positionStdDev": (1,1,0),
 
 		# This property is defined in Object, but we provide a default empty value
 		# for Points for implementation convenience.
@@ -579,20 +589,20 @@ class OrientedPoint(Point):
 		# derived orientation properties that cannot be overwritten
 		'orientation': PropertyDefault(
 		    {'yaw', 'pitch', 'roll', 'parentOrientation'},
-		    {'final'},
+		    {'dynamic', 'final'},
 		    lambda self: (Orientation.fromEuler(self.yaw, self.pitch, self.roll)
 			          * self.parentOrientation)
 		),
-		'heading': PropertyDefault({'orientation'}, {'final'},
+		'heading': PropertyDefault({'orientation'}, {'dynamic', 'final'},
 		    lambda self: self.yaw if alwaysGlobalOrientation(self.parentOrientation) else self.orientation.yaw),
 
 		# The view angle in the horizontal and vertical direction
 		'viewAngle': math.tau,
 		'viewAngles': PropertyDefault(('viewAngle',), set(), lambda self: (self.viewAngle, math.pi)),
 
-		'mutator': PropertyDefault({'headingStdDev'}, {'additive'},
-			lambda self: HeadingMutator(self.headingStdDev)),
-		'headingStdDev': math.radians(5),
+		'mutator': PropertyDefault({'orientationStdDev'}, {'additive'},
+			lambda self: OrientationMutator(self.orientationStdDev)),
+		'orientationStdDev': (math.radians(5),0,0),
 	}
 
 	def __init__(self, *args, **kwargs):
@@ -686,15 +696,14 @@ class Object(OrientedPoint, _RotatedRectangle):
 		'angularSpeed': PropertyDefault((), {'dynamic'}, lambda self: 0),
 		'min_top_z': 0.4,
 		'occupiedSpace': PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation', 'onDirection'), \
-			{'final'}, lambda self: MeshVolumeRegion(mesh=self.shape.mesh, \
+			{'dynamic', 'final'}, lambda self: MeshVolumeRegion(mesh=self.shape.mesh, \
 				dimensions=(self.width, self.length, self.height), \
 				position=self.position, rotation=self.orientation, on_direction=self.onDirection)),
-		'boundingBox': PropertyDefault(('occupiedSpace',), {'final'},  \
+		'boundingBox': PropertyDefault(('occupiedSpace',), {'dynamic', 'final'},  \
 			lambda self: lazyBoundingBox(self.occupiedSpace)),
-		'topSurface': PropertyDefault(('occupiedSpace', 'min_top_z'), \
-			{}, lambda self: defaultTopSurface(self.occupiedSpace, self.min_top_z)),
 		"behavior": None,
 		"lastActions": None,
+		"color": None
 	}
 
 	def __new__(cls, *args, **kwargs):
@@ -850,6 +859,14 @@ class Object(OrientedPoint, _RotatedRectangle):
 			self.relativePosition(Vector(hw, -hl))
 		)
 
+	@cached_property
+	def onSurface(self):
+		return self.topSurface
+
+	@cached_property
+	def topSurface(self):
+		return defaultTopSurface(self.occupiedSpace, self.min_top_z)
+
 	def show_3d(self, viewer, highlight=False):
 		if needsSampling(self):
 			raise RuntimeError('tried to show() symbolic Object')
@@ -859,6 +876,8 @@ class Object(OrientedPoint, _RotatedRectangle):
 
 		if highlight:
 			object_mesh.visual.face_colors = [30, 179, 0, 255]
+		elif self.color is not None:
+			object_mesh.visual.face_colors = self.color
 
 		viewer.add_geometry(object_mesh)
 
@@ -1148,7 +1167,8 @@ def canSee(position, orientation, visibleDistance, viewAngles, rayDensity, \
 		# render_scene = trimesh.scene.Scene()
 		# render_scene.add_geometry(trimesh.path.Path3D(entities=lines, vertices=vertices, process=False, colors=colors))
 		# render_scene.add_geometry(target.occupiedSpace.mesh)
-		# render_scene.add_geometry(list(occludingObjects)[0].occupiedSpace.mesh)
+		# for i in list(occludingObjects):
+		# 	render_scene.add_geometry(i.occupiedSpace.mesh)
 		# render_scene.show()
 
 		# Check if candidate rays hit target

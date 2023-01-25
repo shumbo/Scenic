@@ -4,6 +4,7 @@ of two 2-lane one way roads in a city.
 """
 
 import shapely
+import time
 
 model scenic.simulators.webots.model
 
@@ -13,19 +14,21 @@ class EgoCar(WebotsObject):
 	length: 5
 	height: 1.9
 	positionOffset: (-0.33, 0, -0.5)
+	cameraOffset: (0.77, 0, 0.95)
 	orientationOffset: (90 deg, 0, 0)
-	yaw: Range(-5 deg, 5 deg)
 	viewAngles: (120 deg, 60 deg)
 	visibleDistance: 100
+	rayDensity: 10
 
-class Prius(WebotsObject):
-	webotsName: "PRIUS"
-	width: 2.2
-	length: 4.6
-	height: 1.7
-	positionOffset: (-1.4, 0, -0.5)
+class Car(WebotsObject):
+	webotsName: "CAR"
+	width: 2.3
+	length: 5
+	height: 1.9
+	positionOffset: (-0.33, 0, -0.5)
 	orientationOffset: (90 deg, 0, 0)
-	yaw: 90 deg + Range(-5 deg, 5 deg)
+	viewAngles: (1, 60 deg)
+	visibleDistance: 100
 
 class CommercialBuilding(WebotsObject):
 	webotsType: "BUILDING_COMMERCIAL"
@@ -51,23 +54,47 @@ class GlassBuilding(WebotsObject):
 	yaw: Uniform(1, 2, 3) * 90 deg
 	positionOffset: (0, 0, -56)
 
-# Create a region that represents both lanes of the bottom road, 
-# with each one slightly narrowed to ensure car is relatively centered.
-bottom_road_left_lane = RectangularRegion(-2.5@-55, 0, 4, 80, defaultZ=0.02)
-bottom_road_right_lane = RectangularRegion(2.5@-55, 0, 4, 80, defaultZ=0.02)
+class LogImageAction(Action):
+	def __init__(self, visible: bool, path: str, count: int):
+		self.visible = visible
+		self.path = path
+		self.count = count
 
-ego_lane = Uniform(bottom_road_left_lane, bottom_road_right_lane)
+	def applyTo(self, obj, sim):
+		print("Other Car Visible:", self.visible)
+		
+		target_path = self.path + "/"
+		target_path += "visible" if self.visible else "invisible"
+		target_path += "/" + str(self.count) + ".png"
 
-# Place the ego car in one of the lanes, and ensure it is fully contained.
-ego = new EgoCar on ego_lane, with regionContainedIn ego_lane
+		print("IMG Path:", target_path)
+
+		camera_obj = simulation().supervisor.getFromDef("EGO").getCamera('camera')
+
+		camera_obj.saveImage(target_path, quality=100)
+
+behavior LogCamera(path):
+	count = 0
+	while True:
+		count += 1
+		# Log a picture every 50 ticks (half second)
+		if count%50 == 0:
+			visible = ego can see car
+			take LogImageAction(visible, path, count)
+		else:
+			wait
 
 # Create a region that represents both lanes of the crossing road.
-crossing_road_left_lane = RectangularRegion(0@2.5, 0, 160, 4, defaultZ=0.02)
-crossing_road_right_lane = RectangularRegion(0@-2.5, 0, 160, 4, defaultZ=0.02)
+crossing_road_lane = RectangularRegion(0@0, 0, 160, 5, defaultZ=0.02)
 
-prius_lane = Uniform(crossing_road_left_lane, crossing_road_right_lane)
+car = new Car facing 90 deg, on crossing_road_lane, with regionContainedIn crossing_road_lane
+require car.x > 10
 
-new Prius on prius_lane, visible from ego, with regionContainedIn prius_lane
+# Create a region that represents both lanes of the bottom road.
+bottom_road_lane = RectangularRegion(0@-55, 0, 5, 80, defaultZ=0.02)
+
+# Place the ego car in one of the lanes, and ensure it is fully contained.
+ego = new EgoCar on bottom_road_lane, with regionContainedIn bottom_road_lane, with behavior LogCamera(localPath(f"images/{time.time_ns()}"))
 
 # Create a region composed of all 4 quadrants around the road
 top_right_quadrant = RectangularRegion(56@56, 0, 100, 100, defaultZ=0)
@@ -79,18 +106,22 @@ quadrant_polygon = shapely.ops.unary_union([top_right_quadrant.polygon, top_left
 
 building_region = PolygonalRegion(polygon=quadrant_polygon)
 
-# TODO Add support interval support for lazy inradius so we can prune here!
-
 # Add buildings, some randomly, some designed to block visibility of the center road
-for _ in range(2):
+for _ in range(1):
 	new CommercialBuilding on building_region, with regionContainedIn building_region
 
-for _ in range(1):
+for _ in range(2):
 	new ResidentialBuilding on building_region, with regionContainedIn building_region
 
-for _ in range(1):
+for _ in range(2):
 	new GlassBuilding on building_region, with regionContainedIn building_region
 
 new ResidentialBuilding at (-36, -21, 20)
-new GlassBuilding at (15, -21, 56)
-new CommercialBuilding at (45, -21, 50)
+new CommercialBuilding at (18, -20, 50), facing Range(-5,5) deg
+new CommercialBuilding at (50, -22, 50), facing Range(-5,5) deg
+
+# Require that the cars reach the intersection at relatively different times
+require abs(ego.distanceTo(0@0) - car.distanceTo(0@0)) > 7.5
+
+# Terminate the simulation after the ego has passed through the intersection
+terminate when ego.position.y > 20

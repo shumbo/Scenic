@@ -966,7 +966,7 @@ def On(thing):
 	# TODO: @Matthew Helper function for delayed argument checks if modifying or not
 
 	if isinstance(thing, Object):
-		region = toType(thing.occupiedSpace, Region, 'Cannot coax occupiedSpace of Object to Region')
+		region = toType(thing.onSurface, Region, 'Cannot coax occupiedSpace of Object to Region')
 	else:
 		region = toType(thing, Region, 'specifier "on R" with R not a Region')
 

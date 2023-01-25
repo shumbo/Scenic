@@ -64,7 +64,7 @@ class WebotsObject:
     .. _Supervisor API: https://www.cyberbotics.com/doc/reference/supervisor?tab-language=python
     """
 
-    elevation[dynamic, final]: None
+    elevation[dynamic, final]: self.position.z
     requireVisible: False
 
     webotsAdhoc: False

@@ -11,7 +11,9 @@ path = supervisor.getCustomData()
 print(f'Loading Scenic scenario {path}')
 scenario = scenic.scenarioFromFile(path)
 
-while True:
-    scene, _ = scenario.generate()
-    print('Starting new simulation...')
-    simulator.simulate(scene, verbosity=2)
+scene, _ = scenario.generate()
+print('Starting new simulation...')
+
+sim_results = simulator.simulate(scene, verbosity=2)
+
+supervisor.simulationQuit(0)

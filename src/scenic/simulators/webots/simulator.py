@@ -233,7 +233,6 @@ class WebotsSimulation(Simulation):
             speed=speed,
             angularSpeed=angularSpeed,
             angularVelocity=Vector(ax, ay, az),
-            elevation=z,
             yaw=orientation.yaw,
             pitch=orientation.pitch,
             roll=orientation.roll,
