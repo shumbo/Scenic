@@ -65,6 +65,7 @@ class MeshShape(Shape):
 
         # Copy mesh and center vertices around origin
         self.mesh = mesh.copy()
+        self.mesh.vertices -= self.mesh.bounding_box.center_mass
 
         # If dimensions are not specified, infer them.
         if dimensions is None:
@@ -97,3 +98,41 @@ class BoxShape(Shape):
     @property
     def mesh(self):
         return trimesh.creation.box((1,1,1))
+
+class CylinderShape(Shape):
+    def __init__(self, dimensions=(1,1,1), scale=1, sections=24):
+        # Report samplables
+        super().__init__(dimensions, scale)
+        self.sections=sections
+    
+    def sampleGiven(self, values):
+        return CylinderShape(values[self.raw_dimensions], values[self.scale], sections=self.sections)
+
+    @property
+    def mesh(self):
+        return trimesh.creation.cylinder(radius=0.5, height=1, sections=self.sections)
+
+class ConeShape(Shape):
+    def __init__(self, dimensions=(1,1,1), scale=1):
+        # Report samplables
+        super().__init__(dimensions, scale)
+    
+    def sampleGiven(self, values):
+        return ConeShape(values[self.raw_dimensions], values[self.scale])
+
+    @property
+    def mesh(self):
+        return trimesh.creation.cone(radius=0.5, height=1)
+
+class SpheroidShape(Shape):
+    def __init__(self, dimensions=(1,1,1), scale=1):
+        # Report samplables
+        super().__init__(dimensions, scale)
+    
+    def sampleGiven(self, values):
+        return SpheroidShape(values[self.raw_dimensions], values[self.scale])
+
+    @property
+    def mesh(self):
+        return trimesh.creation.icosphere(radius=1)
+

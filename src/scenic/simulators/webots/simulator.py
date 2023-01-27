@@ -141,6 +141,9 @@ class WebotsSimulation(Simulation):
             obj.webotsObject = webotsObj
             obj.webotsName = name
 
+        # subtract 1 to get the number of adhoc objects in the world
+        self.adhocObjectCount = adhocObjectId - 1
+
         # Reset Webots simulation
         supervisor.simulationResetPhysics()
 
@@ -162,8 +165,8 @@ class WebotsSimulation(Simulation):
             )
 
             # density
-            densityField = webotsObj.getField("density")
-            if densityField is not None and not isinstance(densityField._ref, ctypes.c_void_p) and hasattr(obj, "density") and obj.density is not None:
+            densityField = getFieldSafe(webotsObj, "density")
+            if densityField is not None and hasattr(obj, "density") and obj.density is not None:
                 densityField.setSFFloat(float(obj.density))
 
             # battery
@@ -176,6 +179,7 @@ class WebotsSimulation(Simulation):
                 field.setMFFloat(0, battery[0])
                 field.setMFFloat(1, battery[1])
                 field.setMFFloat(2, battery[2])
+
             # customData
             customData = getattr(obj, 'customData', None)
             if customData:
@@ -218,10 +222,9 @@ class WebotsSimulation(Simulation):
             offsetOrientation,
         )
 
-        densityField = webotsObj.getField("density")
+        densityField = getFieldSafe(webotsObj, "density")
         density = None
-        # Workaround for this issue (https://github.com/cyberbotics/webots/issues/5646)
-        if not isinstance(densityField._ref, ctypes.c_void_p):
+        if densityField:
             density = densityField.getSFFloat()
 
         values = dict(
@@ -230,7 +233,6 @@ class WebotsSimulation(Simulation):
             speed=speed,
             angularSpeed=angularSpeed,
             angularVelocity=Vector(ax, ay, az),
-            elevation=z,
             yaw=orientation.yaw,
             pitch=orientation.pitch,
             roll=orientation.roll,
@@ -243,6 +245,53 @@ class WebotsSimulation(Simulation):
             values['battery'] = val
 
         return values
+
+    def destroy(self):
+        """Destroy adhoc objects generated at the beginning of the simulation"""
+        for i in range(1, self.adhocObjectCount + 1):
+            name = self._getAdhocObjectName(i)
+            node = self.supervisor.getFromDef(name)
+            node.remove()
+
+    def _getAdhocObjectName(self, i: int) -> str:
+        return f"SCENIC_ADHOC_{i}"
+
+def f(x: int) -> int:
+    """_summary_
+
+    Args:
+        x (int): _description_
+
+    Returns:
+        int: _description_
+    """
+    return x + x
+
+def getFieldSafe(webotsObject, fieldName):
+    """Get field from webots object. Return null if no such field exists.
+    Needed to workaround this issue (https://github.com/cyberbotics/webots/issues/5646)
+
+    Args:
+        webotsObject: webots object
+        fieldName: name of the field to look for
+
+    Returns:
+        Field|None: Field object if the field with the given name exists. None otherwise.
+    """
+
+    field = webotsObject.getField(fieldName)
+    # this seems to always return some object, but return None if field is None
+    if field is None:
+        return None
+    
+    # if field is valid, it has a valid pointer
+    if isinstance(field._ref, ctypes.c_void_p) and field._ref.value is not None:
+        # then the field is valid and we return the reference
+        return field
+    
+    # if the pointer points to None, then the field does not exist on this object
+    return None
+
 
 def isPhysicsEnabled(webotsObject):
     if isinstance(webotsObject.webotsAdhoc, bool):

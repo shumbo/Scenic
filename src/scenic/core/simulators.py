@@ -330,7 +330,7 @@ class Simulation:
         """Update the positions and other properties of objects from the simulation."""
         for obj in self.objects:
             # Get latest values of dynamic properties from simulation
-            properties = obj._dynamicProperties
+            properties = set(obj._dynamicProperties) - set(obj._finalProperties)
             values = self.getProperties(obj, properties)
             assert properties == set(values), properties ^ set(values)
 

@@ -8,7 +8,6 @@ PROTO ScenicObject [
   field SFString name "solid"
   field SFVec3f angularVelocity 0 0 0
   field MFString url ""
-  field SFFloat density 1000 # kg / m^3
 ]
 {
   Solid {
@@ -26,9 +25,6 @@ PROTO ScenicObject [
       geometry Mesh {
         url IS url
       }
-    }
-    physics Physics {
-      density IS density
     }
   }
 }

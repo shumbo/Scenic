@@ -429,7 +429,10 @@ class _MeshRegion(Region):
 	def __init__(self, mesh, name=None, dimensions=None, position=None, rotation=None, orientation=None, on_direction=(0,0,1), \
 	  	tolerance=1e-8, center_mesh=True, engine="blender", additional_deps=[]):
 		# Copy the mesh and parameters
-		self._mesh = mesh.copy()
+		if needsSampling(mesh):
+			self._mesh = mesh
+		else:
+			self._mesh = mesh.copy()
 		self.dimensions = None if dimensions is None else toVector(dimensions)
 		self.position = None if position is None else toVector(position)
 		self.rotation = None if rotation is None else toOrientation(rotation)
@@ -440,7 +443,7 @@ class _MeshRegion(Region):
 		self.engine = engine
 
 		# Initialize superclass with samplables
-		super().__init__(name, self.dimensions, self.position, self.rotation, orientation=orientation, *additional_deps)
+		super().__init__(name, self._mesh, self.dimensions, self.position, self.rotation, *additional_deps, orientation=orientation)
 
 		# If sampling is needed, delay transformations
 		if needsSampling(self):
@@ -722,6 +725,8 @@ class _MeshRegion(Region):
 		""" Find the nearest point in the region following the on_direction.
 		Returns None if no such points exist.
 		"""
+		assert not needsSampling(self)
+
 		# Get first point hit in both directions of ray
 		point = point.coordinates
 
@@ -773,6 +778,9 @@ class MeshVolumeRegion(_MeshRegion):
 	"""
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
+
+		if needsSampling(self):
+			return
 
 		# Ensure the mesh is watertight so volume is well defined
 		if not self._mesh.is_volume:
@@ -1021,7 +1029,7 @@ class MeshVolumeRegion(_MeshRegion):
 
 	## Sampling Methods ##
 	def sampleGiven(self, value):
-		return MeshVolumeRegion(mesh=self._mesh, name=self.name, \
+		return MeshVolumeRegion(mesh=value[self._mesh], name=self.name, \
 			dimensions=value[self.dimensions], position=value[self.position], rotation=value[self.rotation], \
 			orientation=self.orientation, on_direction=self.on_direction, tolerance=self.tolerance, \
 			center_mesh=self.center_mesh, engine=self.engine)
@@ -1099,7 +1107,7 @@ class MeshSurfaceRegion(_MeshRegion):
 
 	## Sampling Methods ##
 	def sampleGiven(self, value):
-		return MeshSurfaceRegion(mesh=self._mesh, name=self.name, \
+		return MeshSurfaceRegion(mesh=value[self._mesh], name=self.name, \
 			dimensions=value[self.dimensions], position=value[self.position], rotation=value[self.rotation], \
 			orientation=self.orientation, on_direction=self.on_direction, tolerance=self.tolerance, \
 			center_mesh=self.center_mesh, engine=self.engine)
@@ -1521,7 +1529,7 @@ class RectangularRegion(_RotatedRectangle, Region):
 		length (float): length of the rectangle.
 		name (str; optional): name for debugging.
 	"""
-	def __init__(self, position, heading, width, length, name=None):
+	def __init__(self, position, heading, width, length, name=None, defaultZ=0):
 		super().__init__(name, position, heading, width, length)
 		self.position = toVector(position, "position of RectangularRegion not a vector")
 		self.heading = toScalar(heading, "heading of RectangularRegion not a scalar")
@@ -1533,6 +1541,7 @@ class RectangularRegion(_RotatedRectangle, Region):
 		self.corners = tuple(self.position.offsetRotated(heading, Vector(*offset))
 			for offset in ((hw, hl), (-hw, hl), (-hw, -hl), (hw, -hl)))
 		self.circumcircle = (self.position, self.radius)
+		self.defaultZ = defaultZ
 
 	def sampleGiven(self, value):
 		return RectangularRegion(value[self.position], value[self.heading],
@@ -1551,7 +1560,7 @@ class RectangularRegion(_RotatedRectangle, Region):
 		hw, hl = self.hw, self.hl
 		rx = random.uniform(-hw, hw)
 		ry = random.uniform(-hl, hl)
-		pt = self.position.offsetRotated(self.heading, Vector(rx, ry))
+		pt = self.position.offsetRotated(self.heading, Vector(rx, ry, self.defaultZ))
 		return self.orient(pt)
 
 	def getAABB(self):

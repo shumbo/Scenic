@@ -30,7 +30,7 @@ __all__ = (
 	'FieldAt', 'RelativeTo', 'OffsetAlong', 'CanSee',
 	# Primitive types
 	'Vector', 'VectorField', 'PolygonalVectorField',
-	'MeshShape', 'BoxShape',
+	'MeshShape', 'BoxShape', 'CylinderShape', 'ConeShape', 'SpheroidShape',
 	'MeshVolumeRegion', 'MeshSurfaceRegion', 
 	'BoxRegion', 'SpheroidRegion',
 	'Region', 'PointSetRegion', 'RectangularRegion', 'CircularRegion', 'SectorRegion',
@@ -61,7 +61,7 @@ __all__ = (
 # various Python types and functions used in the language but defined elsewhere
 from scenic.core.geometry import sin, cos, hypot, max, min
 from scenic.core.vectors import Vector, VectorField, PolygonalVectorField
-from scenic.core.shapes import MeshShape, BoxShape
+from scenic.core.shapes import MeshShape, BoxShape, CylinderShape, ConeShape, SpheroidShape
 from scenic.core.regions import (Region, PointSetRegion, RectangularRegion,
 	CircularRegion, SectorRegion, PolygonalRegion, PolylineRegion,
 	everywhere, nowhere,
@@ -925,9 +925,6 @@ def In(region):
 
 	Specifies 'position', with no dependencies. Optionally specifies 'heading'
 	if the given Region has a :term:`preferred orientation`.
-	
-	If composed with 'on <X>', X must intersect the region. This specifies
-	position and orientation. 
 	"""
 	region = toType(region, Region, 'specifier "in R" with R not a Region')
 	pos = Region.uniformPointIn(region)
@@ -943,11 +940,8 @@ def ContainedIn(region):
 
 	Specifies 'position' and 'regionContainedIn', with no dependencies.
 	Optionally specifies 'heading' if the given Region has a :term:`preferred orientation`.
-	
-	If composed with 'on <X>', X must intersect the region. This specifies
-	position and orientation. 
 	"""
-	region = toType(region, Region, 'specifier "in R" with R not a Region')
+	region = toType(region, Region, 'specifier "contained in R" with R not a Region')
 	pos = Region.uniformPointIn(region)
 	props = {'position': 1, 'regionContainedIn': 1}
 	values = {'position': pos, 'regionContainedIn': region}
@@ -972,7 +966,7 @@ def On(thing):
 	# TODO: @Matthew Helper function for delayed argument checks if modifying or not
 
 	if isinstance(thing, Object):
-		region = toType(thing.occupiedSpace, Region, 'Cannot coax occupiedSpace of Object to Region')
+		region = toType(thing.onSurface, Region, 'Cannot coax occupiedSpace of Object to Region')
 	else:
 		region = toType(thing, Region, 'specifier "on R" with R not a Region')
 
@@ -1091,7 +1085,7 @@ def VisibleFrom(base):
 	if not isinstance(base, Point):
 		raise RuntimeParseError('specifier "visible from O" with O not a Point')
 	# TODO: @Matthew Generalize uniformPointIn() for 3D regions
-	return Specifier("Visible/VisibleFrom", {'position': 1, 'observingEntity': 1}, 
+	return Specifier("Visible/VisibleFrom", {'position': 3, 'observingEntity': 1}, 
 					 {'position': Region.uniformPointIn(base.visibleRegion), 'observingEntity': base})
 
 def VisibleSpec():
@@ -1118,7 +1112,7 @@ def NotVisibleFrom(base):
 			region = _workspace.region
 		return {'position': Region.uniformPointIn(region.difference(base.visibleRegion)),
 				'nonObservingEntity': base}
-	return Specifier("NotVisible/NotVisibleFrom",{'position': 1, 'nonObservingEntity': 1}, 
+	return Specifier("NotVisible/NotVisibleFrom",{'position': 3, 'nonObservingEntity': 1}, 
 					 DelayedArgument({'regionContainedIn'}, helper))
 
 def NotVisibleSpec():
@@ -1185,7 +1179,7 @@ def Facing(heading):
 def FacingToward(pos):
 	"""The 'facing toward <vector>' specifier.
 
-	Specifies the yaw and pitch angle with priorities 1 and 3 respectively, depends on position.
+	Specifies the yaw angle with priority 1, depends on position.
 	and 'pitch'.
 	"""
 	pos = toVector(pos, 'specifier "facing toward X" with X not a vector')
@@ -1194,8 +1188,8 @@ def FacingToward(pos):
 		inverseQuat = context.parentOrientation.invertRotation()
 		rotated = direction.applyRotation(inverseQuat)
 		sphericalCoords = rotated.cartesianToSpherical() # Ignore the rho, sphericalCoords[0]
-		return {'yaw': sphericalCoords[1], 'pitch': sphericalCoords[2]}
-	return Specifier("FacingToward", {'yaw': 1, 'pitch': 3}, DelayedArgument({'position', 'parentOrientation'}, helper))
+		return {'yaw': sphericalCoords[1]}
+	return Specifier("FacingToward", {'yaw': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 
 def FacingDirectlyToward(pos):
 	"""The 'facing directly toward <vector>' specifier.
@@ -1229,8 +1223,8 @@ def FacingAwayFrom(pos):
 		inverseQuat = context.parentOrientation.invertRotation()
 		rotated = direction.applyRotation(inverseQuat)
 		sphericalCoords = rotated.cartesianToSpherical()
-		return {'yaw': sphericalCoords[1], 'pitch': sphericalCoords[2]}
-	return Specifier("FacingAwayFrom", {'yaw': 1, 'pitch': 3}, DelayedArgument({'position', 'parentOrientation'}, helper))
+		return {'yaw': sphericalCoords[1]}
+	return Specifier("FacingAwayFrom", {'yaw': 1}, DelayedArgument({'position', 'parentOrientation'}, helper))
 
 def FacingDirectlyAwayFrom(pos):
 	"""The 'facing directly away from <vector>' specifier. 

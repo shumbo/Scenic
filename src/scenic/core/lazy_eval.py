@@ -36,7 +36,7 @@ class LazilyEvaluable:
 	"""
 	def __init__(self, requiredProps):
 		self._dependencies = ()		# TODO improve?
-		self._requiredProperties = set(requiredProps)
+		self._requiredProperties = tuple(sorted(set(requiredProps)))
 
 	def evaluateIn(self, context, modifying={}):
 		"""Evaluate this value in the context of an object being constructed.
@@ -124,7 +124,7 @@ class DelayedArgument(LazilyEvaluable):
 
 	def __call__(self, *args, **kwargs):
 		subprops = (requiredProperties(arg) for arg in itertools.chain(args, kwargs.values()))
-		props = self._requiredProperties.union(*subprops)
+		props = set(self._requiredProperties).union(*subprops)
 		def value(context, modifying):
 			subvalues = (valueInContext(arg, context, modifying) for arg in args)
 			kwsvs = { name: valueInContext(arg, context, modifying) for name, arg in kwargs.items() }
@@ -153,7 +153,7 @@ allowedOperators = [
 ]
 def makeDelayedOperatorHandler(op):
 	def handler(self, *args):
-		props = self._requiredProperties.union(*(requiredProperties(arg) for arg in args))
+		props = set(self._requiredProperties).union(*(requiredProperties(arg) for arg in args))
 		def value(context, modifying):
 			subvalues = (valueInContext(arg, context, modifying) for arg in args)
 			return getattr(self.evaluateIn(context), op)(*subvalues)
@@ -186,7 +186,7 @@ def valueInContext(value, context, modifying={}):
 def requiredProperties(thing):
 	"""Set of properties needed to evaluate the given value, if any."""
 	if isinstance(thing, LazilyEvaluable):
-		return thing._requiredProperties
+		return set(thing._requiredProperties)
 	elif isinstance(thing, dict):
 		properties = set()
 		for key, val in thing.items():
