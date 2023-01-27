@@ -540,8 +540,6 @@ scenic_stmt:
     | scenic_model_stmt
     | scenic_tracked_assignment
     | scenic_param_stmt
-    | scenic_require_always_stmt
-    | scenic_require_eventually_stmt
     | scenic_require_stmt
     | scenic_record_initial_stmt
     | scenic_record_final_stmt
@@ -1364,10 +1362,10 @@ expression (memo):
     | invalid_expression
     | invalid_legacy_expression
     | scenic_new_expr
-    | a=disjunction 'if' b=disjunction 'else' c=expression {
+    | a=scenic_until 'if' b=scenic_until 'else' c=expression {
         ast.IfExp(body=a, test=b, orelse=c, LOCATIONS)
      }
-    | disjunction
+    | scenic_until
     | lambdef
 
 yield_expr:
@@ -1414,6 +1412,16 @@ named_expression:
     | assignment_expression
     | invalid_named_expression
     | a=expression !':=' { a }
+
+scenic_until (memo):
+    | invalid_scenic_until
+    | a=scenic_implication 'until' b=scenic_implication { s.UntilOp(a, b, LOCATIONS) }
+    | scenic_implication
+
+scenic_implication (memo):
+    | invalid_scenic_implication
+    | a=disjunction 'implies' b=disjunction { s.ImpliesOp(a, b, LOCATIONS) }
+    | disjunction
 
 disjunction (memo):
     | a=conjunction b=('or' c=conjunction { c })+ { ast.BoolOp(op=ast.Or(), values=[a] + b, LOCATIONS) }
@@ -1558,6 +1566,12 @@ scenic_prefix_operators:
     | "visible" e=scenic_prefix_operators { s.VisibleOp(region=e, LOCATIONS) }
     | 'not' "visible" e=scenic_prefix_operators { s.NotVisibleOp(region=e, LOCATIONS) }
     | p=scenic_position_of_op_position 'of' e=scenic_prefix_operators { s.PositionOfOp(position=p, target=e, LOCATIONS) }
+    # always
+    | 'always' e=expression { s.Always(e, LOCATIONS) }
+    # eventually
+    | 'eventually' e=expression { s.Eventually(e, LOCATIONS) }
+    # next
+    | 'next' e=expression { s.Next(e, LOCATIONS) }
     | sum
 
 scenic_distance_from_op:
@@ -1803,16 +1817,6 @@ scenic_require_stmt_name:
     | a=(NAME | NUMBER) { a.string }
     | a=STRING { a.string[1:-1] }
 
-scenic_require_always_stmt:
-    | 'require' 'always' e=expression n=['as' a=scenic_require_stmt_name { a }] {
-        s.RequireAlways(cond=e, name=n, LOCATIONS)
-     }
-
-scenic_require_eventually_stmt:
-    | 'require' 'eventually' e=expression n=['as' a=scenic_require_stmt_name { a }] {
-        s.RequireEventually(cond=e, name=n, LOCATIONS)
-     }
-
 scenic_record_stmt:
     | "record" e=expression n=['as' a=scenic_require_stmt_name { a }] {
         s.Record(value=e, name=n, LOCATIONS)
@@ -1857,7 +1861,8 @@ scenic_dynamic_duration:
     | v=expression "seconds" { s.Seconds(v, LOCATIONS) }
     | v=expression "steps" { s.Steps(v, LOCATIONS) }
 
-scenic_do_until_stmt: 'do' e=(','.expression+) 'until' cond=expression { s.DoUntil(elts=e, cond=cond, LOCATIONS) }
+# FIXME: Is this the right way to resolve ambiguity in `do A until B until X`?
+scenic_do_until_stmt: 'do' e=(','.disjunction+) 'until' cond=expression { s.DoUntil(elts=e, cond=cond, LOCATIONS) }
 
 scenic_do_stmt: 'do' e=(','.expression+) { s.Do(elts=e, LOCATIONS) }
 
@@ -2174,6 +2179,20 @@ invalid_named_expression[NoReturn]:
             self.raise_syntax_error_known_location(
                 f"cannot assign to {self.get_expr_name(a)} here. Maybe you meant '==' instead of '='?", a
             )
+        )
+     }
+
+invalid_scenic_until[NoReturn]:
+    | a=disjunction 'until' scenic_implication {
+        self.raise_syntax_error_known_location(
+            f"`until` must take exactly two operands", a
+        )
+     }
+
+invalid_scenic_implication[NoReturn]:
+    | a=scenic_until 'implies' scenic_implication {
+        self.raise_syntax_error_known_location(
+            f"`implies` must take exactly two operands", a
         )
      }
 
