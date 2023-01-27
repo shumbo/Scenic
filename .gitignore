@@ -134,3 +134,8 @@ dmypy.json
 
 # generated parser
 src/scenic/syntax/parser.py
+
+# example output files
+examples/webots/city_intersection/*
+!examples/webots/city_intersection/.gitkeep
+

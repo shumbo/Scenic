@@ -14,6 +14,6 @@ scenario = scenic.scenarioFromFile(path)
 scene, _ = scenario.generate()
 print('Starting new simulation...')
 
-sim_results = simulator.simulate(scene, verbosity=2)
+sim_results = simulator.simulate(scene, maxIterations=10000, verbosity=2)
 
 supervisor.simulationQuit(0)

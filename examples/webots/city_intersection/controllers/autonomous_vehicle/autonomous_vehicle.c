@@ -29,6 +29,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // to be used as array indices
@@ -370,6 +371,8 @@ int main(int argc, char **argv) {
   // allow to switch to manual control
   wb_keyboard_enable(TIME_STEP);
 
+  camera = wb_robot_get_device("camera");
+
   // main loop
   while (wbu_driver_step() != -1) {
     // get user input
@@ -435,6 +438,10 @@ int main(int argc, char **argv) {
         compute_gps_speed();
       if (enable_display)
         update_display();
+        
+      // Save camera image
+      wb_camera_save_image(camera, "../../images/live_img.jpeg", 60);
+
     }
 
     ++i;

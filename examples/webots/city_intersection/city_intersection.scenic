@@ -5,6 +5,8 @@ of two 2-lane one way roads in a city.
 
 import shapely
 import time
+import shutil
+import os
 
 model scenic.simulators.webots.model
 
@@ -65,13 +67,15 @@ class LogImageAction(Action):
 		
 		target_path = self.path + "/"
 		target_path += "visible" if self.visible else "invisible"
-		target_path += "/" + str(self.count) + ".png"
+
+		if not os.path.exists(target_path):
+			os.makedirs(target_path)
+
+		target_path += "/" + str(self.count) + ".jpeg"
 
 		print("IMG Path:", target_path)
 
-		camera_obj = simulation().supervisor.getFromDef("EGO").getCamera('camera')
-
-		camera_obj.saveImage(target_path, quality=100)
+		shutil.move(localPath("images/live_img.jpeg"), target_path)
 
 behavior LogCamera(path):
 	count = 0
@@ -125,3 +129,7 @@ require abs(ego.distanceTo(0@0) - car.distanceTo(0@0)) > 7.5
 
 # Terminate the simulation after the ego has passed through the intersection
 terminate when ego.position.y > 20
+
+# Require that the car begin the simulation not visible from the ego,
+# become visible at some point, and then become invisible again.
+#require not (ego can see car) until (ego can see car) until not (ego can see car)
