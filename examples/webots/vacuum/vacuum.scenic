@@ -9,6 +9,7 @@ import trimesh
 import random
 
 param numToys = 0
+param duration = 10
 
 # TODO DENSITY NOT GETTING WRITTEN
 # TODO Assigning random seed inside `with x` statement breaks reproducibility
@@ -178,5 +179,5 @@ for _ in range(globalParameters.numToys):
 # toy = new BlockToy on toy.topSurface
 
 ## Simulation Setup ##
-terminate after 1*60 seconds
+terminate after globalParameters.duration * 60 seconds
 record (ego.position.x, ego.position.y) as VacuumPosition
