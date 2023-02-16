@@ -108,8 +108,10 @@ translator.dumpFinalAST = args.dump_ast
 translator.dumpASTPython = args.dump_python
 translator.verbosity = args.verbosity
 translator.usePruning = not args.no_pruning
-if args.seed is not None and args.verbosity >= 1:
-    print(f'Using random seed = {args.seed}')
+if args.seed is not None:
+    if args.verbosity >= 1:
+        print(f'Using random seed = {args.seed}')
+
     random.seed(args.seed)
     numpy.random.seed(args.seed)
 

@@ -907,8 +907,8 @@ def CanSee(X, Y):
 	for obj in currentScenario._sampledObjects:
 		assert not needsSampling(obj)
 
-	occluding_objects = {obj for obj in currentScenario._sampledObjects if obj.occluding \
-						 and X is not obj and Y is not obj}
+	occluding_objects = (obj for obj in currentScenario._sampledObjects if obj.occluding \
+						 and X is not obj and Y is not obj)
 
 	return X.canSee(Y, occludingObjects=occluding_objects)
 

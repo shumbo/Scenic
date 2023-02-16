@@ -196,7 +196,7 @@ DEF EGO BmwX5 {
           ]
         }
       ]
-      fieldOfView 1
+      fieldOfView 1.5
       width 1920
       height 1080
     }

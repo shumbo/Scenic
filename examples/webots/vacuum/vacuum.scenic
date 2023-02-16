@@ -8,11 +8,8 @@ import numpy as np
 import trimesh
 import random
 
-param numToys = 0
+param numToys = 4
 param duration = 10
-
-# TODO DENSITY NOT GETTING WRITTEN
-# TODO Assigning random seed inside `with x` statement breaks reproducibility
 
 ## Class Definitions ##
 
@@ -30,13 +27,14 @@ class Floor(Object):
 	length: 5
 	height: 0.01
 	position: (0,0,-0.005)
-	shape: MeshShape(mesh=trimesh.creation.box((1,1,1)))
+	color: [200, 200, 200]
 
 class Wall(WebotsObject):
 	webotsAdhoc: {'physics': False}
 	width: 5
 	length: 0.04
 	height: 0.5
+	color: [160, 160, 160]
 
 with open(localPath("meshes/dining_table.obj"), "r") as mesh_file:
     dining_table_mesh = trimesh.load(mesh_file, file_type="obj")
@@ -167,16 +165,6 @@ toy_stack = new BlockToy on toy_stack
 # Spawn some toys
 for _ in range(globalParameters.numToys):
 	new Toy on floor.topSurface
-
-# toy = new BlockToy on floor.topSurface
-# toy = new BlockToy on toy.topSurface
-# toy = new BlockToy on toy.topSurface
-# toy = new BlockToy on toy.topSurface
-
-# toy = new BlockToy on floor.topSurface
-# toy = new BlockToy on toy.topSurface
-# toy = new BlockToy on toy.topSurface
-# toy = new BlockToy on toy.topSurface
 
 ## Simulation Setup ##
 terminate after globalParameters.duration * 60 seconds

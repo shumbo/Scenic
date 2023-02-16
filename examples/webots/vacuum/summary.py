@@ -33,10 +33,16 @@ def main(debug=False, plot=False):
 
             positions = []
 
+            # Keep one of every 10 points to avoid memory blowup.
+            count = 0
+
             for position in obj.get("results").get("VacuumPosition"):
-                x = position[1][0]
-                y = position[1][1]
-                positions.append((x, y))
+                if count%10 == 0:
+                    x = position[1][0]
+                    y = position[1][1]
+                    positions.append((x, y))
+                count += 1
+
             line = LineString(positions)
             dilated = line.buffer(vacuum_radius)
 
@@ -59,7 +65,7 @@ def main(debug=False, plot=False):
                 cleaned_area / floor_area
             )
 
-    for numToys, fractions in aggregate.items():
+    for numToys, fractions in sorted(aggregate.items(),key=lambda x:x[0]):
         stat = {
             "sample": len(fractions),
             "mean": mean(fractions),
@@ -69,7 +75,10 @@ def main(debug=False, plot=False):
         print(f"coverage for {numToys} toy(s)")
         for key, value in stat.items():
             print(f"    {key}: {value}")
-
+        print("Raw Data:")
+        for val in fractions:
+            print("{:.2%}".format(val))
+        print()
 
 # Plots a Polygon to pyplot `ax`
 def plot_polygon(ax, poly, **kwargs):
@@ -87,4 +96,4 @@ def plot_polygon(ax, poly, **kwargs):
 
 
 if __name__ == "__main__":
-    main()
+    main(debug=True)

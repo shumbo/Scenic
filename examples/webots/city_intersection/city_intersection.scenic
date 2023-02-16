@@ -13,19 +13,19 @@ model scenic.simulators.webots.model
 class EgoCar(WebotsObject):
 	webotsName: "EGO"
 	width: 2.3
-	length: 5
+	length: 5.25
 	height: 1.9
 	positionOffset: (-0.33, 0, -0.5)
 	cameraOffset: (0.77, 0, 0.95)
 	orientationOffset: (90 deg, 0, 0)
-	viewAngles: (120 deg, 60 deg)
+	viewAngles: (1.5, 60 deg)
 	visibleDistance: 100
 	rayDensity: 10
 
 class Car(WebotsObject):
 	webotsName: "CAR"
 	width: 2.3
-	length: 5
+	length: 5.25
 	height: 1.9
 	positionOffset: (-0.33, 0, -0.5)
 	orientationOffset: (90 deg, 0, 0)
@@ -75,18 +75,26 @@ class LogImageAction(Action):
 
 		print("IMG Path:", target_path)
 
+		# Wait for other controller to write image
+		time.sleep(0.001)
+		attempts = 0
+		while not os.path.exists(localPath("images/live_img.jpeg")):
+			print("Waiting for image...")
+			attempts += 1
+			time.sleep(0.001)
+
+			if attempts > 10:
+				print("Could not move image...")
+				return
+
 		shutil.move(localPath("images/live_img.jpeg"), target_path)
 
 behavior LogCamera(path):
 	count = 0
 	while True:
+		visible = ego can see car
+		take LogImageAction(visible, path, count)
 		count += 1
-		# Log a picture every 50 ticks (half second)
-		if count%50 == 0:
-			visible = ego can see car
-			take LogImageAction(visible, path, count)
-		else:
-			wait
 
 # Create a region that represents both lanes of the crossing road.
 crossing_road_lane = RectangularRegion(0@0, 0, 160, 5, defaultZ=0.02)
@@ -121,15 +129,16 @@ for _ in range(2):
 	new GlassBuilding on building_region, with regionContainedIn building_region
 
 new ResidentialBuilding at (-36, -21, 20)
-new CommercialBuilding at (18, -20, 50), facing Range(-5,5) deg
-new CommercialBuilding at (50, -22, 50), facing Range(-5,5) deg
+new CommercialBuilding at (18 + Range(-1,1), -20 + Range(-1,1), 50), facing Range(-5,5) deg
+new CommercialBuilding at (50 + Range(-1,1), -22 + Range(-1,1), 50), facing Range(-5,5) deg
 
-# Require that the cars reach the intersection at relatively different times
-require abs(ego.distanceTo(0@0) - car.distanceTo(0@0)) > 7.5
+# Terminate the simulation after the ego has passed through the intersection or a timeout is reached
+terminate when ego.position.y > 0
+terminate after 60 seconds
 
-# Terminate the simulation after the ego has passed through the intersection
-terminate when ego.position.y > 20
+# Require that the ego can eventually see the crossing car, but not until it gets close.
+require eventually (ego can see car)
+require (not ego can see car) until (distance from ego to car < 75)
 
-# Require that the car begin the simulation not visible from the ego,
-# become visible at some point, and then become invisible again.
-#require not (ego can see car) until (ego can see car) until not (ego can see car)
+# Require that the cars do not crash
+require always distance to car > 2

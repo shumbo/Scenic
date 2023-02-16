@@ -12,6 +12,7 @@ import random
 import numpy as np
 import trimesh
 from abc import ABC, abstractmethod
+from functools import cache
 
 from scenic.core.distributions import Samplable, needsSampling, distributionMethod, distributionFunction
 from scenic.core.specifiers import Specifier, PropertyDefault, ModifyingSpecifier
@@ -539,6 +540,7 @@ class Point(Constructible):
 	def toVector(self) -> Vector:
 		return self.position
 
+	@cache
 	def canSee(self, other, occludingObjects=list()) -> bool:
 		return canSee(position=self.position, orientation=None, visibleDistance=self.visibleDistance, \
 			viewAngles=(math.tau, math.pi), rayDensity=self.rayDensity, visibleRegion=self.visibleRegion, \
@@ -635,6 +637,7 @@ class OrientedPoint(Point):
 	def toOrientation(self) -> Orientation:
 		return self.orientation
 
+	@cache
 	def canSee(self, other, occludingObjects=list()) -> bool:
 		return canSee(position=self.position, orientation=self.orientation, visibleDistance=self.visibleDistance,
 			viewAngles=self.viewAngles, rayDensity=self.rayDensity, visibleRegion=self.visibleRegion, \
@@ -695,12 +698,6 @@ class Object(OrientedPoint, _RotatedRectangle):
 		'angularVelocity': PropertyDefault((), {'dynamic'}, lambda self: Vector(0, 0, 0)),
 		'angularSpeed': PropertyDefault((), {'dynamic'}, lambda self: 0),
 		'min_top_z': 0.4,
-		'occupiedSpace': PropertyDefault(('shape', 'width', 'length', 'height', 'position', 'orientation', 'onDirection'), \
-			{'dynamic', 'final'}, lambda self: MeshVolumeRegion(mesh=self.shape.mesh, \
-				dimensions=(self.width, self.length, self.height), \
-				position=self.position, rotation=self.orientation, on_direction=self.onDirection)),
-		'boundingBox': PropertyDefault(('occupiedSpace',), {'dynamic', 'final'},  \
-			lambda self: lazyBoundingBox(self.occupiedSpace)),
 		"behavior": None,
 		"lastActions": None,
 		"color": None
@@ -720,7 +717,6 @@ class Object(OrientedPoint, _RotatedRectangle):
 		self.hl = hl = self.length / 2
 		self.hh = hh = self.height / 2
 		self.radius = hypot(hw, hl, hh)	# circumcircle; for collision detection
-		self.inradius = lazyInradius(self.occupiedSpace, self.position)	# incircle; for collision detection
 
 		self._relations = []
 
@@ -843,6 +839,7 @@ class Object(OrientedPoint, _RotatedRectangle):
 		return DefaultViewRegion(visibleDistance=self.visibleDistance, viewAngles=self.viewAngles,\
 			position=true_position, rotation=self.orientation)
 
+	@cache
 	def canSee(self, other, occludingObjects=list()) -> bool:
 		true_position = self.position.offsetRotated(self.orientation, toVector(self.cameraOffset))
 		return canSee(position=true_position, orientation=self.orientation, visibleDistance=self.visibleDistance, \
@@ -858,6 +855,26 @@ class Object(OrientedPoint, _RotatedRectangle):
 			self.relativePosition(Vector(-hw, -hl)),
 			self.relativePosition(Vector(hw, -hl))
 		)
+
+	@cached_property
+	def occupiedSpace(self):
+		return MeshVolumeRegion(mesh=self.shape.mesh, \
+		 		dimensions=(self.width, self.length, self.height), \
+				position=self.position, rotation=self.orientation, on_direction=self.onDirection)
+
+	@cached_property
+	def boundingBox(self):
+		return MeshVolumeRegion(self.occupiedSpace.mesh.bounding_box, center_mesh=False)
+
+	@cached_property
+	def inradius(self):
+		if not self.occupiedSpace.containsPoint(self.position):
+			return 0
+
+		pq = trimesh.proximity.ProximityQuery(self.occupiedSpace.mesh)
+		dist = abs(pq.signed_distance([self.position])[0])
+
+		return dist
 
 	@cached_property
 	def onSurface(self):

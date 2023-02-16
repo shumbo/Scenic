@@ -330,9 +330,9 @@ class Scenario(_ScenarioPickleMixin):
 				# can see the instance.
 				if vi.observingEntity is not None:
 					observing_entity = sample[vi.observingEntity]
-					occluding_objects = {sample[obj] for obj in objects \
+					occluding_objects = (sample[obj] for obj in objects \
 										 if sample[obj] is not observing_entity \
-										 and sample[obj] is not vi and obj.occluding}
+										 and sample[obj] is not vi and obj.occluding)
 					if not observing_entity.canSee(vi, occludingObjects=occluding_objects):
 						rejection = 'instance visibility (from observing entity)'
 						break
@@ -340,9 +340,9 @@ class Scenario(_ScenarioPickleMixin):
 				# can see the instance.
 				if vi.nonObservingEntity is not None:
 					non_observing_entity = sample[vi.nonObservingEntity]
-					occluding_objects = {sample[obj] for obj in objects \
+					occluding_objects = (sample[obj] for obj in objects \
 										 if sample[obj] is not non_observing_entity \
-										 and sample[obj] is not vi and obj.occluding}
+										 and sample[obj] is not vi and obj.occluding)
 					if non_observing_entity.canSee(vi, occludingObjects=occluding_objects):
 						rejection = 'instance visibility (from non-observing entity)'
 
@@ -356,8 +356,8 @@ class Scenario(_ScenarioPickleMixin):
 					break
 				# Require object to be visible from the ego object
 				if vi.requireVisible and vi is not ego:
-					occluding_objects = {sample[obj] for obj in objects if sample[obj] is not ego \
-										 and sample[obj] is not vi and obj.occluding}
+					occluding_objects = (sample[obj] for obj in objects if sample[obj] is not ego \
+										 and sample[obj] is not vi and obj.occluding)
 
 					if not ego.canSee(vi, occludingObjects=occluding_objects):
 						rejection = 'object visibility (from ego)'

@@ -36,7 +36,7 @@ class Simulator:
     :mod:`scenic.simulators.lgsvl.simulator`.
     """
 
-    def simulate(self, scene, maxSteps=None, maxIterations=100, verbosity=0,
+    def simulate(self, scene, maxSteps=None, maxIterations=1, verbosity=0,
                  raiseGuardViolations=False):
         """Run a simulation for a given scene.
 

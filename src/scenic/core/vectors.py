@@ -7,6 +7,7 @@ from math import sin, cos
 import random
 import collections
 import itertools
+import warnings
 
 import decorator
 import shapely.geometry
@@ -194,7 +195,13 @@ class Orientation:
 	def eulerAngles(self) -> EulerAngles:
 		"""Global intrinsic Euler angles yaw, pitch, roll."""
 		r = Rotation.from_quat(self.q)
-		return r.as_euler('ZXY', degrees=False)
+		
+		# Wrapped to catch gimbal lock warning.
+		with warnings.catch_warnings():
+			warnings.simplefilter("ignore")
+			angles = r.as_euler('ZXY', degrees=False)
+
+		return angles
 
 	def getRotation(self):
 		return Rotation.from_quat(self.q)

@@ -1,4 +1,3 @@
-import trimesh
 
 # Pick a workspace
 workspace_region = RectangularRegion(0 @ 0, 0, 40, 40)

@@ -17,11 +17,11 @@ wall = new Object at (0,0,20),
     with onDirection (0,1,0)
 
 # Load chair mesh from file and create chair shape from it
-with open(localPath("mesh.obj"), "r") as mesh_file:
+with open(localPath("chair.obj"), "r") as mesh_file:
     mesh = trimesh.load(mesh_file, file_type="obj")
 
 chair_shape = MeshShape(mesh, dimensions=(5,5,5), initial_rotation=(0,90 deg,0))
 
 # Create chair object
-ego = new Object in air_region, on wall,
+ego = new Object in air_region, on wall.occupiedSpace,
     with shape chair_shape

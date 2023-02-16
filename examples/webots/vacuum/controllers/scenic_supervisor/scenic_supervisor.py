@@ -14,11 +14,11 @@ def getFilename(duration: int, numToys: int, iteration: int) -> str:
 # CONSTANTS
 
 # how many times perform simulations?
-ITERATION = 10
+ITERATION = 25
 # how long to run simulation for (minutes)
-DURATION = 10
+DURATION = 5
 # number of toys to simulate
-NUM_TOYS_LIST = [0, 1, 2, 4]
+NUM_TOYS_LIST = [0, 1, 2, 4, 8, 16]
 
 # save logs to `logs`
 output_dir = Path(__file__).resolve().parent.parent.parent / "logs"
@@ -45,7 +45,7 @@ for numToys in NUM_TOYS_LIST:
 
         ts = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
 
-        scene, _ = scenario.generate()
+        scene, _ = scenario.generate(maxIterations=float('inf'))
         sim_results = simulator.simulate(scene, verbosity=2).result
 
         s = json.dumps({"params": params, "results": sim_results.records}, indent=4)

@@ -9,5 +9,5 @@ chair_shape = MeshShape(chair_mesh, dimensions=(1,1,1), initial_rotation=(0,90 d
 class Chair:
 	shape: chair_shape
 
-floor = new Object with width 10, with length 10, with height 0.1
+floor = new Object with width 5, with length 5, with height 0.1
 ego = new Chair on floor

@@ -100,6 +100,7 @@ def pruneContainment(scenario, verbosity):
     can instead pick a position uniformly in their intersection. If we can also lower
     bound the radius of O, then we can first erode C by that distance.
     """
+    return # TEMPORARY DISABLE
     for obj in scenario.objects:
         base = matchInRegion(obj.position)
         if base is None:                    # match objects positioned uniformly in a Region

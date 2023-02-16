@@ -13,7 +13,7 @@ WorldInfo {
     "The robot can be stopped by the virtual walls emitting IR light."
   ]
   title "iRobot Create"
-  basicTimeStep 32
+  basicTimeStep 20
   optimalThreadCount 1
   defaultDamping Damping {
                   linear  0.2

@@ -336,6 +336,28 @@ def test_control_flow():
 
 ## Reproducibility
 
+def test_specifier_order():
+    scenario = compileScenic(
+    """
+    ego = new Object with width Range(0.7, 1.5),
+        with length Range(0.7, 1.5)
+    """
+    )
+    seeds = [random.randint(0, 100000) for i in range(100)]
+    for seed in seeds:
+        random.seed(seed)
+        numpy.random.seed(seed)
+        baseScene, baseIterations = scenario.generate(maxIterations=200)
+        for j in range(50):
+            random.seed(seed)
+            numpy.random.seed(seed)
+            scene, iterations = scenario.generate(maxIterations=200)
+            assert len(scene.objects) == len(baseScene.objects)
+            for obj, baseObj in zip(scene.objects, baseScene.objects):
+                assert obj.width == baseObj.width
+                assert obj.length == baseObj.length
+            assert iterations == baseIterations
+
 @pytest.mark.slow
 def test_reproducibility():
     scenario = compileScenic(
@@ -376,7 +398,7 @@ def test_reproducibility_3d():
         'x = Range(0, 1)\n'
         'require x > 0.8'
     )
-    seeds = [random.randint(0, 100) for i in range(10)]
+    seeds = [random.randint(0, 100000) for i in range(10)]
     for seed in seeds:
         random.seed(seed)
         numpy.random.seed(seed)

@@ -35,7 +35,7 @@ class WebotsSimulator(Simulator):
     Args:
         supervisor: Supervisor node handle from the Webots Python API.
     """
-    def __init__(self, supervisor):
+    def __init__(self, supervisor, timestep=None):
         super().__init__()
         self.supervisor = supervisor
         topLevelNodes = supervisor.getRoot().getField('children')
@@ -49,10 +49,12 @@ class WebotsSimulator(Simulator):
             raise RuntimeError('Webots world does not contain a WorldInfo node')
         system = worldInfo.getField('coordinateSystem').getSFString()
         self.coordinateSystem = WebotsCoordinateSystem(system)
+        self.timestep = timestep
 
     def createSimulation(self, scene, verbosity=0):
         return WebotsSimulation(scene, self.supervisor,
-                                coordinateSystem=self.coordinateSystem)
+                                coordinateSystem=self.coordinateSystem,
+                                timestep=self.timestep)
 
 class WebotsSimulation(Simulation):
     """`Simulation` object for Webots.
@@ -62,8 +64,8 @@ class WebotsSimulation(Simulation):
             exposed for the use of scenarios which need to call Webots APIs
             directly; e.g. :samp:`simulation().supervisor.setLabel({...})`.
     """
-    def __init__(self, scene, supervisor, verbosity=0, coordinateSystem=ENU):
-        timestep = supervisor.getBasicTimeStep() / 1000
+    def __init__(self, scene, supervisor, verbosity=0, coordinateSystem=ENU, timestep=None):
+        timestep = supervisor.getBasicTimeStep() / 1000 if timestep is None else timestep
         super().__init__(scene, timestep=timestep, verbosity=verbosity)
         self.supervisor = supervisor
         self.coordinateSystem = coordinateSystem
@@ -220,7 +222,7 @@ class WebotsSimulation(Simulation):
         orientation = self.coordinateSystem.orientationToScenic(
             webotsObj.getField('rotation').getSFRotation(),
             offsetOrientation,
-        )
+        ) * obj.parentOrientation.invertRotation()
 
         densityField = getFieldSafe(webotsObj, "density")
         density = None
