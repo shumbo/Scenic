@@ -7,13 +7,14 @@ Manipulations of polygons and line segments are done using the
 import math
 import random
 import itertools
-from abc import ABC
+from abc import ABC, abstractmethod
 import warnings
 
 import numpy
 import scipy
 import shapely
 import shapely.geometry
+from shapely.geometry import MultiPolygon
 import shapely.ops
 import shapely.prepared
 
@@ -22,7 +23,7 @@ from trimesh.transformations import translation_matrix, quaternion_matrix, conca
 
 from subprocess import CalledProcessError
 
-from scenic.core.distributions import (Samplable, RejectionException, needsSampling,
+from scenic.core.distributions import (Samplable, RejectionException, needsSampling, needsLazyEvaluation,
 									   distributionMethod, toDistribution)
 from scenic.core.lazy_eval import valueInContext
 from scenic.core.vectors import Vector, OrientedVector, VectorDistribution, VectorField, Orientation
@@ -63,16 +64,13 @@ class Region(Samplable, ABC):
 		"""Check if the `Region` contains a point. Implemented by subclasses."""
 		raise NotImplementedError
 
-	# TODO: Move this to subclass for 2D regions.
+	@abstractmethod
 	def containsObject(self, obj) -> bool:
 		"""Check if the `Region` contains an :obj:`~scenic.core.object_types.Object`.
 		The default implementation assumes the `Region` is convex; subclasses must
 		override the method if this is not the case.
 		"""
-		for corner in obj.corners:
-			if not self.containsPoint(corner):
-				return False
-		return True
+		raise NotImplementedError
 
 	def distanceTo(self, point) -> float:
 		"""Distance to this region from a given point.
@@ -294,7 +292,14 @@ class IntersectionRegion(Region):
 								  name=self.name)
 
 	def containsPoint(self, point):
-		return all(region.containsPoint(point) for region in self.regions)
+		return all(region.containsPoint(point) for region in self.footprint.regions)
+
+	def containsObject(self, obj):
+		return all(region.containsObject(obj) for region in self.footprint.regions)
+
+	@cached_property
+	def footprint(self):
+		return convertToFootprint(self)
 
 	def uniformPointInner(self):
 		return self.orient(self.sampler(self))
@@ -349,7 +354,14 @@ class DifferenceRegion(Region):
 								sampler=self.sampler, name=self.name)
 
 	def containsPoint(self, point):
-		return self.regionA.containsPoint(point) and not self.regionB.containsPoint(point)
+		return self.footprint.regionA.containsPoint(point) and not self.footprint.regionB.containsPoint(point)
+
+	def containsObject(self, obj):
+		return self.footprint.regionA.containsObject(obj) and not self.footprint.regionB.intersects(obj.occupiedSpace)
+
+	@cached_property
+	def footprint(self):
+		return convertToFootprint(self)
 
 	def uniformPointInner(self):
 		return self.orient(self.sampler(self))
@@ -500,8 +512,7 @@ class _MeshRegion(Region):
 			return super().intersect(other, triedReversed)
 
 		if isinstance(other, (_MeshRegion)):
-			# Other region is a MeshRegion.
-			# We can extract the mesh to perform boolean operations on it
+			# Other region is a MeshRegion. We can extract the mesh to perform boolean operations on it
 			other_mesh = other.mesh
 
 			# Compute intersection using Trimesh (CalledProcessError usually means empty intersection)
@@ -517,45 +528,32 @@ class _MeshRegion(Region):
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
 
-		other_polygon = toPolygon(other)
+		if isinstance(other, PolygonalFootprintRegion):
+			# Other region is a polygonal footprint region. We can bound it in the vertical dimension
+			# and then calculate the intersection with the resulting mesh volume.
 
-		if isinstance(other_polygon, (shapely.geometry.polygon.Polygon, shapely.geometry.multipolygon.MultiPolygon)):
-			# Other region is one or more polygons, which we can extrude it to cover the entire mesh vertically
-			# and then take the intersection.
-
-			# Extract a list of the polygons
-			if isinstance(other_polygon, shapely.geometry.polygon.Polygon):
-				polygons = [other_polygon]
-			else:
-				polygons = list(other_polygon.geoms)
-
-			# Determine the mesh's vertical bounds, and extrude the polygon to have height equal to the mesh
-			# (plus a little extra).
+			# Determine the mesh's vertical bounds (adding a little extra to avoid mesh errors) and
+			# the mesh's vertical center.
 			vertical_bounds = (self.mesh.bounds[0][2], self.mesh.bounds[1][2])
-			polygon_height = vertical_bounds[1] - vertical_bounds[0] + 1
+			mesh_height = vertical_bounds[1] - vertical_bounds[0] + 1
+			center_z = (vertical_bounds[1] + vertical_bounds[0])/2
 
-			vf = [trimesh.creation.triangulate_polygon(p) for p in polygons]
+			# Compute the bounded footprint and recursively compute the intersection
+			bounded_footprint = other.approxBoundFootprint(center_z, mesh_height)
 
-			v, f = trimesh.util.append_faces([i[0] for i in vf], [i[1] for i in vf])
+			return self.intersect(bounded_footprint)
 
-			polygon_mesh = trimesh.creation.extrude_triangulation(v, f, height=polygon_height)
+		if isinstance(other, Polygonal):
+			# Other region can be represented by a polygon. We can slice the volume at the polygon's height,
+			# and then take the intersection of the resulting polygons.
+			origin_point = (self.mesh.centroid[0], self.mesh.centroid[1], other.z)
+			slice_3d = self.mesh.section(plane_origin=origin_point, plane_normal=[0,0,1])
+			slice_2d, _ = slice_3d.to_planar()
+			polygons = MultiPolygon(slice_2d.polygons_full)
 
-			# Translate the polygon mesh vertically so it covers the main mesh.
-			polygon_z_pos = (vertical_bounds[1] + vertical_bounds[0])/2
-			polygon_mesh.vertices[:,2] += polygon_z_pos - polygon_mesh.bounding_box.center_mass[2]
+			return PolygonalRegion(polygon=polygons, height=other.z)
 
-			# Compute intersection using Trimesh (CalledProcessError usually means empty intersection)
-			try:
-				new_mesh = self.mesh.intersection(polygon_mesh, engine=self.engine)
-			except CalledProcessError:
-				return EmptyRegion("EmptyMesh")
-
-			if new_mesh.is_empty:
-				return EmptyRegion("EmptyMesh")
-			elif new_mesh.is_volume:
-				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
-			else:
-				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
+		other_polygon = toPolygon(other)
 
 		if isinstance(self, MeshVolumeRegion) and isinstance(other_polygon, (shapely.geometry.linestring.LineString, shapely.geometry.multilinestring.MultiLineString)):
 			# Other region is one or more line segments. We can divide each line segment into pieces that are entirely inside/outside
@@ -688,35 +686,21 @@ class _MeshRegion(Region):
 				return MeshVolumeRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
 			else:
 				return MeshSurfaceRegion(new_mesh, tolerance=min(self.tolerance, other.tolerance), center_mesh=False, engine=self.engine)
-		elif toPolygon(other) is not None:
-			# Other region is a polygon.
-			# We can extrude it to cover the entire mesh vertically
-			# and then take the difference.
-			other_polygon = toPolygon(other)
 
-			# Determine the mesh's vertical bounds, and extrude the polygon to have height equal to the mesh
-			# (plus a little extra).
+		if isinstance(other, PolygonalFootprintRegion):
+			# Other region is a polygonal footprint region. We can bound it in the vertical dimension
+			# and then calculate the difference with the resulting mesh volume.
+
+			# Determine the mesh's vertical bounds (adding a little extra to avoid mesh errors) and
+			# the mesh's vertical center.
 			vertical_bounds = (self.mesh.bounds[0][2], self.mesh.bounds[1][2])
-			polygon_height = vertical_bounds[1] - vertical_bounds[0] + 1
+			mesh_height = vertical_bounds[1] - vertical_bounds[0] + 1
+			center_z = (vertical_bounds[1] + vertical_bounds[0])/2
 
-			polygon_mesh = trimesh.creation.extrude_polygon(polygon=other_polygon, height=polygon_height)
+			# Compute the bounded footprint and recursively compute the intersection
+			bounded_footprint = other.approxBoundFootprint(center_z, mesh_height)
 
-			# Translate the polygon mesh vertically so it covers the main mesh.
-			polygon_z_pos = (vertical_bounds[1] + vertical_bounds[0])/2
-			polygon_mesh.vertices[:,2] += polygon_z_pos - polygon_mesh.bounding_box.center_mass[2]
-
-			# Compute difference using Trimesh (CalledProcessError usually means empty intersection)
-			try:
-				new_mesh = self.mesh.difference(polygon_mesh, engine=self.engine)
-			except CalledProcessError:
-				return EmptyRegion("EmptyMesh")
-
-			if new_mesh.is_empty:
-				return EmptyRegion("EmptyMesh")
-			elif new_mesh.is_volume:
-				return MeshVolumeRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
-			else:
-				return MeshSurfaceRegion(new_mesh, tolerance=self.tolerance, center_mesh=False, engine=self.engine)
+			return self.difference(bounded_footprint)
 
 		# Don't know how to compute this difference, fall back to default behavior.
 		return super().difference(other)
@@ -807,7 +791,7 @@ class MeshVolumeRegion(_MeshRegion):
 		if needsSampling(self):
 			return super().intersects(other)
 
-		elif isinstance(other, MeshVolumeRegion):
+		if isinstance(other, MeshVolumeRegion):
 			# PASS 1
 			# Check if bounding boxes intersect. If not, volumes cannot intersect.
 			# For bounding boxes to intersect there must be overlap of the bounds
@@ -880,7 +864,7 @@ class MeshVolumeRegion(_MeshRegion):
 			# to give the right answer.
 			return not isinstance(self.intersect(other), EmptyRegion)
 
-		elif isinstance(other, MeshSurfaceRegion):
+		if isinstance(other, MeshSurfaceRegion):
 			# PASS 1
 			# Check if bounding boxes intersect. If not, volumes cannot intersect.
 			# For bounding boxes to intersect there must be overlap of the bounds
@@ -912,7 +896,19 @@ class MeshVolumeRegion(_MeshRegion):
 			# to give the right answer.
 			return not isinstance(self.intersect(other), EmptyRegion)
 
-		elif not triedReversed:
+		if isinstance(other, PolygonalFootprintRegion):
+			# Determine the mesh's vertical bounds (adding a little extra to avoid mesh errors) and
+			# the mesh's vertical center.
+			vertical_bounds = (self.mesh.bounds[0][2], self.mesh.bounds[1][2])
+			mesh_height = vertical_bounds[1] - vertical_bounds[0] + 1
+			center_z = (vertical_bounds[1] + vertical_bounds[0])/2
+
+			# Compute the bounded footprint and recursively compute the intersection
+			bounded_footprint = other.approxBoundFootprint(center_z, mesh_height)
+
+			return self.intersects(bounded_footprint)
+
+		if not triedReversed:
 			return other.intersects(self)
 
 		raise NotImplementedError(f"Cannot check intersection of MeshRegion with {type(other)}.")
@@ -996,11 +992,9 @@ class MeshVolumeRegion(_MeshRegion):
 		# If the difference between the object's region and this region is empty,
 		# i.e. obj_region - self_region = EmptyRegion, that means the object is
 		# entirely contained in this region. We also return true if the result is a MeshSurfaceRegion,
-		# as this usually means the object and this region share a surface. 
-		# right answer. 
+		# as this usually means the object and this region share a surface.
 		diff_region = obj.occupiedSpace.difference(self)
-		if isinstance(diff_region, EmptyRegion) or isinstance(diff_region, MeshSurfaceRegion):
-			return True
+		return isinstance(diff_region, EmptyRegion) or isinstance(diff_region, MeshSurfaceRegion)
 
 	def uniformPointInner(self):
 		""" Samples a point uniformly from the volume of the region"""
@@ -1073,6 +1067,18 @@ class MeshSurfaceRegion(_MeshRegion):
 
 			return surface_collision
 
+		if isinstance(other, PolygonalFootprintRegion):
+			# Determine the mesh's vertical bounds (adding a little extra to avoid mesh errors) and
+			# the mesh's vertical center.
+			vertical_bounds = (self.mesh.bounds[0][2], self.mesh.bounds[1][2])
+			mesh_height = vertical_bounds[1] - vertical_bounds[0] + 1
+			center_z = (vertical_bounds[1] + vertical_bounds[0])/2
+
+			# Compute the bounded footprint and recursively compute the intersection
+			bounded_footprint = other.approxBoundFootprint(center_z, mesh_height)
+
+			return self.intersects(bounded_footprint)
+
 		elif not triedReversed:
 			return other.intersects(self)
 
@@ -1122,7 +1128,7 @@ class MeshSurfaceRegion(_MeshRegion):
 		return self
 
 class BoxRegion(MeshVolumeRegion):
-	"""Region in the shape of a rectangular cuboid, i.e. a box. By default the unit box centered at the origin
+	""" Region in the shape of a rectangular cuboid, i.e. a box. By default the unit box centered at the origin
 	and aligned with the axes is used.
 
 	:param name: An optional name to help with debugging.
@@ -1139,7 +1145,7 @@ class BoxRegion(MeshVolumeRegion):
 		orientation=orientation, tolerance=tolerance, engine=engine)
 
 class SpheroidRegion(MeshVolumeRegion):
-	"""Region in the shape of a spheroid. By default the unit sphere centered at the origin
+	""" Region in the shape of a spheroid. By default the unit sphere centered at the origin
 	and aligned with the axes is used.
 
 	:param name: An optional name to help with debugging.
@@ -1155,422 +1161,367 @@ class SpheroidRegion(MeshVolumeRegion):
 		super().__init__(mesh=sphere_mesh, name=name, position=position, rotation=rotation, dimensions=dimensions, \
 			orientation=orientation, tolerance=tolerance, engine=engine)
 
-class PyramidViewRegion(MeshVolumeRegion):
+class PolygonalFootprintRegion(Region):
+	""" Region that contains all points in a polygonal footprint, regardless of their z value. This region
+	cannot be sampled from, as it has infinite height and therefore volume.
+	
+	:param polygon: A ``MultiPolygon`` that defines the footprint of this region.
 	"""
-	:param visibleDistance: The view distance for this region (will be slightly amplified to 
-		prevent mesh intersection errors).
-	:param viewAngles: The view angles for this region.
-	:param rotation: An optional Orientation object which determines the rotation of the object in space.
-	"""
-	def __init__(self, visibleDistance, viewAngles, rotation=None):
-		if min(viewAngles) <= 0 or max(viewAngles) >= math.pi:
-			raise ValueError("viewAngles members must be between 0 and Pi.")
+	def __init__(self, polygon, name=None, orientation=None):
+		if not isinstance(polygon, MultiPolygon):
+			raise RuntimeError("'polygon' must be a shapely MultiPolygon")
 
-		x_dim = 2*visibleDistance*math.tan(viewAngles[0]/2)
-		z_dim = 2*visibleDistance*math.tan(viewAngles[1]/2)
+		self.polygon = polygon
+		super().__init__(name, orientation=orientation)
+		self._bounded_cache = None
 
-		dimensions = (x_dim, visibleDistance*1.01, z_dim)
+	def intersect(self, other, triedReversed=False):
+		if isinstance(other, Polygonal):
+			# Other region can be represented by a polygon. We can take the intersection of that
+			# polygon with our base polygon at the correct z position, and then output the resulting polygon.
+			return PolygonalRegion(polygon=self.polygon, height=other.z).intersect(other.polygonalRegion)
 
-		# Create pyramid mesh and scale it appropriately.
-		vertices = [[ 0,  0,  0],
-		            [-1,  1,  1],
-		            [ 1,  1,  1],
-		            [ 1,  1, -1],
-		            [-1,  1, -1]]
+		if isinstance(other, PolygonalFootprintRegion):
+			# Other region is a PolygonalFootprintRegion, so we can just intersect the base polygons
+			# and take the footprint of the result, if it isn't empty.
+			new_poly = PolygonalRegion(polygon=self.polygon).intersect(PolygonalRegion(polygon=other.polygon))
 
-		faces = [[0,2,1],
-		         [0,3,2],
-		         [0,4,3],
-	             [0,1,4],
-		         [1,2,4],
-		         [2,3,4]]
-
-		pyramid_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-
-		scale = pyramid_mesh.extents / numpy.array(dimensions)
-
-		scale_matrix = numpy.eye(4)
-		scale_matrix[:3, :3] /= scale
-
-		pyramid_mesh.apply_transform(scale_matrix)
-
-		super().__init__(mesh=pyramid_mesh, rotation=rotation, center_mesh=False)
-
-
-class TriangularPrismViewRegion(MeshVolumeRegion):
-	"""
-	:param visibleDistance: The view distance for this region (will be slightly amplified to 
-		prevent mesh intersection errors).
-	:param viewAngles: The view angles for this region.
-	:param rotation: An optional Orientation object which determines the rotation of the object in space.
-	"""
-	def __init__(self, visibleDistance, viewAngle, rotation=None):
-		if viewAngle <= 0 or viewAngle >= math.pi:
-			raise ValueError("viewAngles members must be between 0 and Pi.")
-
-		y_dim = 1.01*visibleDistance
-		z_dim = 2*y_dim
-		x_dim = 2*math.tan(viewAngle/2)*y_dim
-
-		dimensions = (x_dim, y_dim, z_dim)
-
-		# Create triangualr prism mesh and scale it appropriately.
-		vertices = [[ 0,  0,  1], # 0 - Top origin
-					[ 0,  0, -1], # 1 - Bottom origin
-					[-1,  1,  1], # 2 - Top left
-					[ 1,  1,  1], # 3 - Top right
-					[-1,  1, -1], # 4 - Bottom left
-					[ 1,  1, -1]] # 5 - Bottom right
-
-		faces = [
-				 [0,3,2], # Top triangle
-				 [1,4,5], # Bottom triangle
-				 [1,0,2], # Left 1
-				 [1,2,4], # Left 2
-				 [1,3,0], # Right 1
-				 [1,5,3], # Right 2
-				 [4,2,3], # Back 1
-				 [4,3,5], # Back 2
-				]
-
-		tprism_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-
-		scale = tprism_mesh.extents / numpy.array(dimensions)
-
-		scale_matrix = numpy.eye(4)
-		scale_matrix[:3, :3] /= scale
-
-		tprism_mesh.apply_transform(scale_matrix)
-
-		super().__init__(mesh=tprism_mesh, rotation=rotation, center_mesh=False)
-
-class DefaultViewRegion(MeshVolumeRegion):
-	""" The default view region shape.
-	:param visibleDistance: The view distance for this region.
-	:param viewAngles: The view angles for this region.
-	:param name: An optional name to help with debugging.
-	:param position: An optional position, which determines where the center of the region will be.
-	:param position: An optional Orientation object which determines the rotation of the object in space.
-	:param orientation: An optional vector field describing the preferred orientation at every point in
-		the region.
-	:param tolerance: Tolerance for collision computations.
-	"""
-	def __init__(self, visibleDistance, viewAngles, name=None, position=Vector(0,0,0), rotation=None,\
-		orientation=None, tolerance=1e-8):
-		# Bound viewAngles from either side.
-		viewAngles = tuple([min(angle, math.tau) for angle in viewAngles])
-
-		if min(viewAngles) <= 0:
-			raise ValueError("viewAngles cannot have a component less than or equal to 0")
-
-		# Cases in view region computation
-		# Case 1: 		Azimuth view angle = 360 degrees
-		# 	Case 1.a: 	Altitude view angle = 180 degrees 	=> Full Sphere View Region
-		# 	Case 1.b: 	Altitude view angle < 180 degrees  	=> Sphere - (Cone + Cone) (Cones on z axis expanding from origin)
-		# Case 2: 		Azimuth view angle = 180 degrees
-		# 	Case 2.a:	Altitude view angle = 180 degrees 	=> Hemisphere View Region
-		# 	Case 2.b:	Altitude view angle < 180 degrees	=> Hemisphere - (Cone + Cone) (Cones on appropriate hemispheres)
-		# Case 3:		Altitude view angle = 180 degrees	
-		#	Case 3.a: 	Azimuth view angle < 180 degrees	=> Sphere intersected with Pyramid View Region
-		#	Case 3.b: 	Azimuth view angle > 180 degrees	=> Sphere - Backwards Pyramid View Region 
-		# Case 4: 		Both view angles < 180 				=> Capped Pyramid View Region
-		# Case 5:		Azimuth > 180, Altitude < 180		=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
-
-		view_region = None
-		diameter = 2*visibleDistance
-		base_sphere = SpheroidRegion(dimensions=(diameter, diameter, diameter), engine="scad")
-
-		if (math.tau-0.01 <= viewAngles[0] <= math.tau+0.01):
-			# Case 1
-			if viewAngles[1] > math.pi-0.01:
-				#Case 1.a
-				view_region = base_sphere
+			if isinstance(new_poly, EmptyRegion):
+				return new_poly
 			else:
-				# Case 1.b
-				# Create cone with yaw oriented around (0,0,-1)
-				padded_height = visibleDistance * 2
-				radius = padded_height*math.tan((math.pi-viewAngles[1])/2)
+				return new_poly.footprint
 
-				cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
+		return super().intersect(other, triedReversed)
 
-				position_matrix = translation_matrix((0,0,-1*padded_height))
-				cone_mesh.apply_transform(position_matrix)
+	def union(self, other, triedReversed=False):
+		if isinstance(other, PolygonalFootprintRegion):
+			# Other region is a PolygonalFootprintRegion, so we can just union the base polygons
+			# and take the footprint of the result.
+			return PolygonalRegion(polygon=self.polygon).intersect(PolygonalRegion(polygon=other.polygon)).footprint
 
-				# Create two cones around the yaw axis
-				orientation_1 = Orientation.fromEuler(0,0,0)
-				orientation_2 = Orientation.fromEuler(0,0,math.pi)
+		return super().union(other, triedReversed)
 
-				cone_1 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_1, center_mesh=False)
-				cone_2 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_2, center_mesh=False)
+	def difference(self, other):
+		if isinstance(other, PolygonalFootprintRegion):
+			# Other region is a PolygonalFootprintRegion, so we can just difference the base polygons
+			# and take the footprint of the result, if it isn't empty.
+			new_poly = PolygonalRegion(polygon=self.polygon).intersect(PolygonalRegion(polygon=other.polygon))
 
-				view_region = base_sphere.difference(cone_1).difference(cone_2)
-
-		elif (math.pi-0.01 <= viewAngles[0] <= math.pi+0.01):
-			# Case 2
-			if viewAngles[1] > math.pi-0.01:
-				# Case 2.a
-				padded_diameter = 1.1*diameter
-				view_region = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
+			if isinstance(new_poly, EmptyRegion):
+				return new_poly
 			else:
-				# Case 2.b
-				# Create cone with yaw oriented around (0,0,-1)
-				padded_height = visibleDistance * 2
-				radius = padded_height*math.tan((math.pi-viewAngles[1])/2)
+				return new_poly.footprint
 
-				cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
+		return super().difference(other)
 
-				position_matrix = translation_matrix((0,0,-1*padded_height))
-				cone_mesh.apply_transform(position_matrix)
+	def containsPoint(self, point):
+		""" Checks if a point is contained in the polygonal footprint by checking
+		if the (x, y) values are contained in the polygon.
 
-				# Create two cones around the yaw axis
-				orientation_1 = Orientation.fromEuler(0,0,0)
-				orientation_2 = Orientation.fromEuler(0,0,math.pi)
+		:param point: A point to be checked for containment.
+		"""
+		x_y_point = point[:2]
+		return self.polygon.intersects(shapely.geometry.Point(x_y_point))
 
-				cone_1 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_1, center_mesh=False)
-				cone_2 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_2, center_mesh=False)
+	def containsObject(self, obj):
+		""" Checks if an object is contained in the polygonal footprint.
+		 The polygonal footprint is bounded so that it contains all vertical values of the object. 
+		Then we check if the object is contained in this volume.
 
-				padded_diameter = 1.1*diameter
+		:param obj: An object to be checked for containment.
+		"""
+		# Determine the mesh's vertical bounds, and calculate height equal to the mesh's
+		# (plus a little extra) along with the central z point of the mesh.
+		vertical_bounds = (obj.occupiedSpace.mesh.bounds[0][2], obj.occupiedSpace.mesh.bounds[1][2])
+		height = vertical_bounds[1] - vertical_bounds[0] + 1
+		center_z = (vertical_bounds[1] + vertical_bounds[0])/2
 
-				base_hemisphere = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
+		# Create a bounded footprint of the mesh.
+		bounded_footprint = self.approxBoundFootprint(center_z, height)
 
-				view_region = base_hemisphere.difference(cone_1).difference(cone_2)
+		# Check for containment of the object in the bounded footprint.
+		return bounded_footprint.containsObject(obj)
 
-		elif viewAngles[1] > math.pi-0.01:
-			# Case 3
-			if viewAngles[0] < math.pi:
-				view_region = base_sphere.intersect(TriangularPrismViewRegion(visibleDistance, viewAngles[0]))
-			elif viewAngles[0] > math.pi:
-				back_tprism = TriangularPrismViewRegion(visibleDistance, math.tau - viewAngles[0], rotation=Orientation.fromEuler(math.pi, 0, 0))
-				view_region = base_sphere.difference(back_tprism)
-			else:
-				assert False, f"{viewAngles=}"
+	def approxBoundFootprint(self, center_z, height):
+		""" Returns a boundFootprint volume that is guaranteed to contain the
+		result of boundFootprint(center_z, height), but may be taller. Used 
+		to save time on recomputing boundFootprint.
+		"""
+		if self._bounded_cache is not None:
+			# See if we can reuse a previous region
+			prev_center_z, prev_height, prev_bounded_footprint = self._bounded_cache
 
-		elif viewAngles[0] < math.pi and viewAngles[1] < math.pi:
-			# Case 4
-			view_region = base_sphere.intersect(PyramidViewRegion(visibleDistance, viewAngles))
-		elif viewAngles[0] > math.pi and viewAngles[1] < math.pi:
-			# Case 5
-			# Create cone with yaw oriented around (0,0,-1)
-			padded_height = visibleDistance * 2
-			radius = padded_height*math.tan((math.pi-viewAngles[1])/2)
+			if prev_center_z + prev_height/2 > center_z + height/2 and \
+			   prev_center_z - prev_height/2 < center_z - height/2:
+			   	# Cached region covers requested region, so return that.
+			   	return prev_bounded_footprint
 
-			cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
 
-			position_matrix = translation_matrix((0,0,-1*padded_height))
-			cone_mesh.apply_transform(position_matrix)
+		# Populate cache, and make the height bigger than requested to try to
+		# save on future calls.
+		padded_height = 100*max(1,center_z)*height
+		bounded_footprint = self.boundFootprint(center_z, padded_height)
 
-			# Position on the yaw axis
-			orientation_1 = Orientation.fromEuler(0,0,0)
-			orientation_2 = Orientation.fromEuler(0,0,math.pi)
+		self._bounded_cache = center_z, padded_height, bounded_footprint
 
-			cone_1 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_1, center_mesh=False)
-			cone_2 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_2, center_mesh=False)
+		return bounded_footprint
 
-			backwards_view_angle = (math.tau-viewAngles[0], math.pi-0.01)
-			back_pyramid = PyramidViewRegion(visibleDistance, backwards_view_angle, rotation=Orientation.fromEuler(math.pi, 0, 0))
+	def boundFootprint(self, center_z, height):
+		""" Cap the footprint of the object to a given height, centered at a
+		given z.
 
-			# Note: Openscad does not like the result of the difference with the cones, so they must be done last.
-			view_region = base_sphere.difference(back_pyramid).difference(cone_1).difference(cone_2)
-		else:
-			assert False, f"{viewAngles=}"
+		:param center_z: The resulting mesh will be vertically centered at this
+			height.
+		:param height: The resulting mesh will have this height.
+		"""
 
-		assert view_region is not None
+		# Extract a list of the polygon
+		polygon = list(self.polygon.geoms)
 
-		# Initialize volume region
-		super().__init__(mesh=view_region.mesh, name=name, position=position, rotation=rotation, orientation=orientation, \
-			tolerance=tolerance, center_mesh=False)
+		# Extrude the polygon to the desired height
+		vf = [trimesh.creation.triangulate_polygon(p) for p in polygon]
+		v, f = trimesh.util.append_faces([i[0] for i in vf], [i[1] for i in vf])
+		polygon_mesh = trimesh.creation.extrude_triangulation(v, f, height=height)
+
+		# Translate the polygon mesh to the desired height.
+		polygon_mesh.vertices[:,2] += center_z - polygon_mesh.bounding_box.center_mass[2]
+
+		return MeshVolumeRegion(polygon_mesh, center_mesh=False)
 
 ###################################################################################################
 # 2D Regions
 ###################################################################################################
 
-class CircularRegion(Region):
-	"""A circular region with a possibly-random center and radius.
+class Polygonal(ABC):
+	""" An abstract base class that indicates that this region can be coerced
+	to a 2D polygon (perhaps with minor loss of precision). Adds several
+	convenience functions, like defining a polygonal footprint. Also defines
+	a default method for checking point and object containment which check
+	containment in the polygonal footprint, though this can be overwritten
+	if desired (e.g. for precision reasons).
+	"""
+	@cached_property
+	@abstractmethod
+	def polygon(self):
+		pass
+
+	@cached_property
+	@abstractmethod
+	def z(self):
+		pass
+
+	@cached_property
+	def polygonalRegion(self):
+		return PolygonalRegion(polygon=self.polygon, height=self.z)
+
+	@cached_property
+	def footprint(self):
+		return PolygonalFootprintRegion(self.polygon)
+
+	def containsPoint(self, point):
+		return self.footprint.containsPoint(point)
+
+	def containsObject(self, obj):
+		return self.footprint.containsObject(obj)
+
+class PolygonalRegion(Polygonal, Region):
+	"""Region given by one or more polygons (possibly with holes).
+
+	The region may be specified by giving either a sequence of points defining the
+	boundary of the polygon, or a collection of ``shapely`` polygons (a ``Polygon``
+	or ``MultiPolygon``).
 
 	Args:
-		center (`Vector`): center of the disc.
-		radius (float): radius of the disc.
-		resolution (int; optional): number of vertices to use when approximating this region as a
-			polygon.
+		points: sequence of points making up the boundary of the polygon (or `None` if
+			using the **polygon** argument instead).
+		polygon: ``shapely`` polygon or collection of polygons (or `None` if using
+			the **points** argument instead).
+		orientation (`VectorField`; optional): :term:`preferred orientation` to use.
 		name (str; optional): name for debugging.
 	"""
-	def __init__(self, center, radius, resolution=32, name=None):
-		super().__init__(name, center, radius)
-		self.center = toVector(center, "center of CircularRegion not a vector")
-		self.radius = toScalar(radius, "radius of CircularRegion not a scalar")
-		self.circumcircle = (self.center, self.radius)
-		self.resolution = resolution
+	def __init__(self, points=None, polygon=None, orientation=None, name=None, height=0):
+		super().__init__(name, orientation=orientation)
+		if polygon is None and points is None:
+			raise RuntimeError('must specify points or polygon for PolygonalRegion')
+		if polygon is None:
+			points = tuple(pt[:2] for pt in points)
+			if len(points) == 0:
+				raise RuntimeError('tried to create PolygonalRegion from empty point list!')
+			for point in points:
+				if needsSampling(point):
+					raise RuntimeError('only fixed PolygonalRegions are supported')
+			self.points = points
+			polygon = shapely.geometry.Polygon(points)
+
+		if isinstance(polygon, shapely.geometry.Polygon):
+			self.polygons = shapely.geometry.MultiPolygon([polygon])
+		elif isinstance(polygon, shapely.geometry.MultiPolygon):
+			self.polygons = polygon
+		else:
+			raise RuntimeError(f'tried to create PolygonalRegion from non-polygon {polygon}')
+		if not self.polygons.is_valid:
+			raise RuntimeError('tried to create PolygonalRegion with '
+							   f'invalid polygon {self.polygons}')
+
+		if (points is None and len(self.polygons.geoms) == 1
+		    and len(self.polygons.geoms[0].interiors) == 0):
+			self.points = tuple(self.polygons.geoms[0].exterior.coords[:-1])
+
+		if self.polygons.is_empty:
+			raise RuntimeError('tried to create empty PolygonalRegion')
+
+		self.height = height
+
+		triangles = []
+		for polygon in self.polygons.geoms:
+			triangles.extend(triangulatePolygon(polygon))
+		assert len(triangles) > 0, self.polygons
+		self.trianglesAndBounds = tuple((tri, tri.bounds) for tri in triangles)
+		areas = (triangle.area for triangle in triangles)
+		self.cumulativeTriangleAreas = tuple(itertools.accumulate(areas))
 
 	@cached_property
 	def polygon(self):
-		assert not (needsSampling(self.center) or needsSampling(self.radius))
-		ctr = shapely.geometry.Point(self.center)
-		return ctr.buffer(self.radius, resolution=self.resolution)
+		return self.polygons
 
-	def sampleGiven(self, value):
-		return CircularRegion(value[self.center], value[self.radius],
-							  name=self.name, resolution=self.resolution)
+	@cached_property
+	def z(self):
+		return self.height
 
-	def evaluateInner(self, context, modifying):
-		center = valueInContext(self.center, context, modifying)
-		radius = valueInContext(self.radius, context, modifying)
-		return CircularRegion(center, radius,
-							  name=self.name, resolution=self.resolution)
+	def uniformPointInner(self):
+		triangle, bounds = random.choices(
+			self.trianglesAndBounds,
+			cum_weights=self.cumulativeTriangleAreas)[0]
+		minx, miny, maxx, maxy = bounds
+		# TODO improve?
+		while True:
+			x, y = random.uniform(minx, maxx), random.uniform(miny, maxy)
+			if triangle.intersects(shapely.geometry.Point(x, y)):
+				return self.orient(Vector(x, y, self.z))
+
+	def difference(self, other):
+		poly = toPolygon(other)
+		if poly is not None:
+			diff = self.polygons - poly
+			if diff.is_empty:
+				return nowhere
+			elif isinstance(diff, (shapely.geometry.Polygon,
+								   shapely.geometry.MultiPolygon)):
+				return PolygonalRegion(polygon=diff, orientation=self.orientation)
+			elif isinstance(diff, shapely.geometry.GeometryCollection):
+				polys = []
+				for geom in diff.geoms:
+					if isinstance(geom, shapely.geometry.Polygon):
+						polys.append(geom)
+				if len(polys) == 0:
+					# TODO handle points, lines
+					raise RuntimeError('unhandled type of polygon difference')
+				diff = shapely.geometry.MultiPolygon(polys)
+				return PolygonalRegion(polygon=diff, orientation=self.orientation)
+			else:
+				# TODO handle points, lines
+				raise RuntimeError('unhandled type of polygon difference')
+		return super().difference(other)
+
+	def intersect(self, other, triedReversed=False):
+		poly = toPolygon(other)
+		orientation = other.orientation if self.orientation is None else self.orientation
+		if poly is not None:
+			intersection = self.polygons & poly
+			if intersection.is_empty:
+				return nowhere
+			elif isinstance(intersection, (shapely.geometry.Polygon,
+										 shapely.geometry.MultiPolygon)):
+				return PolygonalRegion(polygon=intersection, orientation=orientation)
+			elif isinstance(intersection, shapely.geometry.GeometryCollection):
+				polys = []
+				for geom in intersection.geoms:
+					if isinstance(geom, shapely.geometry.Polygon):
+						polys.append(geom)
+				if len(polys) == 0:
+					# TODO handle points, lines
+					raise RuntimeError('unhandled type of polygon intersection')
+				intersection = shapely.geometry.MultiPolygon(polys)
+				return PolygonalRegion(polygon=intersection, orientation=orientation)
+			else:
+				# TODO handle points, lines
+				raise RuntimeError('unhandled type of polygon intersection')
+		return super().intersect(other, triedReversed)
 
 	def intersects(self, other, triedReversed=False):
-		if isinstance(other, CircularRegion):
-			return self.center.distanceTo(other.center) <= self.radius + other.radius
+		poly = toPolygon(other)
+		if poly is not None:
+			intersection = self.polygons & poly
+			return not intersection.is_empty
 		return super().intersects(other, triedReversed)
 
-	def containsPoint(self, point):
-		point = toVector((point[0], point[1], 0))
-		return point.distanceTo(self.center) <= self.radius
+	def union(self, other, triedReversed=False, buf=0):
+		poly = toPolygon(other)
+		if not poly:
+			return super().union(other, triedReversed)
+		union = polygonUnion((self.polygons, poly), buf=buf)
+		orientation = VectorField.forUnionOf((self, other))
+		return PolygonalRegion(polygon=union, orientation=orientation)
 
-	def distanceTo(self, point):
-		point = toVector(point)
-		return max(0, point.distanceTo(self.center) - self.radius)
+	@staticmethod
+	def unionAll(regions, buf=0):
+		regs, polys = [], []
+		for reg in regions:
+			if reg != nowhere:
+				regs.append(reg)
+				polys.append(toPolygon(reg))
+		if not polys:
+			return nowhere
+		if any(not poly for poly in polys):
+			raise RuntimeError(f'cannot take union of regions {regions}')
+		union = polygonUnion(polys, buf=buf)
+		orientation = VectorField.forUnionOf(regs)
+		return PolygonalRegion(polygon=union, orientation=orientation)
 
-	def uniformPointInner(self):
-		x, y, z = self.center
-		r = random.triangular(0, self.radius, self.radius)
-		t = random.uniform(-math.pi, math.pi)
-		pt = Vector(x + (r * cos(t)), y + (r * sin(t)), z)
-		return self.orient(pt)
-
-	def getAABB(self):
-		x, y, _ = self.center
-		r = self.radius
-		return ((x - r, y - r), (x + r, y + r))
-
-	def __repr__(self):
-		return f'CircularRegion({self.center}, {self.radius})'
-
-class SectorRegion(Region):
-	"""A sector of a `CircularRegion`.
-
-	This region consists of a sector of a disc, i.e. the part of a disc subtended by a
-	given arc.
-
-	Args:
-		center (`Vector`): center of the corresponding disc.
-		radius (float): radius of the disc.
-		heading (float): heading of the centerline of the sector.
-		angle (float): angle subtended by the sector.
-		resolution (int; optional): number of vertices to use when approximating this region as a
-			polygon.
-		name (str; optional): name for debugging.
-	"""
-	def __init__(self, center, radius, heading, angle, resolution=32, name=None):
-		self.center = toVector(center, "center of SectorRegion not a vector")
-		self.radius = toScalar(radius, "radius of SectorRegion not a scalar")
-		self.heading = toScalar(heading, "heading of SectorRegion not a scalar")
-		self.angle = toScalar(angle, "angle of SectorRegion not a scalar")
-		super().__init__(name, self.center, radius, heading, angle)
-		r = (radius / 2) * cos(angle / 2)
-		self.circumcircle = (self.center.offsetRadially(r, heading), r)
-		self.resolution = resolution
+	@property
+	def boundary(self) -> "PolylineRegion":
+		"""Get the boundary of this region as a `PolylineRegion`."""
+		return PolylineRegion(polyline=self.polygons.boundary)
 
 	@cached_property
-	def polygon(self):
-		center, radius = self.center, self.radius
-		ctr = shapely.geometry.Point(center)
-		circle = ctr.buffer(radius, resolution=self.resolution)
-		if self.angle >= math.tau - 0.001:
-			return circle
-		else:
-			heading = self.heading
-			half_angle = self.angle / 2
-			mask = shapely.geometry.Polygon([
-				center,
-				center.offsetRadially(radius, heading + half_angle),
-				center.offsetRadially(2*radius, heading),
-				center.offsetRadially(radius, heading - half_angle)
-			])
-			return circle & mask
+	def prepared(self):
+		return shapely.prepared.prep(self.polygons)
 
-	def sampleGiven(self, value):
-		return SectorRegion(value[self.center], value[self.radius],
-			value[self.heading], value[self.angle],
-			name=self.name, resolution=self.resolution)
+	def containsRegion(self, other, tolerance=0):
+		poly = toPolygon(other)
+		if poly is None:
+			raise RuntimeError('cannot test inclusion of {other} in PolygonalRegion')
+		return self.polygons.buffer(tolerance).contains(poly)
 
-	def evaluateInner(self, context, modifying):
-		center = valueInContext(self.center, context, modifying)
-		radius = valueInContext(self.radius, context, modifying)
-		heading = valueInContext(self.heading, context, modifying)
-		angle = valueInContext(self.angle, context, modifying)
-		return SectorRegion(center, radius, heading, angle,
-							name=self.name, resolution=self.resolution)
-
-	def containsPoint(self, point):
-		point = point.toVector()
-		if not pointIsInCone(tuple(point), tuple(self.center), self.heading, self.angle):
-			return False
-		return point.distanceTo(self.center) <= self.radius
-
-	def uniformPointInner(self):
-		x, y, z = self.center
-		heading, angle, maxDist = self.heading, self.angle, self.radius
-		r = random.triangular(0, maxDist, maxDist)
-		ha = angle / 2.0
-		t = random.uniform(-ha, ha) + (heading + (math.pi / 2))
-		pt = Vector(x + (r * cos(t)), y + (r * sin(t)), z)
-		return self.orient(pt)
-
-	def __repr__(self):
-		return f'SectorRegion({self.center},{self.radius},{self.heading},{self.angle})'
-
-class RectangularRegion(_RotatedRectangle, Region):
-	"""A rectangular region with a possibly-random position, heading, and size.
-
-	Args:
-		position (`Vector`): center of the rectangle.
-		heading (float): the heading of the ``length`` axis of the rectangle.
-		width (float): width of the rectangle.
-		length (float): length of the rectangle.
-		name (str; optional): name for debugging.
-	"""
-	def __init__(self, position, heading, width, length, name=None, defaultZ=0):
-		super().__init__(name, position, heading, width, length)
-		self.position = toVector(position, "position of RectangularRegion not a vector")
-		self.heading = toScalar(heading, "heading of RectangularRegion not a scalar")
-		self.width = toScalar(width, "width of RectangularRegion not a scalar")
-		self.length = toScalar(length, "length of RectangularRegion not a scalar")
-		self.hw = hw = width / 2
-		self.hl = hl = length / 2
-		self.radius = hypot(hw, hl)		# circumcircle; for collision detection
-		self.corners = tuple(self.position.offsetRotated(heading, Vector(*offset))
-			for offset in ((hw, hl), (-hw, hl), (-hw, -hl), (hw, -hl)))
-		self.circumcircle = (self.position, self.radius)
-		self.defaultZ = defaultZ
-
-	def sampleGiven(self, value):
-		return RectangularRegion(value[self.position], value[self.heading],
-			value[self.width], value[self.length],
-			name=self.name)
-
-	def evaluateInner(self, context, modifying):
-		position = valueInContext(self.position, context, modifying)
-		heading = valueInContext(self.heading, context, modifying)
-		width = valueInContext(self.width, context, modifying)
-		length = valueInContext(self.length, context, modifying)
-		return RectangularRegion(position, heading, width, length,
-								 name=self.name)
-
-	def uniformPointInner(self):
-		hw, hl = self.hw, self.hl
-		rx = random.uniform(-hw, hw)
-		ry = random.uniform(-hl, hl)
-		pt = self.position.offsetRotated(self.heading, Vector(rx, ry, self.defaultZ))
-		return self.orient(pt)
+	@distributionMethod
+	def distanceTo(self, point):
+		return self.polygons.distance(shapely.geometry.Point(point))
 
 	def getAABB(self):
-		x, y, z = zip(*self.corners)
-		minx, maxx = findMinMax(x)
-		miny, maxy = findMinMax(y)
-		return ((minx, miny), (maxx, maxy))
+		xmin, ymin, xmax, ymax = self.polygons.bounds
+		return ((xmin, ymin), (xmax, ymax))
+
+	def show(self, plt, style='r-', **kwargs):
+		plotPolygon(self.polygons, plt, style=style, **kwargs)
 
 	def __repr__(self):
-		return f'RectangularRegion({self.position},{self.heading},{self.width},{self.length})'
+		return f'PolygonalRegion({self.polygons})'
+
+	def __eq__(self, other):
+		if type(other) is not PolygonalRegion:
+			return NotImplemented
+		return (other.polygons == self.polygons
+				and other.orientation == self.orientation)
+
+	@cached
+	def __hash__(self):
+		# TODO better way to hash mutable Shapely geometries? (also for PolylineRegion)
+		return hash((str(self.polygons), self.orientation))
+
+	def __getstate__(self):
+		state = self.__dict__.copy()
+		state.pop('_cached_prepared', None)		# prepared geometries are not picklable
+		return state
 
 class PolylineRegion(Region):
 	"""Region given by one or more polylines (chain of line segments).
@@ -1859,204 +1810,214 @@ class PolylineRegion(Region):
 	def __hash__(self):
 		return hash(str(self.lineString))
 
-class PolygonalRegion(Region):
-	"""Region given by one or more polygons (possibly with holes).
 
-	The region may be specified by giving either a sequence of points defining the
-	boundary of the polygon, or a collection of ``shapely`` polygons (a ``Polygon``
-	or ``MultiPolygon``).
+class CircularRegion(Polygonal, Region):
+	"""A circular region with a possibly-random center and radius.
 
 	Args:
-		points: sequence of points making up the boundary of the polygon (or `None` if
-			using the **polygon** argument instead).
-		polygon: ``shapely`` polygon or collection of polygons (or `None` if using
-			the **points** argument instead).
-		orientation (`VectorField`; optional): :term:`preferred orientation` to use.
+		center (`Vector`): center of the disc.
+		radius (float): radius of the disc.
+		resolution (int; optional): number of vertices to use when approximating this region as a
+			polygon.
 		name (str; optional): name for debugging.
 	"""
-	def __init__(self, points=None, polygon=None, orientation=None, name=None):
-		super().__init__(name, orientation=orientation)
-		if polygon is None and points is None:
-			raise RuntimeError('must specify points or polygon for PolygonalRegion')
-		if polygon is None:
-			points = tuple(pt[:2] for pt in points)
-			if len(points) == 0:
-				raise RuntimeError('tried to create PolygonalRegion from empty point list!')
-			for point in points:
-				if needsSampling(point):
-					raise RuntimeError('only fixed PolygonalRegions are supported')
-			self.points = points
-			polygon = shapely.geometry.Polygon(points)
-
-		if isinstance(polygon, shapely.geometry.Polygon):
-			self.polygons = shapely.geometry.MultiPolygon([polygon])
-		elif isinstance(polygon, shapely.geometry.MultiPolygon):
-			self.polygons = polygon
-		else:
-			raise RuntimeError(f'tried to create PolygonalRegion from non-polygon {polygon}')
-		if not self.polygons.is_valid:
-			raise RuntimeError('tried to create PolygonalRegion with '
-							   f'invalid polygon {self.polygons}')
-
-		if (points is None and len(self.polygons.geoms) == 1
-		    and len(self.polygons.geoms[0].interiors) == 0):
-			self.points = tuple(self.polygons.geoms[0].exterior.coords[:-1])
-
-		if self.polygons.is_empty:
-			raise RuntimeError('tried to create empty PolygonalRegion')
-
-		triangles = []
-		for polygon in self.polygons.geoms:
-			triangles.extend(triangulatePolygon(polygon))
-		assert len(triangles) > 0, self.polygons
-		self.trianglesAndBounds = tuple((tri, tri.bounds) for tri in triangles)
-		areas = (triangle.area for triangle in triangles)
-		self.cumulativeTriangleAreas = tuple(itertools.accumulate(areas))
-
-	def uniformPointInner(self):
-		triangle, bounds = random.choices(
-			self.trianglesAndBounds,
-			cum_weights=self.cumulativeTriangleAreas)[0]
-		minx, miny, maxx, maxy = bounds
-		# TODO improve?
-		while True:
-			x, y = random.uniform(minx, maxx), random.uniform(miny, maxy)
-			if triangle.intersects(shapely.geometry.Point(x, y)):
-				return self.orient(Vector(x, y))
-
-	def difference(self, other):
-		poly = toPolygon(other)
-		if poly is not None:
-			diff = self.polygons - poly
-			if diff.is_empty:
-				return nowhere
-			elif isinstance(diff, (shapely.geometry.Polygon,
-								   shapely.geometry.MultiPolygon)):
-				return PolygonalRegion(polygon=diff, orientation=self.orientation)
-			elif isinstance(diff, shapely.geometry.GeometryCollection):
-				polys = []
-				for geom in diff.geoms:
-					if isinstance(geom, shapely.geometry.Polygon):
-						polys.append(geom)
-				if len(polys) == 0:
-					# TODO handle points, lines
-					raise RuntimeError('unhandled type of polygon difference')
-				diff = shapely.geometry.MultiPolygon(polys)
-				return PolygonalRegion(polygon=diff, orientation=self.orientation)
-			else:
-				# TODO handle points, lines
-				raise RuntimeError('unhandled type of polygon difference')
-		return super().difference(other)
-
-	def intersect(self, other, triedReversed=False):
-		poly = toPolygon(other)
-		orientation = other.orientation if self.orientation is None else self.orientation
-		if poly is not None:
-			intersection = self.polygons & poly
-			if intersection.is_empty:
-				return nowhere
-			elif isinstance(intersection, (shapely.geometry.Polygon,
-										 shapely.geometry.MultiPolygon)):
-				return PolygonalRegion(polygon=intersection, orientation=orientation)
-			elif isinstance(intersection, shapely.geometry.GeometryCollection):
-				polys = []
-				for geom in intersection.geoms:
-					if isinstance(geom, shapely.geometry.Polygon):
-						polys.append(geom)
-				if len(polys) == 0:
-					# TODO handle points, lines
-					raise RuntimeError('unhandled type of polygon intersection')
-				intersection = shapely.geometry.MultiPolygon(polys)
-				return PolygonalRegion(polygon=intersection, orientation=orientation)
-			else:
-				# TODO handle points, lines
-				raise RuntimeError('unhandled type of polygon intersection')
-		return super().intersect(other, triedReversed)
-
-	def intersects(self, other, triedReversed=False):
-		poly = toPolygon(other)
-		if poly is not None:
-			intersection = self.polygons & poly
-			return not intersection.is_empty
-		return super().intersects(other, triedReversed)
-
-	def union(self, other, triedReversed=False, buf=0):
-		poly = toPolygon(other)
-		if not poly:
-			return super().union(other, triedReversed)
-		union = polygonUnion((self.polygons, poly), buf=buf)
-		orientation = VectorField.forUnionOf((self, other))
-		return PolygonalRegion(polygon=union, orientation=orientation)
-
-	@staticmethod
-	def unionAll(regions, buf=0):
-		regs, polys = [], []
-		for reg in regions:
-			if reg != nowhere:
-				regs.append(reg)
-				polys.append(toPolygon(reg))
-		if not polys:
-			return nowhere
-		if any(not poly for poly in polys):
-			raise RuntimeError(f'cannot take union of regions {regions}')
-		union = polygonUnion(polys, buf=buf)
-		orientation = VectorField.forUnionOf(regs)
-		return PolygonalRegion(polygon=union, orientation=orientation)
-
-	@property
-	def boundary(self) -> PolylineRegion:
-		"""Get the boundary of this region as a `PolylineRegion`."""
-		return PolylineRegion(polyline=self.polygons.boundary)
+	def __init__(self, center, radius, resolution=32, name=None):
+		super().__init__(name, center, radius)
+		self.center = toVector(center, "center of CircularRegion not a vector")
+		self.radius = toScalar(radius, "radius of CircularRegion not a scalar")
+		self.circumcircle = (self.center, self.radius)
+		self.resolution = resolution
 
 	@cached_property
-	def prepared(self):
-		return shapely.prepared.prep(self.polygons)
+	def polygon(self):
+		assert not (needsSampling(self.center) or needsSampling(self.radius))
+		ctr = shapely.geometry.Point(self.center)
+		return MultiPolygon([ctr.buffer(self.radius, resolution=self.resolution)])
+
+	@cached_property
+	def z(self):
+		return self.center.z
+
+	def sampleGiven(self, value):
+		return CircularRegion(value[self.center], value[self.radius],
+							  name=self.name, resolution=self.resolution)
+
+	def evaluateInner(self, context, modifying):
+		center = valueInContext(self.center, context, modifying)
+		radius = valueInContext(self.radius, context, modifying)
+		return CircularRegion(center, radius,
+							  name=self.name, resolution=self.resolution)
+
+	def intersects(self, other, triedReversed=False):
+		if isinstance(other, CircularRegion):
+			return self.center.distanceTo(other.center) <= self.radius + other.radius
+		return super().intersects(other, triedReversed)
 
 	def containsPoint(self, point):
-		return self.prepared.intersects(shapely.geometry.Point(point))
+		return point.distanceTo(self.center) <= self.radius
 
-	def containsObject(self, obj):
-		objPoly = obj.polygon
-		if objPoly is None:
-			raise RuntimeError('tried to test containment of symbolic Object!')
-		# TODO improve boundary handling?
-		return self.prepared.contains(objPoly)
-
-	def containsRegion(self, other, tolerance=0):
-		poly = toPolygon(other)
-		if poly is None:
-			raise RuntimeError('cannot test inclusion of {other} in PolygonalRegion')
-		return self.polygons.buffer(tolerance).contains(poly)
-
-	@distributionMethod
 	def distanceTo(self, point):
-		return self.polygons.distance(shapely.geometry.Point(point))
+		point = toVector(point)
+		return max(0, point.distanceTo(self.center) - self.radius)
+
+	def uniformPointInner(self):
+		x, y, z = self.center
+		r = random.triangular(0, self.radius, self.radius)
+		t = random.uniform(-math.pi, math.pi)
+		pt = Vector(x + (r * cos(t)), y + (r * sin(t)), z)
+		return self.orient(pt)
 
 	def getAABB(self):
-		xmin, ymin, xmax, ymax = self.polygons.bounds
-		return ((xmin, ymin), (xmax, ymax))
-
-	def show(self, plt, style='r-', **kwargs):
-		plotPolygon(self.polygons, plt, style=style, **kwargs)
+		x, y, _ = self.center
+		r = self.radius
+		return ((x - r, y - r), (x + r, y + r))
 
 	def __repr__(self):
-		return f'PolygonalRegion({self.polygons})'
+		return f'CircularRegion({self.center}, {self.radius})'
 
-	def __eq__(self, other):
-		if type(other) is not PolygonalRegion:
-			return NotImplemented
-		return (other.polygons == self.polygons
-				and other.orientation == self.orientation)
+class SectorRegion(Polygonal, Region):
+	"""A sector of a `CircularRegion`.
 
-	@cached
-	def __hash__(self):
-		# TODO better way to hash mutable Shapely geometries? (also for PolylineRegion)
-		return hash((str(self.polygons), self.orientation))
+	This region consists of a sector of a disc, i.e. the part of a disc subtended by a
+	given arc.
 
-	def __getstate__(self):
-		state = self.__dict__.copy()
-		state.pop('_cached_prepared', None)		# prepared geometries are not picklable
-		return state
+	Args:
+		center (`Vector`): center of the corresponding disc.
+		radius (float): radius of the disc.
+		heading (float): heading of the centerline of the sector.
+		angle (float): angle subtended by the sector.
+		resolution (int; optional): number of vertices to use when approximating this region as a
+			polygon.
+		name (str; optional): name for debugging.
+	"""
+	def __init__(self, center, radius, heading, angle, resolution=32, name=None):
+		self.center = toVector(center, "center of SectorRegion not a vector")
+		self.radius = toScalar(radius, "radius of SectorRegion not a scalar")
+		self.heading = toScalar(heading, "heading of SectorRegion not a scalar")
+		self.angle = toScalar(angle, "angle of SectorRegion not a scalar")
+		super().__init__(name, self.center, radius, heading, angle)
+		r = (radius / 2) * cos(angle / 2)
+		self.circumcircle = (self.center.offsetRadially(r, heading), r)
+		self.resolution = resolution
+
+	@cached_property
+	def polygon(self):
+		center, radius = self.center, self.radius
+		ctr = shapely.geometry.Point(center)
+		circle = ctr.buffer(radius, resolution=self.resolution)
+		if self.angle >= math.tau - 0.001:
+			polygon = circle
+		else:
+			heading = self.heading
+			half_angle = self.angle / 2
+			mask = shapely.geometry.Polygon([
+				center,
+				center.offsetRadially(radius, heading + half_angle),
+				center.offsetRadially(2*radius, heading),
+				center.offsetRadially(radius, heading - half_angle)
+			])
+			polygon = circle & mask
+
+		return MultiPolygon([polygon])
+
+	@cached_property
+	def z(self):
+		return self.center.z
+
+	def sampleGiven(self, value):
+		return SectorRegion(value[self.center], value[self.radius],
+			value[self.heading], value[self.angle],
+			name=self.name, resolution=self.resolution)
+
+	def evaluateInner(self, context, modifying):
+		center = valueInContext(self.center, context, modifying)
+		radius = valueInContext(self.radius, context, modifying)
+		heading = valueInContext(self.heading, context, modifying)
+		angle = valueInContext(self.angle, context, modifying)
+		return SectorRegion(center, radius, heading, angle,
+							name=self.name, resolution=self.resolution)
+
+	def containsPoint(self, point):
+		point = point.toVector()
+		if not pointIsInCone(tuple(point), tuple(self.center), self.heading, self.angle):
+			return False
+		return point.distanceTo(self.center) <= self.radius
+
+	def uniformPointInner(self):
+		x, y, z = self.center
+		heading, angle, maxDist = self.heading, self.angle, self.radius
+		r = random.triangular(0, maxDist, maxDist)
+		ha = angle / 2.0
+		t = random.uniform(-ha, ha) + (heading + (math.pi / 2))
+		pt = Vector(x + (r * cos(t)), y + (r * sin(t)), z)
+		return self.orient(pt)
+
+	def __repr__(self):
+		return f'SectorRegion({self.center},{self.radius},{self.heading},{self.angle})'
+
+class RectangularRegion(Polygonal, Region):
+	"""A rectangular region with a possibly-random position, heading, and size.
+
+	Args:
+		position (`Vector`): center of the rectangle.
+		heading (float): the heading of the ``length`` axis of the rectangle.
+		width (float): width of the rectangle.
+		length (float): length of the rectangle.
+		name (str; optional): name for debugging.
+	"""
+	def __init__(self, position, heading, width, length, name=None):
+		super().__init__(name, position, heading, width, length)
+		self.position = toVector(position, "position of RectangularRegion not a vector")
+		self.heading = toScalar(heading, "heading of RectangularRegion not a scalar")
+		self.width = toScalar(width, "width of RectangularRegion not a scalar")
+		self.length = toScalar(length, "length of RectangularRegion not a scalar")
+		self.hw = hw = width / 2
+		self.hl = hl = length / 2
+		self.radius = hypot(hw, hl)		# circumcircle; for collision detection
+		self.corners = tuple(self.position.offsetRotated(heading, Vector(*offset))
+			for offset in ((hw, hl), (-hw, hl), (-hw, -hl), (hw, -hl)))
+		self.circumcircle = (self.position, self.radius)
+
+	@cached_property
+	def polygon(self):
+		position, heading, hw, hl = self.position, self.heading, self.hw, self.hl
+		assert not any(needsSampling(c) or needsLazyEvaluation(c) for c in (position, heading, hw, hl))
+		corners = _RotatedRectangle.makeCorners(position.x, position.y, heading, hw, hl)
+		polygon = shapely.geometry.Polygon(corners)
+		return MultiPolygon([polygon])
+
+	@cached_property
+	def z(self):
+		return self.position.z
+
+	def sampleGiven(self, value):
+		return RectangularRegion(value[self.position], value[self.heading],
+			value[self.width], value[self.length],
+			name=self.name)
+
+	def evaluateInner(self, context, modifying):
+		position = valueInContext(self.position, context, modifying)
+		heading = valueInContext(self.heading, context, modifying)
+		width = valueInContext(self.width, context, modifying)
+		length = valueInContext(self.length, context, modifying)
+		return RectangularRegion(position, heading, width, length,
+								 name=self.name)
+
+	def uniformPointInner(self):
+		hw, hl = self.hw, self.hl
+		rx = random.uniform(-hw, hw)
+		ry = random.uniform(-hl, hl)
+		pt = self.position.offsetRotated(self.heading, Vector(rx, ry, self.position.z))
+		return self.orient(pt)
+
+	def getAABB(self):
+		x, y, z = zip(*self.corners)
+		minx, maxx = findMinMax(x)
+		miny, maxy = findMinMax(y)
+		return ((minx, miny), (maxx, maxy))
+
+	def __repr__(self):
+		return f'RectangularRegion({self.position},{self.heading},{self.width},{self.length})'
 
 class PointSetRegion(Region):
 	"""Region consisting of a set of discrete points.
@@ -2113,7 +2074,7 @@ class PointSetRegion(Region):
 		return (distance <= self.tolerance)
 
 	def containsObject(self, obj):
-		raise NotImplementedError()
+		return False
 
 	@distributionMethod
 	def distanceTo(self, point):
@@ -2130,6 +2091,24 @@ class PointSetRegion(Region):
 	@cached
 	def __hash__(self):
 		return hash((self.name, self.points, self.orientation))
+
+def convertToFootprint(region):
+	if isinstance(region, Polygonal):
+		return region.footprint
+
+	if isinstance(region, IntersectionRegion):
+		subregions = [convertToFootprint(r) for r in region.regions]
+		return IntersectionRegion(*subregions)
+
+	if isinstance(region, DifferenceRegion):
+		return DifferenceRegion(convertToFootprint(region.regionA), convertToFootprint(region.regionB))
+
+	return region
+
+
+###################################################################################################
+# Niche Regions
+###################################################################################################
 
 class GridRegion(PointSetRegion):
 	"""A Region given by an obstacle grid.
@@ -2196,3 +2175,234 @@ class GridRegion(PointSetRegion):
 				if self.grid[y, x] == 1 and obj.containsPoint(p):
 					return False
 		return True
+
+###################################################################################################
+# View Regions
+###################################################################################################
+
+class DefaultViewRegion(MeshVolumeRegion):
+	""" The default view region shape.
+	:param visibleDistance: The view distance for this region.
+	:param viewAngles: The view angles for this region.
+	:param name: An optional name to help with debugging.
+	:param position: An optional position, which determines where the center of the region will be.
+	:param position: An optional Orientation object which determines the rotation of the object in space.
+	:param orientation: An optional vector field describing the preferred orientation at every point in
+		the region.
+	:param tolerance: Tolerance for collision computations.
+	"""
+	def __init__(self, visibleDistance, viewAngles, name=None, position=Vector(0,0,0), rotation=None,\
+		orientation=None, tolerance=1e-8):
+		# Bound viewAngles from either side.
+		viewAngles = tuple([min(angle, math.tau) for angle in viewAngles])
+
+		if min(viewAngles) <= 0:
+			raise ValueError("viewAngles cannot have a component less than or equal to 0")
+
+		# Cases in view region computation
+		# Case 1: 		Azimuth view angle = 360 degrees
+		# 	Case 1.a: 	Altitude view angle = 180 degrees 	=> Full Sphere View Region
+		# 	Case 1.b: 	Altitude view angle < 180 degrees  	=> Sphere - (Cone + Cone) (Cones on z axis expanding from origin)
+		# Case 2: 		Azimuth view angle = 180 degrees
+		# 	Case 2.a:	Altitude view angle = 180 degrees 	=> Hemisphere View Region
+		# 	Case 2.b:	Altitude view angle < 180 degrees	=> Hemisphere - (Cone + Cone) (Cones on appropriate hemispheres)
+		# Case 3:		Altitude view angle = 180 degrees	
+		#	Case 3.a: 	Azimuth view angle < 180 degrees	=> Sphere intersected with Pyramid View Region
+		#	Case 3.b: 	Azimuth view angle > 180 degrees	=> Sphere - Backwards Pyramid View Region 
+		# Case 4: 		Both view angles < 180 				=> Capped Pyramid View Region
+		# Case 5:		Azimuth > 180, Altitude < 180		=> (Sphere - (Cone + Cone) (Cones on appropriate hemispheres)) - Backwards Capped Pyramid View Region
+
+		view_region = None
+		diameter = 2*visibleDistance
+		base_sphere = SpheroidRegion(dimensions=(diameter, diameter, diameter), engine="scad")
+
+		if (math.tau-0.01 <= viewAngles[0] <= math.tau+0.01):
+			# Case 1
+			if viewAngles[1] > math.pi-0.01:
+				#Case 1.a
+				view_region = base_sphere
+			else:
+				# Case 1.b
+				# Create cone with yaw oriented around (0,0,-1)
+				padded_height = visibleDistance * 2
+				radius = padded_height*math.tan((math.pi-viewAngles[1])/2)
+
+				cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
+
+				position_matrix = translation_matrix((0,0,-1*padded_height))
+				cone_mesh.apply_transform(position_matrix)
+
+				# Create two cones around the yaw axis
+				orientation_1 = Orientation.fromEuler(0,0,0)
+				orientation_2 = Orientation.fromEuler(0,0,math.pi)
+
+				cone_1 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_1, center_mesh=False)
+				cone_2 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_2, center_mesh=False)
+
+				view_region = base_sphere.difference(cone_1).difference(cone_2)
+
+		elif (math.pi-0.01 <= viewAngles[0] <= math.pi+0.01):
+			# Case 2
+			if viewAngles[1] > math.pi-0.01:
+				# Case 2.a
+				padded_diameter = 1.1*diameter
+				view_region = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
+			else:
+				# Case 2.b
+				# Create cone with yaw oriented around (0,0,-1)
+				padded_height = visibleDistance * 2
+				radius = padded_height*math.tan((math.pi-viewAngles[1])/2)
+
+				cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
+
+				position_matrix = translation_matrix((0,0,-1*padded_height))
+				cone_mesh.apply_transform(position_matrix)
+
+				# Create two cones around the yaw axis
+				orientation_1 = Orientation.fromEuler(0,0,0)
+				orientation_2 = Orientation.fromEuler(0,0,math.pi)
+
+				cone_1 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_1, center_mesh=False)
+				cone_2 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_2, center_mesh=False)
+
+				padded_diameter = 1.1*diameter
+
+				base_hemisphere = base_sphere.intersect(BoxRegion(dimensions=(padded_diameter, padded_diameter, padded_diameter), position=(0,padded_diameter/2,0)))
+
+				view_region = base_hemisphere.difference(cone_1).difference(cone_2)
+
+		elif viewAngles[1] > math.pi-0.01:
+			# Case 3
+			if viewAngles[0] < math.pi:
+				view_region = base_sphere.intersect(TriangularPrismViewRegion(visibleDistance, viewAngles[0]))
+			elif viewAngles[0] > math.pi:
+				back_tprism = TriangularPrismViewRegion(visibleDistance, math.tau - viewAngles[0], rotation=Orientation.fromEuler(math.pi, 0, 0))
+				view_region = base_sphere.difference(back_tprism)
+			else:
+				assert False, f"{viewAngles=}"
+
+		elif viewAngles[0] < math.pi and viewAngles[1] < math.pi:
+			# Case 4
+			view_region = base_sphere.intersect(PyramidViewRegion(visibleDistance, viewAngles))
+		elif viewAngles[0] > math.pi and viewAngles[1] < math.pi:
+			# Case 5
+			# Create cone with yaw oriented around (0,0,-1)
+			padded_height = visibleDistance * 2
+			radius = padded_height*math.tan((math.pi-viewAngles[1])/2)
+
+			cone_mesh = trimesh.creation.cone(radius=radius, height=padded_height)
+
+			position_matrix = translation_matrix((0,0,-1*padded_height))
+			cone_mesh.apply_transform(position_matrix)
+
+			# Position on the yaw axis
+			orientation_1 = Orientation.fromEuler(0,0,0)
+			orientation_2 = Orientation.fromEuler(0,0,math.pi)
+
+			cone_1 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_1, center_mesh=False)
+			cone_2 = MeshVolumeRegion(mesh=cone_mesh, rotation=orientation_2, center_mesh=False)
+
+			backwards_view_angle = (math.tau-viewAngles[0], math.pi-0.01)
+			back_pyramid = PyramidViewRegion(visibleDistance, backwards_view_angle, rotation=Orientation.fromEuler(math.pi, 0, 0))
+
+			# Note: Openscad does not like the result of the difference with the cones, so they must be done last.
+			view_region = base_sphere.difference(back_pyramid).difference(cone_1).difference(cone_2)
+		else:
+			assert False, f"{viewAngles=}"
+
+		assert view_region is not None
+
+		# Initialize volume region
+		super().__init__(mesh=view_region.mesh, name=name, position=position, rotation=rotation, orientation=orientation, \
+			tolerance=tolerance, center_mesh=False)
+
+
+class PyramidViewRegion(MeshVolumeRegion):
+	"""
+	:param visibleDistance: The view distance for this region (will be slightly amplified to 
+		prevent mesh intersection errors).
+	:param viewAngles: The view angles for this region.
+	:param rotation: An optional Orientation object which determines the rotation of the object in space.
+	"""
+	def __init__(self, visibleDistance, viewAngles, rotation=None):
+		if min(viewAngles) <= 0 or max(viewAngles) >= math.pi:
+			raise ValueError("viewAngles members must be between 0 and Pi.")
+
+		x_dim = 2*visibleDistance*math.tan(viewAngles[0]/2)
+		z_dim = 2*visibleDistance*math.tan(viewAngles[1]/2)
+
+		dimensions = (x_dim, visibleDistance*1.01, z_dim)
+
+		# Create pyramid mesh and scale it appropriately.
+		vertices = [[ 0,  0,  0],
+		            [-1,  1,  1],
+		            [ 1,  1,  1],
+		            [ 1,  1, -1],
+		            [-1,  1, -1]]
+
+		faces = [[0,2,1],
+		         [0,3,2],
+		         [0,4,3],
+	             [0,1,4],
+		         [1,2,4],
+		         [2,3,4]]
+
+		pyramid_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+		scale = pyramid_mesh.extents / numpy.array(dimensions)
+
+		scale_matrix = numpy.eye(4)
+		scale_matrix[:3, :3] /= scale
+
+		pyramid_mesh.apply_transform(scale_matrix)
+
+		super().__init__(mesh=pyramid_mesh, rotation=rotation, center_mesh=False)
+
+
+class TriangularPrismViewRegion(MeshVolumeRegion):
+	"""
+	:param visibleDistance: The view distance for this region (will be slightly amplified to 
+		prevent mesh intersection errors).
+	:param viewAngles: The view angles for this region.
+	:param rotation: An optional Orientation object which determines the rotation of the object in space.
+	"""
+	def __init__(self, visibleDistance, viewAngle, rotation=None):
+		if viewAngle <= 0 or viewAngle >= math.pi:
+			raise ValueError("viewAngles members must be between 0 and Pi.")
+
+		y_dim = 1.01*visibleDistance
+		z_dim = 2*y_dim
+		x_dim = 2*math.tan(viewAngle/2)*y_dim
+
+		dimensions = (x_dim, y_dim, z_dim)
+
+		# Create triangualr prism mesh and scale it appropriately.
+		vertices = [[ 0,  0,  1], # 0 - Top origin
+					[ 0,  0, -1], # 1 - Bottom origin
+					[-1,  1,  1], # 2 - Top left
+					[ 1,  1,  1], # 3 - Top right
+					[-1,  1, -1], # 4 - Bottom left
+					[ 1,  1, -1]] # 5 - Bottom right
+
+		faces = [
+				 [0,3,2], # Top triangle
+				 [1,4,5], # Bottom triangle
+				 [1,0,2], # Left 1
+				 [1,2,4], # Left 2
+				 [1,3,0], # Right 1
+				 [1,5,3], # Right 2
+				 [4,2,3], # Back 1
+				 [4,3,5], # Back 2
+				]
+
+		tprism_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+
+		scale = tprism_mesh.extents / numpy.array(dimensions)
+
+		scale_matrix = numpy.eye(4)
+		scale_matrix[:3, :3] /= scale
+
+		tprism_mesh.apply_transform(scale_matrix)
+
+		super().__init__(mesh=tprism_mesh, rotation=rotation, center_mesh=False)
+

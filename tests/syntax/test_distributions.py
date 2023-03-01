@@ -398,7 +398,7 @@ def test_reproducibility_3d():
         'x = Range(0, 1)\n'
         'require x > 0.8'
     )
-    seeds = [random.randint(0, 100000) for i in range(10)]
+    seeds = [random.randint(0, 100) for i in range(10)]
     for seed in seeds:
         random.seed(seed)
         numpy.random.seed(seed)

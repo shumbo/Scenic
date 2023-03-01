@@ -100,30 +100,41 @@ def pruneContainment(scenario, verbosity):
     can instead pick a position uniformly in their intersection. If we can also lower
     bound the radius of O, then we can first erode C by that distance.
     """
-    return # TEMPORARY DISABLE
+    #return # TEMPORARY DISABLE
     for obj in scenario.objects:
+        # Extract the base region and container region
         base = matchInRegion(obj.position)
-        if base is None:                    # match objects positioned uniformly in a Region
+
+        if base is None:
             continue
+
         if isinstance(base, regions.EmptyRegion):
             raise InvalidScenarioError(f'Object {obj} placed in empty region')
+
         basePoly = regions.toPolygon(base)
-        if basePoly is None:                # to prune, the Region must be polygonal
+        if basePoly is None:
             continue
         if basePoly.is_empty:
             raise InvalidScenarioError(f'Object {obj} placed in empty region')
+
         container = scenario.containerOfObject(obj)
         containerPoly = regions.toPolygon(container)
-        if containerPoly is None:           # the object's container must also be polygonal
+        if containerPoly is None:
             continue
+
+        # Erode the container region if possible.
         minRadius, _ = supportInterval(obj.inradius)
-        if minRadius is not None:           # if we can lower bound the radius, erode the container
+        if minRadius is not None:
             containerPoly = containerPoly.buffer(-minRadius)
         elif base is container:
             continue
-        newBasePoly = basePoly & containerPoly      # restrict the base Region to the container
+
+        # Restrict the base region to the container
+        newBasePoly = basePoly & containerPoly
         if newBasePoly.is_empty:
             raise InvalidScenarioError(f'Object {obj} does not fit in container')
+
+        # Print debug info and cleanup
         if verbosity >= 1:
             if basePoly.area > 0:
                 ratio = newBasePoly.area / basePoly.area
@@ -131,6 +142,7 @@ def pruneContainment(scenario, verbosity):
                 ratio = newBasePoly.length / basePoly.length
             percent = 100 * (1.0 - ratio)
             print(f'    Region containment constraint pruned {percent:.1f}% of space.')
+
         newBase = regions.regionFromShapelyObject(newBasePoly, orientation=base.orientation)
         newPos = regions.Region.uniformPointIn(newBase)
         obj.position.conditionTo(newPos)

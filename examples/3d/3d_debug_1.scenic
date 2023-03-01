@@ -6,15 +6,18 @@ workspace_region_2 = MeshVolumeRegion(trimesh.creation.box((1,1,1)), dimensions=
 workspace_region_3 = MeshVolumeRegion(trimesh.creation.icosphere(radius=20)) # Tests 3D Region rejection sampling
 workspace_region_4 = MeshVolumeRegion(trimesh.creation.icosphere(radius=20), position=(5,5,5)).intersect(RectangularRegion(0 @ 0, 0, 30, 30)) # Tests intersection of 3D Regions and 2D Regions
 workspace_region_5 = MeshVolumeRegion(trimesh.creation.icosphere(radius=20), position=(5,5,5)).difference(RectangularRegion(0 @ 0, 0, 5, 5)) # Tests difference of 3D Regions and 2D Regions
+workspace_region_6 = MeshVolumeRegion(trimesh.creation.icosphere(radius=20), position=(5,5,5)).difference(RectangularRegion(0 @ 0, 0, 5, 5).footprint)
+workspace_region_7 = workspace_region_6.intersect(RectangularRegion(0 @ 0, 0, 30, 30))
+workspace_region_8 = RectangularRegion(0 @ 0, 0, 30, 20).footprint.intersect(CircularRegion(0@0,radius=12.5))
 
-workspace = Workspace(workspace_region_1)
+workspace = Workspace(workspace_region_8)
 
 # Place items only in the top or bottom half of workspace, at random
 half_sign = Uniform(-1, 1)
 sample_space = MeshVolumeRegion(trimesh.creation.box((1,1,1)), dimensions=(20,20,10), position=(0,0,half_sign*5))
 
 # Load chair mesh from file
-with open(localPath("mesh.obj"), "r") as mesh_file:
+with open(localPath("chair.obj"), "r") as mesh_file:
     mesh = trimesh.load(mesh_file, file_type="obj")
 
 # Load chair shape at 1/10th of the original size

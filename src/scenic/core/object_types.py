@@ -20,7 +20,7 @@ from scenic.core.vectors import Vector, Orientation, alwaysGlobalOrientation
 from scenic.core.geometry import (_RotatedRectangle, averageVectors, hypot, min,
                                   pointIsInCone, normalizeAngle)
 from scenic.core.regions import (Region, CircularRegion, SectorRegion, MeshVolumeRegion, MeshSurfaceRegion, 
-								  BoxRegion, SpheroidRegion, DefaultViewRegion, EmptyRegion)
+								  BoxRegion, SpheroidRegion, DefaultViewRegion, EmptyRegion, Polygonal)
 from scenic.core.type_support import toVector, toHeading, toType, toScalar
 from scenic.core.lazy_eval import needsLazyEvaluation
 from scenic.core.serialization import dumpAsScenicCode
@@ -322,6 +322,11 @@ class Constructible(Samplable):
 
 		if prop in ['yaw', 'pitch', 'roll']:
 			value = normalizeAngle(value)
+
+		if prop == 'regionContainedIn':
+			# 2D regions can't contain objects, so we automatically use their footprint.
+			if isinstance(value, Polygonal):
+				value = value.footprint
 
 		# Check if this property is already an attribute, unless we are overriding
 		if hasattr(self, prop) and prop not in self.properties and not overriding:
@@ -864,10 +869,13 @@ class Object(OrientedPoint, _RotatedRectangle):
 
 	@cached_property
 	def boundingBox(self):
-		return MeshVolumeRegion(self.occupiedSpace.mesh.bounding_box, center_mesh=False)
+		return lazyBoundingBox(self.occupiedSpace)
 
 	@cached_property
 	def inradius(self):
+		if needsSampling(self.occupiedSpace):
+			return 0
+
 		if not self.occupiedSpace.containsPoint(self.position):
 			return 0
 
