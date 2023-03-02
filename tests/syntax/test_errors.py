@@ -116,6 +116,16 @@ def test_extra_ternary_operator():
     with pytest.raises(SyntaxError):
         compileScenic('x = 4 offset along 12 by 17 by 19')
 
+def test_invalid_temporal_operator_use():
+    """Temporal operators can only be used inside requirements"""
+    with pytest.raises(SyntaxError):
+        compileScenic('req = always x')
+
+def test_extra_temporal_operands():
+    """Temporal infix operators should only take two arguments"""
+    with pytest.raises(SyntaxError):
+        compileScenic('require a or b until c or d until e')
+
 ## Ranges
 
 def test_malformed_range():
