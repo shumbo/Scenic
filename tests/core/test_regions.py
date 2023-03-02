@@ -20,8 +20,8 @@ def test_all_region():
     assert diff.containsPoint(Vector(0, 0))
     assert not diff.containsPoint(Vector(29, 34))
     assert circ.difference(ar) == nowhere
-    assert ar.union(circ) is ar
-    assert circ.union(ar) is ar
+    assert ar.union(circ) == ar
+    assert circ.union(ar) == ar
     assert ar.distanceTo(Vector(4, 12)) == 0
 
 def test_empty_region():
@@ -29,12 +29,12 @@ def test_empty_region():
     assert er == nowhere
     assert not er.containsPoint(Vector(0, 0))
     circ = CircularRegion(Vector(29, 34), 5)
-    assert er.intersect(circ) is er
-    assert circ.intersect(er) is er
+    assert er.intersect(circ) == er
+    assert circ.intersect(er) == er
     assert not er.intersects(circ)
     assert not circ.intersects(er)
     assert circ.difference(er) is circ
-    assert er.difference(circ) is er
+    assert er.difference(circ) == er
     assert er.union(circ) is circ
     assert circ.union(er) is circ
     assert er.distanceTo(Vector(4, 12)) == float('inf')
@@ -163,6 +163,65 @@ def test_mesh_polygons_intersection():
         assert r.containsPoint(point)
         assert r1.containsPoint(point) or r2.containsPoint(point)
         assert r3.containsPoint(point)
+
+
+def test_mesh_polygonal_footprint_intersection():
+    r1 = BoxRegion(position=(0,0,0), dimensions=(3,3,2))
+    r2 = CircularRegion((0,0), 1, resolution=64).footprint
+
+    r = r1.intersect(r2)
+
+    assert isinstance(r, MeshVolumeRegion)
+
+    v_pts = list(trimesh.sample.volume_mesh(r.mesh, 3000))
+    s_pts = [r.getSurfaceRegion().uniformPointInner() for _ in range(3000)]
+
+    for x, y, z in v_pts:
+        assert math.hypot(x, y) <= 1
+        assert -1 <= z <= 1
+        assert r1.containsPoint((x,y,z))
+        assert r2.containsPoint((x,y,z))
+
+    for x, y, z in s_pts:
+        on_side = math.hypot(x, y) == pytest.approx(1, abs=1e-4)
+        on_top_bottom = z == -1 or z == 1
+
+        assert on_side or on_top_bottom
+
+def test_mesh_polygonal_footprints_intersection():
+    p1 = shapely.geometry.Polygon(
+        [(1,1), (1,2), (2,2), (2,1)]
+    )
+    r1 = PolygonalRegion(polygon=p1).footprint
+
+    p2 = shapely.geometry.Polygon(
+        [(-2,-2), (-2,-1), (-1,-1), (-1,-2)]
+    )
+    r2 = PolygonalRegion(polygon=p2).footprint
+
+    r3 = BoxRegion(dimensions=(5,3,5))
+
+    r = r3.intersect(r1.union(r2))
+
+    assert isinstance(r, MeshVolumeRegion)
+
+    for point in list(trimesh.sample.volume_mesh(r.mesh, 3000)):
+        assert r.containsPoint(point)
+        assert r1.containsPoint(point) or r2.containsPoint(point)
+        assert r3.containsPoint(point)
+
+def test_polygon_polygonal_footprint_intersection():
+    r1 = CircularRegion((0,0,0), 1, resolution=64)
+    r2 = RectangularRegion((0,0,0), 0, 10, 10)
+
+    assert r1.intersect(r2.footprint).polygon.equals(r1.polygon)
+    assert r1.footprint.intersect(r2).polygon.equals(r1.polygon)
+
+def test_polygons_intersection_elevation():
+    r1 = CircularRegion((0,0,0), 1, resolution=64)
+    r2 = CircularRegion((0,0,1), 1, resolution=64)
+
+    assert isinstance(r1.intersect(r2), EmptyRegion)
 
 def test_mesh_line_strings_intersection():
     point_lists = []

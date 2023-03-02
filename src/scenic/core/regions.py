@@ -1214,7 +1214,7 @@ class PolygonalFootprintRegion(Region):
 		if isinstance(other, PolygonalFootprintRegion):
 			# Other region is a PolygonalFootprintRegion, so we can just union the base polygons
 			# and take the footprint of the result.
-			return PolygonalRegion(polygon=self.polygon).intersect(PolygonalRegion(polygon=other.polygon)).footprint
+			return PolygonalRegion(polygon=self.polygon).union(PolygonalRegion(polygon=other.polygon)).footprint
 
 		return super().union(other, triedReversed)
 
@@ -1222,7 +1222,7 @@ class PolygonalFootprintRegion(Region):
 		if isinstance(other, PolygonalFootprintRegion):
 			# Other region is a PolygonalFootprintRegion, so we can just difference the base polygons
 			# and take the footprint of the result, if it isn't empty.
-			new_poly = PolygonalRegion(polygon=self.polygon).intersect(PolygonalRegion(polygon=other.polygon))
+			new_poly = PolygonalRegion(polygon=self.polygon).difference(PolygonalRegion(polygon=other.polygon))
 
 			if isinstance(new_poly, EmptyRegion):
 				return new_poly
@@ -1419,31 +1419,22 @@ class PolygonalRegion(Polygonal, Region):
 			if triangle.intersects(shapely.geometry.Point(x, y)):
 				return self.orient(Vector(x, y, self.z))
 
-	def difference(self, other):
+	def intersects(self, other, triedReversed=False):
+		if isinstance(other, Polygonal):
+			if self.z != other.z:
+				return False
+
 		poly = toPolygon(other)
 		if poly is not None:
-			diff = self.polygons - poly
-			if diff.is_empty:
-				return nowhere
-			elif isinstance(diff, (shapely.geometry.Polygon,
-								   shapely.geometry.MultiPolygon)):
-				return PolygonalRegion(polygon=diff, orientation=self.orientation)
-			elif isinstance(diff, shapely.geometry.GeometryCollection):
-				polys = []
-				for geom in diff.geoms:
-					if isinstance(geom, shapely.geometry.Polygon):
-						polys.append(geom)
-				if len(polys) == 0:
-					# TODO handle points, lines
-					raise RuntimeError('unhandled type of polygon difference')
-				diff = shapely.geometry.MultiPolygon(polys)
-				return PolygonalRegion(polygon=diff, orientation=self.orientation)
-			else:
-				# TODO handle points, lines
-				raise RuntimeError('unhandled type of polygon difference')
-		return super().difference(other)
+			intersection = self.polygons & poly
+			return not intersection.is_empty
+		return super().intersects(other, triedReversed)
 
 	def intersect(self, other, triedReversed=False):
+		if isinstance(other, Polygonal):
+			if self.z != other.z:
+				return nowhere
+
 		poly = toPolygon(other)
 		orientation = other.orientation if self.orientation is None else self.orientation
 		if poly is not None:
@@ -1468,20 +1459,45 @@ class PolygonalRegion(Polygonal, Region):
 				raise RuntimeError('unhandled type of polygon intersection')
 		return super().intersect(other, triedReversed)
 
-	def intersects(self, other, triedReversed=False):
-		poly = toPolygon(other)
-		if poly is not None:
-			intersection = self.polygons & poly
-			return not intersection.is_empty
-		return super().intersects(other, triedReversed)
-
 	def union(self, other, triedReversed=False, buf=0):
+		if isinstance(other, Polygonal):
+			if self.z != other.z:
+				return super().union(other, triedReversed)
+
 		poly = toPolygon(other)
 		if not poly:
 			return super().union(other, triedReversed)
 		union = polygonUnion((self.polygons, poly), buf=buf)
 		orientation = VectorField.forUnionOf((self, other))
 		return PolygonalRegion(polygon=union, orientation=orientation)
+
+	def difference(self, other):
+		if isinstance(other, Polygonal):
+			if self.z != other.z:
+				return self
+
+		poly = toPolygon(other)
+		if poly is not None:
+			diff = self.polygons - poly
+			if diff.is_empty:
+				return nowhere
+			elif isinstance(diff, (shapely.geometry.Polygon,
+								   shapely.geometry.MultiPolygon)):
+				return PolygonalRegion(polygon=diff, orientation=self.orientation)
+			elif isinstance(diff, shapely.geometry.GeometryCollection):
+				polys = []
+				for geom in diff.geoms:
+					if isinstance(geom, shapely.geometry.Polygon):
+						polys.append(geom)
+				if len(polys) == 0:
+					# TODO handle points, lines
+					raise RuntimeError('unhandled type of polygon difference')
+				diff = shapely.geometry.MultiPolygon(polys)
+				return PolygonalRegion(polygon=diff, orientation=self.orientation)
+			else:
+				# TODO handle points, lines
+				raise RuntimeError('unhandled type of polygon difference')
+		return super().difference(other)
 
 	@staticmethod
 	def unionAll(regions, buf=0):
@@ -1542,6 +1558,303 @@ class PolygonalRegion(Polygonal, Region):
 		state = self.__dict__.copy()
 		state.pop('_cached_prepared', None)		# prepared geometries are not picklable
 		return state
+
+
+class CircularRegion(Polygonal, Region):
+	"""A circular region with a possibly-random center and radius.
+
+	Args:
+		center (`Vector`): center of the disc.
+		radius (float): radius of the disc.
+		resolution (int; optional): number of vertices to use when approximating this region as a
+			polygon.
+		name (str; optional): name for debugging.
+	"""
+	def __init__(self, center, radius, resolution=32, name=None):
+		super().__init__(name, center, radius)
+		self.center = toVector(center, "center of CircularRegion not a vector")
+		self.radius = toScalar(radius, "radius of CircularRegion not a scalar")
+		self.circumcircle = (self.center, self.radius)
+		self.resolution = resolution
+
+	@cached_property
+	def polygon(self):
+		assert not (needsSampling(self.center) or needsSampling(self.radius))
+		ctr = shapely.geometry.Point(self.center)
+		return MultiPolygon([ctr.buffer(self.radius, resolution=self.resolution)])
+
+	@cached_property
+	def z(self):
+		return self.center.z
+
+	def sampleGiven(self, value):
+		return CircularRegion(value[self.center], value[self.radius],
+							  name=self.name, resolution=self.resolution)
+
+	def evaluateInner(self, context, modifying):
+		center = valueInContext(self.center, context, modifying)
+		radius = valueInContext(self.radius, context, modifying)
+		return CircularRegion(center, radius,
+							  name=self.name, resolution=self.resolution)
+
+	def intersects(self, other, triedReversed=False):
+		if isinstance(other, CircularRegion):
+			return self.center.distanceTo(other.center) <= self.radius + other.radius
+		
+		return self.polygonalRegion.intersects(other)
+
+	def intersect(self, other, triedReversed=False):
+		if isinstance(other, AllRegion):
+			return self
+
+		if isinstance(other, EmptyRegion):
+			return nowhere
+
+		return self.polygonalRegion.intersect(other)
+
+	def union(self, other, triedReversed=False):
+		if isinstance(other, AllRegion):
+			return everywhere
+
+		if isinstance(other, EmptyRegion):
+			return self
+
+		return self.polygonalRegion.union(other)
+
+	def difference(self, other):
+		if isinstance(other, AllRegion):
+			return nowhere
+
+		if isinstance(other, EmptyRegion):
+			return self
+
+		return self.polygonalRegion.difference(other)
+
+	def containsPoint(self, point):
+		return point.distanceTo(self.center) <= self.radius
+
+	def distanceTo(self, point):
+		point = toVector(point)
+		return max(0, point.distanceTo(self.center) - self.radius)
+
+	def uniformPointInner(self):
+		x, y, z = self.center
+		r = random.triangular(0, self.radius, self.radius)
+		t = random.uniform(-math.pi, math.pi)
+		pt = Vector(x + (r * cos(t)), y + (r * sin(t)), z)
+		return self.orient(pt)
+
+	def getAABB(self):
+		x, y, _ = self.center
+		r = self.radius
+		return ((x - r, y - r), (x + r, y + r))
+
+	def __repr__(self):
+		return f'CircularRegion({self.center}, {self.radius})'
+
+class SectorRegion(Polygonal, Region):
+	"""A sector of a `CircularRegion`.
+
+	This region consists of a sector of a disc, i.e. the part of a disc subtended by a
+	given arc.
+
+	Args:
+		center (`Vector`): center of the corresponding disc.
+		radius (float): radius of the disc.
+		heading (float): heading of the centerline of the sector.
+		angle (float): angle subtended by the sector.
+		resolution (int; optional): number of vertices to use when approximating this region as a
+			polygon.
+		name (str; optional): name for debugging.
+	"""
+	def __init__(self, center, radius, heading, angle, resolution=32, name=None):
+		self.center = toVector(center, "center of SectorRegion not a vector")
+		self.radius = toScalar(radius, "radius of SectorRegion not a scalar")
+		self.heading = toScalar(heading, "heading of SectorRegion not a scalar")
+		self.angle = toScalar(angle, "angle of SectorRegion not a scalar")
+		super().__init__(name, self.center, radius, heading, angle)
+		r = (radius / 2) * cos(angle / 2)
+		self.circumcircle = (self.center.offsetRadially(r, heading), r)
+		self.resolution = resolution
+
+	@cached_property
+	def polygon(self):
+		center, radius = self.center, self.radius
+		ctr = shapely.geometry.Point(center)
+		circle = ctr.buffer(radius, resolution=self.resolution)
+		if self.angle >= math.tau - 0.001:
+			polygon = circle
+		else:
+			heading = self.heading
+			half_angle = self.angle / 2
+			mask = shapely.geometry.Polygon([
+				center,
+				center.offsetRadially(radius, heading + half_angle),
+				center.offsetRadially(2*radius, heading),
+				center.offsetRadially(radius, heading - half_angle)
+			])
+			polygon = circle & mask
+
+		return MultiPolygon([polygon])
+
+	@cached_property
+	def z(self):
+		return self.center.z
+
+	def sampleGiven(self, value):
+		return SectorRegion(value[self.center], value[self.radius],
+			value[self.heading], value[self.angle],
+			name=self.name, resolution=self.resolution)
+
+	def evaluateInner(self, context, modifying):
+		center = valueInContext(self.center, context, modifying)
+		radius = valueInContext(self.radius, context, modifying)
+		heading = valueInContext(self.heading, context, modifying)
+		angle = valueInContext(self.angle, context, modifying)
+		return SectorRegion(center, radius, heading, angle,
+							name=self.name, resolution=self.resolution)
+
+	def containsPoint(self, point):
+		point = point.toVector()
+		if not pointIsInCone(tuple(point), tuple(self.center), self.heading, self.angle):
+			return False
+		return point.distanceTo(self.center) <= self.radius
+
+	def uniformPointInner(self):
+		x, y, z = self.center
+		heading, angle, maxDist = self.heading, self.angle, self.radius
+		r = random.triangular(0, maxDist, maxDist)
+		ha = angle / 2.0
+		t = random.uniform(-ha, ha) + (heading + (math.pi / 2))
+		pt = Vector(x + (r * cos(t)), y + (r * sin(t)), z)
+		return self.orient(pt)
+
+	def intersects(self, other, triedReversed=False):
+		return self.polygonalRegion.intersects(other)
+
+	def intersect(self, other, triedReversed=False):
+		if isinstance(other, AllRegion):
+			return self
+
+		if isinstance(other, EmptyRegion):
+			return nowhere
+
+		return self.polygonalRegion.intersect(other)
+
+	def union(self, other, triedReversed=False):
+		if isinstance(other, AllRegion):
+			return everywhere
+
+		if isinstance(other, EmptyRegion):
+			return self
+
+		return self.polygonalRegion.union(other)
+
+	def difference(self, other):
+		if isinstance(other, AllRegion):
+			return nowhere
+
+		if isinstance(other, EmptyRegion):
+			return self
+
+		return self.polygonalRegion.difference(other)
+
+	def __repr__(self):
+		return f'SectorRegion({self.center},{self.radius},{self.heading},{self.angle})'
+
+class RectangularRegion(Polygonal, Region):
+	"""A rectangular region with a possibly-random position, heading, and size.
+
+	Args:
+		position (`Vector`): center of the rectangle.
+		heading (float): the heading of the ``length`` axis of the rectangle.
+		width (float): width of the rectangle.
+		length (float): length of the rectangle.
+		name (str; optional): name for debugging.
+	"""
+	def __init__(self, position, heading, width, length, name=None):
+		super().__init__(name, position, heading, width, length)
+		self.position = toVector(position, "position of RectangularRegion not a vector")
+		self.heading = toScalar(heading, "heading of RectangularRegion not a scalar")
+		self.width = toScalar(width, "width of RectangularRegion not a scalar")
+		self.length = toScalar(length, "length of RectangularRegion not a scalar")
+		self.hw = hw = width / 2
+		self.hl = hl = length / 2
+		self.radius = hypot(hw, hl)		# circumcircle; for collision detection
+		self.corners = tuple(self.position.offsetRotated(heading, Vector(*offset))
+			for offset in ((hw, hl), (-hw, hl), (-hw, -hl), (hw, -hl)))
+		self.circumcircle = (self.position, self.radius)
+
+	@cached_property
+	def polygon(self):
+		position, heading, hw, hl = self.position, self.heading, self.hw, self.hl
+		assert not any(needsSampling(c) or needsLazyEvaluation(c) for c in (position, heading, hw, hl))
+		corners = _RotatedRectangle.makeCorners(position.x, position.y, heading, hw, hl)
+		polygon = shapely.geometry.Polygon(corners)
+		return MultiPolygon([polygon])
+
+	@cached_property
+	def z(self):
+		return self.position.z
+
+	def sampleGiven(self, value):
+		return RectangularRegion(value[self.position], value[self.heading],
+			value[self.width], value[self.length],
+			name=self.name)
+
+	def evaluateInner(self, context, modifying):
+		position = valueInContext(self.position, context, modifying)
+		heading = valueInContext(self.heading, context, modifying)
+		width = valueInContext(self.width, context, modifying)
+		length = valueInContext(self.length, context, modifying)
+		return RectangularRegion(position, heading, width, length,
+								 name=self.name)
+
+	def uniformPointInner(self):
+		hw, hl = self.hw, self.hl
+		rx = random.uniform(-hw, hw)
+		ry = random.uniform(-hl, hl)
+		pt = self.position.offsetRotated(self.heading, Vector(rx, ry, self.position.z))
+		return self.orient(pt)
+
+	def getAABB(self):
+		x, y, z = zip(*self.corners)
+		minx, maxx = findMinMax(x)
+		miny, maxy = findMinMax(y)
+		return ((minx, miny), (maxx, maxy))
+
+	def intersects(self, other, triedReversed=False):
+		return self.polygonalRegion.intersects(other)
+
+	def intersect(self, other, triedReversed=False):
+		if isinstance(other, AllRegion):
+			return self
+
+		if isinstance(other, EmptyRegion):
+			return nowhere
+
+		return self.polygonalRegion.intersect(other)
+
+	def union(self, other, triedReversed=False):
+		if isinstance(other, AllRegion):
+			return everywhere
+
+		if isinstance(other, EmptyRegion):
+			return self
+
+		return self.polygonalRegion.union(other)
+
+	def difference(self, other):
+		if isinstance(other, AllRegion):
+			return nowhere
+
+		if isinstance(other, EmptyRegion):
+			return self
+
+		return self.polygonalRegion.difference(other)
+
+	def __repr__(self):
+		return f'RectangularRegion({self.position},{self.heading},{self.width},{self.length})'
 
 class PolylineRegion(Region):
 	"""Region given by one or more polylines (chain of line segments).
@@ -1829,215 +2142,6 @@ class PolylineRegion(Region):
 	@cached
 	def __hash__(self):
 		return hash(str(self.lineString))
-
-
-class CircularRegion(Polygonal, Region):
-	"""A circular region with a possibly-random center and radius.
-
-	Args:
-		center (`Vector`): center of the disc.
-		radius (float): radius of the disc.
-		resolution (int; optional): number of vertices to use when approximating this region as a
-			polygon.
-		name (str; optional): name for debugging.
-	"""
-	def __init__(self, center, radius, resolution=32, name=None):
-		super().__init__(name, center, radius)
-		self.center = toVector(center, "center of CircularRegion not a vector")
-		self.radius = toScalar(radius, "radius of CircularRegion not a scalar")
-		self.circumcircle = (self.center, self.radius)
-		self.resolution = resolution
-
-	@cached_property
-	def polygon(self):
-		assert not (needsSampling(self.center) or needsSampling(self.radius))
-		ctr = shapely.geometry.Point(self.center)
-		return MultiPolygon([ctr.buffer(self.radius, resolution=self.resolution)])
-
-	@cached_property
-	def z(self):
-		return self.center.z
-
-	def sampleGiven(self, value):
-		return CircularRegion(value[self.center], value[self.radius],
-							  name=self.name, resolution=self.resolution)
-
-	def evaluateInner(self, context, modifying):
-		center = valueInContext(self.center, context, modifying)
-		radius = valueInContext(self.radius, context, modifying)
-		return CircularRegion(center, radius,
-							  name=self.name, resolution=self.resolution)
-
-	def intersects(self, other, triedReversed=False):
-		if isinstance(other, CircularRegion):
-			return self.center.distanceTo(other.center) <= self.radius + other.radius
-		return super().intersects(other, triedReversed)
-
-	def containsPoint(self, point):
-		return point.distanceTo(self.center) <= self.radius
-
-	def distanceTo(self, point):
-		point = toVector(point)
-		return max(0, point.distanceTo(self.center) - self.radius)
-
-	def uniformPointInner(self):
-		x, y, z = self.center
-		r = random.triangular(0, self.radius, self.radius)
-		t = random.uniform(-math.pi, math.pi)
-		pt = Vector(x + (r * cos(t)), y + (r * sin(t)), z)
-		return self.orient(pt)
-
-	def getAABB(self):
-		x, y, _ = self.center
-		r = self.radius
-		return ((x - r, y - r), (x + r, y + r))
-
-	def __repr__(self):
-		return f'CircularRegion({self.center}, {self.radius})'
-
-class SectorRegion(Polygonal, Region):
-	"""A sector of a `CircularRegion`.
-
-	This region consists of a sector of a disc, i.e. the part of a disc subtended by a
-	given arc.
-
-	Args:
-		center (`Vector`): center of the corresponding disc.
-		radius (float): radius of the disc.
-		heading (float): heading of the centerline of the sector.
-		angle (float): angle subtended by the sector.
-		resolution (int; optional): number of vertices to use when approximating this region as a
-			polygon.
-		name (str; optional): name for debugging.
-	"""
-	def __init__(self, center, radius, heading, angle, resolution=32, name=None):
-		self.center = toVector(center, "center of SectorRegion not a vector")
-		self.radius = toScalar(radius, "radius of SectorRegion not a scalar")
-		self.heading = toScalar(heading, "heading of SectorRegion not a scalar")
-		self.angle = toScalar(angle, "angle of SectorRegion not a scalar")
-		super().__init__(name, self.center, radius, heading, angle)
-		r = (radius / 2) * cos(angle / 2)
-		self.circumcircle = (self.center.offsetRadially(r, heading), r)
-		self.resolution = resolution
-
-	@cached_property
-	def polygon(self):
-		center, radius = self.center, self.radius
-		ctr = shapely.geometry.Point(center)
-		circle = ctr.buffer(radius, resolution=self.resolution)
-		if self.angle >= math.tau - 0.001:
-			polygon = circle
-		else:
-			heading = self.heading
-			half_angle = self.angle / 2
-			mask = shapely.geometry.Polygon([
-				center,
-				center.offsetRadially(radius, heading + half_angle),
-				center.offsetRadially(2*radius, heading),
-				center.offsetRadially(radius, heading - half_angle)
-			])
-			polygon = circle & mask
-
-		return MultiPolygon([polygon])
-
-	@cached_property
-	def z(self):
-		return self.center.z
-
-	def sampleGiven(self, value):
-		return SectorRegion(value[self.center], value[self.radius],
-			value[self.heading], value[self.angle],
-			name=self.name, resolution=self.resolution)
-
-	def evaluateInner(self, context, modifying):
-		center = valueInContext(self.center, context, modifying)
-		radius = valueInContext(self.radius, context, modifying)
-		heading = valueInContext(self.heading, context, modifying)
-		angle = valueInContext(self.angle, context, modifying)
-		return SectorRegion(center, radius, heading, angle,
-							name=self.name, resolution=self.resolution)
-
-	def containsPoint(self, point):
-		point = point.toVector()
-		if not pointIsInCone(tuple(point), tuple(self.center), self.heading, self.angle):
-			return False
-		return point.distanceTo(self.center) <= self.radius
-
-	def uniformPointInner(self):
-		x, y, z = self.center
-		heading, angle, maxDist = self.heading, self.angle, self.radius
-		r = random.triangular(0, maxDist, maxDist)
-		ha = angle / 2.0
-		t = random.uniform(-ha, ha) + (heading + (math.pi / 2))
-		pt = Vector(x + (r * cos(t)), y + (r * sin(t)), z)
-		return self.orient(pt)
-
-	def __repr__(self):
-		return f'SectorRegion({self.center},{self.radius},{self.heading},{self.angle})'
-
-class RectangularRegion(Polygonal, Region):
-	"""A rectangular region with a possibly-random position, heading, and size.
-
-	Args:
-		position (`Vector`): center of the rectangle.
-		heading (float): the heading of the ``length`` axis of the rectangle.
-		width (float): width of the rectangle.
-		length (float): length of the rectangle.
-		name (str; optional): name for debugging.
-	"""
-	def __init__(self, position, heading, width, length, name=None):
-		super().__init__(name, position, heading, width, length)
-		self.position = toVector(position, "position of RectangularRegion not a vector")
-		self.heading = toScalar(heading, "heading of RectangularRegion not a scalar")
-		self.width = toScalar(width, "width of RectangularRegion not a scalar")
-		self.length = toScalar(length, "length of RectangularRegion not a scalar")
-		self.hw = hw = width / 2
-		self.hl = hl = length / 2
-		self.radius = hypot(hw, hl)		# circumcircle; for collision detection
-		self.corners = tuple(self.position.offsetRotated(heading, Vector(*offset))
-			for offset in ((hw, hl), (-hw, hl), (-hw, -hl), (hw, -hl)))
-		self.circumcircle = (self.position, self.radius)
-
-	@cached_property
-	def polygon(self):
-		position, heading, hw, hl = self.position, self.heading, self.hw, self.hl
-		assert not any(needsSampling(c) or needsLazyEvaluation(c) for c in (position, heading, hw, hl))
-		corners = _RotatedRectangle.makeCorners(position.x, position.y, heading, hw, hl)
-		polygon = shapely.geometry.Polygon(corners)
-		return MultiPolygon([polygon])
-
-	@cached_property
-	def z(self):
-		return self.position.z
-
-	def sampleGiven(self, value):
-		return RectangularRegion(value[self.position], value[self.heading],
-			value[self.width], value[self.length],
-			name=self.name)
-
-	def evaluateInner(self, context, modifying):
-		position = valueInContext(self.position, context, modifying)
-		heading = valueInContext(self.heading, context, modifying)
-		width = valueInContext(self.width, context, modifying)
-		length = valueInContext(self.length, context, modifying)
-		return RectangularRegion(position, heading, width, length,
-								 name=self.name)
-
-	def uniformPointInner(self):
-		hw, hl = self.hw, self.hl
-		rx = random.uniform(-hw, hw)
-		ry = random.uniform(-hl, hl)
-		pt = self.position.offsetRotated(self.heading, Vector(rx, ry, self.position.z))
-		return self.orient(pt)
-
-	def getAABB(self):
-		x, y, z = zip(*self.corners)
-		minx, maxx = findMinMax(x)
-		miny, maxy = findMinMax(y)
-		return ((minx, miny), (maxx, maxy))
-
-	def __repr__(self):
-		return f'RectangularRegion({self.position},{self.heading},{self.width},{self.length})'
 
 class PointSetRegion(Region):
 	"""Region consisting of a set of discrete points.
