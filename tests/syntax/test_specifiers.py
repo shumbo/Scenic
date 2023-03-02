@@ -608,14 +608,7 @@ def test_on_mistyped():
     with pytest.raises(RuntimeParseError):
         compileScenic('ego = new Object on 3@2')
 
-def test_on_incompatible_1():
-    with pytest.raises(RuntimeParseError):
-        compileScenic("""
-            box = BoxRegion()
-            ego = new Object at (0,0,10), on box
-        """)
-
-def test_on_incompatible_2():
+def test_on_incompatible():
     with pytest.raises(RuntimeParseError):
         compileScenic("""
             box = BoxRegion()

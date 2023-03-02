@@ -650,7 +650,7 @@ class OrientedPoint(Point):
 
 ## Object
 
-class Object(OrientedPoint, _RotatedRectangle):
+class Object(OrientedPoint):
 	"""The Scenic class ``Object``.
 
 	This is the default base class for Scenic classes.

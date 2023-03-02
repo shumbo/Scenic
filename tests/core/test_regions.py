@@ -131,22 +131,15 @@ def test_mesh_polygon_intersection():
 
     r = r1.intersect(r2)
 
-    assert isinstance(r, MeshVolumeRegion)
+    assert isinstance(r, PolygonalRegion)
 
-    v_pts = list(trimesh.sample.volume_mesh(r.mesh, 3000))
-    s_pts = [r.getSurfaceRegion().uniformPointInner() for _ in range(3000)]
+    v_pts = [r.uniformPointInner() for _ in range(3000)]
 
     for x, y, z in v_pts:
         assert math.hypot(x, y) <= 1
-        assert -1 <= z <= 1
-        assert r1.containsPoint((x,y,z))
-        assert r2.containsPoint((x,y,z))
-
-    for x, y, z in s_pts:
-        on_side = math.hypot(x, y) == pytest.approx(1, abs=1e-4)
-        on_top_bottom = z == -1 or z == 1
-
-        assert on_side or on_top_bottom
+        assert z == 0
+        assert r1.containsPoint(Vector(x,y,z))
+        assert r2.containsPoint(Vector(x,y,z))
 
 def test_mesh_polygons_intersection():
     p1 = shapely.geometry.Polygon(
@@ -163,9 +156,10 @@ def test_mesh_polygons_intersection():
 
     r = r3.intersect(r1.union(r2))
 
-    assert isinstance(r, MeshVolumeRegion)
+    assert isinstance(r, PolygonalRegion)
 
-    for point in list(trimesh.sample.volume_mesh(r.mesh, 3000)):
+    for _ in range(3000):
+        point = r.uniformPointInner()
         assert r.containsPoint(point)
         assert r1.containsPoint(point) or r2.containsPoint(point)
         assert r3.containsPoint(point)
@@ -191,7 +185,8 @@ def test_mesh_line_strings_intersection():
 
     assert isinstance(r, PolylineRegion)
 
-    for point in [r.uniformPointInner() for _ in range(3000)]:
+    for _ in range(3000):
+        point = r.uniformPointInner()
         assert r.containsPoint(point)
         assert r1.containsPoint(point)
         assert r2.containsPoint(point)

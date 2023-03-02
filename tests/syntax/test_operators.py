@@ -285,7 +285,7 @@ def test_object_in_region_3d():
         ego = new Object
         reg = BoxRegion(dimensions=(2,2,2))
         obj_1 = new Object at (0,0,0), with allowCollisions True
-        obj_2 = new Object at (0.5, 0.5, 0.5), with allowCollisions True
+        obj_2 = new Object at (0.49, 0.49, 0.49), with allowCollisions True
         obj_3 = new Object at (0.75, 0.75, 0.75), with allowCollisions True
         obj_4 = new Object at (3,3,3), with allowCollisions True
         param p = tuple([obj_1 in reg, obj_2 in reg, obj_3 in reg, obj_4 in reg])

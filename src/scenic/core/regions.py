@@ -56,13 +56,15 @@ class Region(Samplable, ABC):
 		else:
 			return other.intersects(self, triedReversed=True)
 
+	@abstractmethod
 	def uniformPointInner(self):
 		"""Do the actual random sampling. Implemented by subclasses."""
-		raise NotImplementedError
+		pass
 
+	@abstractmethod
 	def containsPoint(self, point) -> bool:
 		"""Check if the `Region` contains a point. Implemented by subclasses."""
-		raise NotImplementedError
+		pass
 
 	@abstractmethod
 	def containsObject(self, obj) -> bool:
@@ -70,7 +72,7 @@ class Region(Samplable, ABC):
 		The default implementation assumes the `Region` is convex; subclasses must
 		override the method if this is not the case.
 		"""
-		raise NotImplementedError
+		pass
 
 	def distanceTo(self, point) -> float:
 		"""Distance to this region from a given point.
@@ -196,6 +198,9 @@ class AllRegion(Region):
 
 	def union(self, other, triedReversed=False):
 		return self
+
+	def uniformPointInner(self):
+		raise RuntimeError(f'Attempted to sample from everywhere (AllRegion)')
 
 	def containsPoint(self, point):
 		return True
@@ -515,11 +520,14 @@ class _MeshRegion(Region):
 			# Other region is a MeshRegion. We can extract the mesh to perform boolean operations on it
 			other_mesh = other.mesh
 
-			# Compute intersection using Trimesh (CalledProcessError usually means empty intersection)
+			# Compute intersection using Trimesh (CalledProcessError usually means empty intersection for OpenSCAD)
 			try:
 				new_mesh = self.mesh.intersection(other_mesh, engine=self.engine)
 			except CalledProcessError:
-				return EmptyRegion("EmptyMesh")
+				if self.engine == "scad":
+					return EmptyRegion("EmptyMesh")
+				else:
+					raise RuntimeError("Mesh boolean operation failed.")
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
@@ -548,8 +556,14 @@ class _MeshRegion(Region):
 			# and then take the intersection of the resulting polygons.
 			origin_point = (self.mesh.centroid[0], self.mesh.centroid[1], other.z)
 			slice_3d = self.mesh.section(plane_origin=origin_point, plane_normal=[0,0,1])
-			slice_2d, _ = slice_3d.to_planar()
-			polygons = MultiPolygon(slice_2d.polygons_full)
+			slice_2d, _ = slice_3d.to_planar(to_2D=numpy.eye(4))
+			polygons = MultiPolygon(slice_2d.polygons_full) & other.polygon
+
+			if isinstance(polygons, shapely.geometry.Polygon):
+				polygons = MultiPolygon([polygons])
+
+			if polygons.is_empty:
+				return nowhere
 
 			return PolygonalRegion(polygon=polygons, height=other.z)
 
@@ -674,11 +688,14 @@ class _MeshRegion(Region):
 		if isinstance(other, (_MeshRegion)):
 			other_mesh = other.mesh
 
-			# Compute difference using Trimesh (CalledProcessError usually means empty intersection)
+			# Compute difference using Trimesh (CalledProcessError usually means empty intersection for OpenSCAD)
 			try:
 				new_mesh = self.mesh.difference(other_mesh, engine=self.engine, debug=debug)
 			except CalledProcessError:
-				return EmptyRegion("EmptyMesh")
+				if self.engine == "scad":
+					return EmptyRegion("EmptyMesh")
+				else:
+					raise RuntimeError("Mesh boolean operation failed.")
 
 			if new_mesh.is_empty:
 				return EmptyRegion("EmptyMesh")
@@ -978,7 +995,7 @@ class MeshVolumeRegion(_MeshRegion):
 		else:
 			reg_candidate_point = None
 
-		if obj_candidate_point is not None:
+		if reg_candidate_point is not None:
 			# Calculate circumradius of the region from the candidate_point
 			reg_circumradius = numpy.max(numpy.linalg.norm(self.mesh.vertices - reg_candidate_point, axis=1))
 
@@ -991,10 +1008,10 @@ class MeshVolumeRegion(_MeshRegion):
 		# PASS 4
 		# If the difference between the object's region and this region is empty,
 		# i.e. obj_region - self_region = EmptyRegion, that means the object is
-		# entirely contained in this region. We also return true if the result is a MeshSurfaceRegion,
-		# as this usually means the object and this region share a surface.
+		# entirely contained in this region.
 		diff_region = obj.occupiedSpace.difference(self)
-		return isinstance(diff_region, EmptyRegion) or isinstance(diff_region, MeshSurfaceRegion)
+
+		return isinstance(diff_region, EmptyRegion)
 
 	def uniformPointInner(self):
 		""" Samples a point uniformly from the volume of the region"""
@@ -1214,6 +1231,9 @@ class PolygonalFootprintRegion(Region):
 
 		return super().difference(other)
 
+	def uniformPointInner(self):
+		raise RuntimeError(f'Attempted to sample from a PolygonalFootprintRegion, for which uniform sampling is undefined')
+
 	def containsPoint(self, point):
 		""" Checks if a point is contained in the polygonal footprint by checking
 		if the (x, y) values are contained in the polygon.
@@ -1341,6 +1361,8 @@ class PolygonalRegion(Polygonal, Region):
 	"""
 	def __init__(self, points=None, polygon=None, orientation=None, name=None, height=0):
 		super().__init__(name, orientation=orientation)
+		self.height = height
+
 		if polygon is None and points is None:
 			raise RuntimeError('must specify points or polygon for PolygonalRegion')
 		if polygon is None:
@@ -1369,8 +1391,6 @@ class PolygonalRegion(Polygonal, Region):
 
 		if self.polygons.is_empty:
 			raise RuntimeError('tried to create empty PolygonalRegion')
-
-		self.height = height
 
 		triangles = []
 		for polygon in self.polygons.geoms:

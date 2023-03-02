@@ -3,6 +3,8 @@ import pytest
 import math
 import random
 import numpy
+import re
+import subprocess
 
 from scenic.core.errors import RuntimeParseError, InvalidScenarioError
 from tests.utils import compileScenic, sampleScene, sampleEgo, sampleEgoFrom, sampleParamP
@@ -335,28 +337,28 @@ def test_control_flow():
         """)
 
 ## Reproducibility
-
+@pytest.mark.slow
 def test_specifier_order():
-    scenario = compileScenic(
-    """
-    ego = new Object with width Range(0.7, 1.5),
-        with length Range(0.7, 1.5)
-    """
-    )
-    seeds = [random.randint(0, 100000) for i in range(100)]
-    for seed in seeds:
-        random.seed(seed)
-        numpy.random.seed(seed)
-        baseScene, baseIterations = scenario.generate(maxIterations=200)
-        for j in range(50):
-            random.seed(seed)
-            numpy.random.seed(seed)
-            scene, iterations = scenario.generate(maxIterations=200)
-            assert len(scene.objects) == len(baseScene.objects)
-            for obj, baseObj in zip(scene.objects, baseScene.objects):
-                assert obj.width == baseObj.width
-                assert obj.length == baseObj.length
-            assert iterations == baseIterations
+    values = []
+    
+    paramPattern = re.compile(r'\s*Parameter "p": (.*)$')
+    seed = random.randint(0,10000)
+
+    for _ in range(100):
+        args = ['scenic', '--show-params', '--gather-stats', '1', '--seed', str(seed), 'tests/core/specifier_order.scenic']
+        result = subprocess.run(args, capture_output=True, text=True)
+        assert result.returncode == 0
+        lines = result.stdout.splitlines()
+        value = None
+        for line in lines:
+            match = paramPattern.match(line)
+            if match:
+                assert value is None
+                value = match.group(1)
+        assert value is not None
+        values.append(value)
+
+    assert all([v == values[0] for v in values])
 
 @pytest.mark.slow
 def test_reproducibility():

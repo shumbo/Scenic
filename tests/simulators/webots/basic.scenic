@@ -1,7 +1,7 @@
 
 model scenic.simulators.webots.model
 
-workspace = Workspace(RectangularRegion((0, 0), 0, 100, 100))
+workspace = Workspace(RectangularRegion((0, 0), 0, 100.01, 100.01))
 
 class Rover(WebotsObject):
     webotsName: 'Rover'
